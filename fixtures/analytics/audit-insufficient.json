@@ -1,0 +1,104 @@
+{
+  "schema": "zerotrace.audit",
+  "schema_version": "1.0.0",
+  "producer_version": "0.1.0",
+  "generated_at": "2026-11-10T12:00:00Z",
+  "payload": {
+    "result_id": "5ff5cb077a0987254dd18b33926d8bf5e31fd64a489503de430b12c3cbdab2eb",
+    "generated_at": "2026-11-10T12:00:00Z",
+    "findings": [],
+    "rule_evaluations": [
+      {
+        "rule_id": "OBS_RETRIES",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R1",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R2",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R3",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R4",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R5",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R6",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R7",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "R8",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      },
+      {
+        "rule_id": "D1",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": []
+      }
+    ],
+    "omitted_findings": []
+  }
+}

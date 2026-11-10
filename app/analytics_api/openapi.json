@@ -1,0 +1,789 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ZeroTrace analytics",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/audit": {
+      "get": {
+        "operationId": "getAudit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/environment_idRequired"
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "trace_only",
+                "config_aware"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "payload": {
+                          "$ref": "#/components/schemas/Audit"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AnalyticsError"
+          }
+        }
+      }
+    },
+    "/api/v1/state": {
+      "get": {
+        "operationId": "getSnapshot",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/environment_idRequired"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "payload": {
+                          "$ref": "#/components/schemas/Snapshot"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AnalyticsError"
+          }
+        }
+      }
+    },
+    "/api/v1/policies": {
+      "get": {
+        "operationId": "getPolicies",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/environment_idRequired"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "payload": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AnalyticsError"
+          }
+        }
+      }
+    },
+    "/api/v1/projections": {
+      "post": {
+        "operationId": "postProjection",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Analytics response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "payload": {
+                          "$ref": "#/components/schemas/Projection"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AnalyticsError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectionRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/comparisons": {
+      "post": {
+        "operationId": "postComparison",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Analytics response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "payload": {
+                          "$ref": "#/components/schemas/Comparison"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AnalyticsError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/RunPair"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Cohorts"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/report": {
+      "get": {
+        "operationId": "getReport",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/environment_idRequired"
+          },
+          {
+            "$ref": "#/components/parameters/format"
+          },
+          {
+            "$ref": "#/components/parameters/snapshot_id"
+          },
+          {
+            "$ref": "#/components/parameters/projection_id"
+          },
+          {
+            "$ref": "#/components/parameters/comparison_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "payload": {
+                          "$ref": "#/components/schemas/Report"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AnalyticsError"
+          }
+        }
+      }
+    },
+    "/api/v1/reports/{report_id}": {
+      "get": {
+        "operationId": "getReportById",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/environment_id"
+          },
+          {
+            "$ref": "#/components/parameters/format"
+          },
+          {
+            "$ref": "#/components/parameters/report_idRequired"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Analytics response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "payload": {
+                          "$ref": "#/components/schemas/Report"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AnalyticsError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Ref": {
+        "type": "object",
+        "properties": {
+          "environment_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trace_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "environment_id",
+          "trace_id",
+          "generation",
+          "revision"
+        ]
+      },
+      "ProjectionRequest": {
+        "type": "object",
+        "properties": {
+          "trace_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "root_span_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "algorithm_version": {
+            "type": "string",
+            "enum": [
+              "interval-blocks-v1.0.0"
+            ]
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "span_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "speedup_percent": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                }
+              },
+              "required": [
+                "span_id",
+                "speedup_percent"
+              ]
+            },
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "trace_ref",
+          "changes"
+        ]
+      },
+      "RunPair": {
+        "type": "object",
+        "properties": {
+          "baseline_run_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidate_run_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "baseline_run_id",
+          "candidate_run_id"
+        ]
+      },
+      "Cohorts": {
+        "type": "object",
+        "properties": {
+          "baseline_trace_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "candidate_trace_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "minItems": 1,
+            "maxItems": 100
+          },
+          "entry_selector": {
+            "type": "object",
+            "properties": {
+              "service": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operation": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": []
+          },
+          "comparison_version": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "baseline_trace_refs",
+          "candidate_trace_refs"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "message": {
+                "type": "string",
+                "minLength": 1
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "request_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable",
+              "request_id"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "Audit": {
+        "type": "object",
+        "properties": {
+          "result_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "generated_at": {
+            "type": "string",
+            "minLength": 1
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "rule_evaluations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "omitted_findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "result_id",
+          "generated_at",
+          "findings",
+          "rule_evaluations"
+        ]
+      },
+      "Projection": {
+        "type": "object",
+        "properties": {
+          "analysis_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "algorithm_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "input_hash": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trace_ref": {
+            "$ref": "#/components/schemas/Ref"
+          },
+          "projected_ns": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "analysis_id",
+          "status",
+          "trace_ref"
+        ]
+      },
+      "Comparison": {
+        "type": "object",
+        "properties": {
+          "analysis_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "algorithm_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseline": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "candidate": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "input_hash": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "analysis_id",
+          "algorithm_version",
+          "baseline",
+          "candidate"
+        ]
+      },
+      "Snapshot": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "environment_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "trace_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            }
+          },
+          "config_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "rule_evaluations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "environment_id",
+          "trace_refs",
+          "findings"
+        ]
+      },
+      "Report": {
+        "type": "object",
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/Snapshot"
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "input_hashes": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "input_refs": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "projection": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "comparison": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "report_id",
+          "snapshot"
+        ]
+      },
+      "Envelope": {
+        "type": "object",
+        "required": [
+          "schema",
+          "schema_version",
+          "producer_version",
+          "generated_at",
+          "payload"
+        ],
+        "properties": {
+          "schema": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string",
+            "example": "1.0.0"
+          },
+          "producer_version": {
+            "type": "string"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "parameters": {
+      "environment_idRequired": {
+        "name": "environment_id",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "format": {
+        "name": "format",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "snapshot_id": {
+        "name": "snapshot_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "projection_id": {
+        "name": "projection_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "comparison_id": {
+        "name": "comparison_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "environment_id": {
+        "name": "environment_id",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "report_idRequired": {
+        "name": "report_id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "AnalyticsError": {
+        "description": "Product error (400/404/409/413/415/422/503), including reason and retryability",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

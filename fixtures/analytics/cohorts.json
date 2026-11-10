@@ -1,0 +1,1 @@
+{"baseline_trace_refs":[{"environment_id":"lab","trace_id":"00000000000000000000000000000001","generation":1,"revision":1}],"candidate_trace_refs":[{"environment_id":"lab","trace_id":"00000000000000000000000000000065","generation":1,"revision":1}],"entry_selector":{"service":"orders","operation":"POST /orders"}}

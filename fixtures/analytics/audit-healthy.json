@@ -1,0 +1,226 @@
+{
+  "schema": "zerotrace.audit",
+  "schema_version": "1.0.0",
+  "producer_version": "0.1.0",
+  "generated_at": "2026-11-10T12:00:00Z",
+  "payload": {
+    "result_id": "56b084da7a87f8fc16d1321ed04c0de8ea04287f9cfeb75671c23f8e998db92b",
+    "generated_at": "2026-11-10T12:00:00Z",
+    "findings": [],
+    "rule_evaluations": [
+      {
+        "rule_id": "OBS_RETRIES",
+        "rule_version": "1.0.0",
+        "status": "evaluated",
+        "eligible_count": 5,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "evaluated",
+            "eligible_count": 5,
+            "eligible_trace_count": 5,
+            "triggered_count": 0,
+            "excluded_by_reason": {}
+          }
+        ]
+      },
+      {
+        "rule_id": "R1",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "missing_reliable_client_server_pair": 5
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "missing_reliable_client_server_pair": 5
+            }
+          }
+        ]
+      },
+      {
+        "rule_id": "R2",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "missing_ancestry_or_compatible_offset": 5
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "missing_ancestry_or_compatible_offset": 5
+            }
+          }
+        ]
+      },
+      {
+        "rule_id": "R3",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "no_confirmed_nested_retry_path": 1
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "no_confirmed_nested_retry_path": 1
+            }
+          }
+        ]
+      },
+      {
+        "rule_id": "R4",
+        "rule_version": "1.0.0",
+        "status": "evaluated",
+        "eligible_count": 1,
+        "triggered_count": 0,
+        "excluded_by_reason": {},
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "evaluated",
+            "eligible_count": 1,
+            "eligible_trace_count": 5,
+            "triggered_count": 0,
+            "excluded_by_reason": {}
+          }
+        ]
+      },
+      {
+        "rule_id": "R5",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "single_attempt": 5
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "single_attempt": 5
+            }
+          }
+        ]
+      },
+      {
+        "rule_id": "R6",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "single_attempt": 5
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "single_attempt": 5
+            }
+          }
+        ]
+      },
+      {
+        "rule_id": "R7",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "single_attempt": 5
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "single_attempt": 5
+            }
+          }
+        ]
+      },
+      {
+        "rule_id": "R8",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "unknown_paired_timeouts": 1
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "unknown_paired_timeouts": 1
+            }
+          }
+        ]
+      },
+      {
+        "rule_id": "D1",
+        "rule_version": "1.0.0",
+        "status": "insufficient_data",
+        "eligible_count": 0,
+        "triggered_count": 0,
+        "excluded_by_reason": {
+          "unmatched_workload_or_versions": 1
+        },
+        "by_edge": [
+          {
+            "edge_id": "orders-payment",
+            "status": "insufficient_data",
+            "eligible_count": 0,
+            "eligible_trace_count": 0,
+            "triggered_count": 0,
+            "excluded_by_reason": {
+              "unmatched_workload_or_versions": 1
+            }
+          }
+        ]
+      }
+    ],
+    "omitted_findings": []
+  }
+}
