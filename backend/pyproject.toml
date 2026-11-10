@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zerotrace"
+version = "0.1.0"
+description = "ZeroTrace + Retry Auditor: OTLP trace analysis and retry/timeout audit"
+requires-python = ">=3.11"
+dependencies = ["opentelemetry-proto>=1.27"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+
+[tool.setuptools]
+packages = ["contracts", "ingest", "repository", "core", "app", "app.data_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["contracts"]
+strict = true

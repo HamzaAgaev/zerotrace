@@ -6,6 +6,7 @@
 
 ```
 frontend/    React + TypeScript + Vite: интерфейс, API-клиент, граф/waterfall, аудит
+backend/     Python: контракты (P1–P3), ingest/repository/core, data API, fixtures, тесты
 docs/plans/  Спецификация, план команды и контракты ZeroTrace
 ```
 
@@ -30,6 +31,18 @@ npm run dev      # http://127.0.0.1:5173
 ```sh
 npm run build    # строгая TypeScript-проверка + production build
 npm test         # автотесты
+```
+
+## Проверки бэкенда
+
+```sh
+cd backend
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/ruff check contracts fixtures tests
+.venv/bin/ruff format --check contracts fixtures tests
+.venv/bin/mypy
+.venv/bin/pytest tests -q
+python3 fixtures/build_model_fixtures.py   # пересобрать контрактные fixtures
 ```
 
 ## Статус
