@@ -1,0 +1,887 @@
+{
+  "list": {
+    "schema": "zerotrace.trace-list",
+    "schema_version": "1.0.0",
+    "generated_at": "2026-11-10T11:24:00.000Z",
+    "producer_version": "frontend-0.2.0",
+    "payload": {
+      "items": [
+        {
+          "trace_id": "0000000000000000000000004bf92000",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319440000000000",
+          "duration_ns": "2015000000",
+          "span_count": 10,
+          "service_count": 3,
+          "outcome": "error",
+          "http_status": 504,
+          "finding_count": 1,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92000",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92001",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319425300000000",
+          "duration_ns": "2023000000",
+          "span_count": 10,
+          "service_count": 3,
+          "outcome": "error",
+          "http_status": 504,
+          "finding_count": 1,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92001",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92002",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319410600000000",
+          "duration_ns": "2031000000",
+          "span_count": 10,
+          "service_count": 3,
+          "outcome": "error",
+          "http_status": 504,
+          "finding_count": 1,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92002",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92003",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319395900000000",
+          "duration_ns": "2039000000",
+          "span_count": 10,
+          "service_count": 3,
+          "outcome": "error",
+          "http_status": 504,
+          "finding_count": 1,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92003",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92004",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319381200000000",
+          "duration_ns": "2047000000",
+          "span_count": 10,
+          "service_count": 3,
+          "outcome": "error",
+          "http_status": 504,
+          "finding_count": 1,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92004",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92005",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319366500000000",
+          "duration_ns": "340000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92005",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92006",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319351800000000",
+          "duration_ns": "359000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92006",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92007",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319337100000000",
+          "duration_ns": "378000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92007",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92008",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319322400000000",
+          "duration_ns": "397000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "unknown",
+          "http_status": null,
+          "finding_count": 0,
+          "quality_issues": [
+            "Отсутствует родитель одного спана. Исход запроса неизвестен."
+          ],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92008",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92009",
+          "operation": "GET /catalog",
+          "service": "catalog-api",
+          "start_ns": "1794319307700000000",
+          "duration_ns": "135000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92009",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf9200a",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319293000000000",
+          "duration_ns": "435000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf9200a",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf9200b",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319278300000000",
+          "duration_ns": "454000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf9200b",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf9200c",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319263600000000",
+          "duration_ns": "473000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf9200c",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf9200d",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319248900000000",
+          "duration_ns": "492000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf9200d",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf9200e",
+          "operation": "GET /catalog",
+          "service": "catalog-api",
+          "start_ns": "1794319234200000000",
+          "duration_ns": "140000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf9200e",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf9200f",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319219500000000",
+          "duration_ns": "530000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf9200f",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92010",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319204800000000",
+          "duration_ns": "549000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92010",
+            "generation": 1,
+            "revision": 2
+          }
+        },
+        {
+          "trace_id": "0000000000000000000000004bf92011",
+          "operation": "POST /checkout",
+          "service": "gateway",
+          "start_ns": "1794319190100000000",
+          "duration_ns": "568000000",
+          "span_count": 6,
+          "service_count": 3,
+          "outcome": "ok",
+          "http_status": 200,
+          "finding_count": 0,
+          "quality_issues": [],
+          "trace_ref": {
+            "environment_id": "shop",
+            "trace_id": "0000000000000000000000004bf92011",
+            "generation": 1,
+            "revision": 2
+          }
+        }
+      ],
+      "total": 18
+    }
+  },
+  "trace": {
+    "schema": "zerotrace.trace",
+    "schema_version": "1.0.0",
+    "generated_at": "2026-11-10T11:24:00.000Z",
+    "producer_version": "frontend-0.2.0",
+    "payload": {
+      "summary": {
+        "trace_id": "0000000000000000000000004bf92000",
+        "operation": "POST /checkout",
+        "service": "gateway",
+        "start_ns": "1794319440000000000",
+        "duration_ns": "2015000000",
+        "span_count": 10,
+        "service_count": 3,
+        "outcome": "error",
+        "http_status": 504,
+        "finding_count": 1,
+        "quality_issues": [],
+        "trace_ref": {
+          "environment_id": "shop",
+          "trace_id": "0000000000000000000000004bf92000",
+          "generation": 1,
+          "revision": 2
+        }
+      },
+      "trace_ref": {
+        "environment_id": "shop",
+        "trace_id": "0000000000000000000000004bf92000",
+        "generation": 1,
+        "revision": 2
+      },
+      "spans": [
+        {
+          "span_id": "0000000000000001",
+          "parent_span_id": null,
+          "service": "gateway",
+          "name": "POST /checkout",
+          "kind": "server",
+          "start_offset_ns": "0",
+          "duration_ns": "2015000000",
+          "outcome": "error",
+          "http_status": 504,
+          "error_type": "timeout"
+        },
+        {
+          "span_id": "0000000000000002",
+          "parent_span_id": "0000000000000001",
+          "service": "gateway",
+          "name": "POST orders /orders",
+          "kind": "client",
+          "start_offset_ns": "12000000",
+          "duration_ns": "2000000000",
+          "outcome": "error",
+          "http_status": null,
+          "error_type": "timeout"
+        },
+        {
+          "span_id": "0000000000000003",
+          "parent_span_id": "0000000000000002",
+          "service": "orders",
+          "name": "POST /orders",
+          "kind": "server",
+          "start_offset_ns": "15000000",
+          "duration_ns": "3200000000",
+          "outcome": "error",
+          "http_status": 502,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000004",
+          "parent_span_id": "0000000000000003",
+          "service": "orders",
+          "name": "POST payment /charge, попытка 1",
+          "kind": "client",
+          "start_offset_ns": "25000000",
+          "duration_ns": "1000000000",
+          "outcome": "error",
+          "http_status": null,
+          "error_type": "timeout"
+        },
+        {
+          "span_id": "0000000000000005",
+          "parent_span_id": "0000000000000004",
+          "service": "payment",
+          "name": "POST /charge",
+          "kind": "server",
+          "start_offset_ns": "30000000",
+          "duration_ns": "1500000000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000006",
+          "parent_span_id": "0000000000000003",
+          "service": "orders",
+          "name": "POST payment /charge, попытка 2",
+          "kind": "client",
+          "start_offset_ns": "1075000000",
+          "duration_ns": "1000000000",
+          "outcome": "error",
+          "http_status": null,
+          "error_type": "timeout"
+        },
+        {
+          "span_id": "0000000000000007",
+          "parent_span_id": "0000000000000006",
+          "service": "payment",
+          "name": "POST /charge",
+          "kind": "server",
+          "start_offset_ns": "1080000000",
+          "duration_ns": "1500000000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000008",
+          "parent_span_id": "0000000000000003",
+          "service": "orders",
+          "name": "POST payment /charge, попытка 3",
+          "kind": "client",
+          "start_offset_ns": "2175000000",
+          "duration_ns": "1000000000",
+          "outcome": "error",
+          "http_status": null,
+          "error_type": "timeout"
+        },
+        {
+          "span_id": "0000000000000009",
+          "parent_span_id": "0000000000000008",
+          "service": "payment",
+          "name": "POST /charge",
+          "kind": "server",
+          "start_offset_ns": "2180000000",
+          "duration_ns": "1500000000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "000000000000000a",
+          "parent_span_id": "0000000000000001",
+          "service": "gateway",
+          "name": "serialize response",
+          "kind": "internal",
+          "start_offset_ns": "2008000000",
+          "duration_ns": "7000000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        }
+      ],
+      "quality_issues": [
+        "Часть серверных операций продолжается после завершения входного запроса. Шкала включает весь полученный trace."
+      ]
+    }
+  },
+  "healthy_trace": {
+    "schema": "zerotrace.trace",
+    "schema_version": "1.0.0",
+    "generated_at": "2026-11-10T11:24:00.000Z",
+    "producer_version": "frontend-0.2.0",
+    "payload": {
+      "summary": {
+        "trace_id": "0000000000000000000000004bf92005",
+        "operation": "POST /checkout",
+        "service": "gateway",
+        "start_ns": "1794319366500000000",
+        "duration_ns": "340000000",
+        "span_count": 6,
+        "service_count": 3,
+        "outcome": "ok",
+        "http_status": 200,
+        "finding_count": 0,
+        "quality_issues": [],
+        "trace_ref": {
+          "environment_id": "shop",
+          "trace_id": "0000000000000000000000004bf92005",
+          "generation": 1,
+          "revision": 2
+        }
+      },
+      "trace_ref": {
+        "environment_id": "shop",
+        "trace_id": "0000000000000000000000004bf92005",
+        "generation": 1,
+        "revision": 2
+      },
+      "spans": [
+        {
+          "span_id": "0000000000000001",
+          "parent_span_id": null,
+          "service": "gateway",
+          "name": "POST /checkout",
+          "kind": "server",
+          "start_offset_ns": "0",
+          "duration_ns": "340000000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000002",
+          "parent_span_id": "0000000000000001",
+          "service": "gateway",
+          "name": "GET inventory /stock",
+          "kind": "client",
+          "start_offset_ns": "20000000",
+          "duration_ns": "163200000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000003",
+          "parent_span_id": "0000000000000002",
+          "service": "inventory",
+          "name": "GET /stock",
+          "kind": "server",
+          "start_offset_ns": "24000000",
+          "duration_ns": "149600000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000004",
+          "parent_span_id": "0000000000000001",
+          "service": "gateway",
+          "name": "GET pricing /quote",
+          "kind": "client",
+          "start_offset_ns": "30000000",
+          "duration_ns": "210800000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000005",
+          "parent_span_id": "0000000000000004",
+          "service": "pricing",
+          "name": "GET /quote",
+          "kind": "server",
+          "start_offset_ns": "35000000",
+          "duration_ns": "193800000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        },
+        {
+          "span_id": "0000000000000006",
+          "parent_span_id": "0000000000000001",
+          "service": "gateway",
+          "name": "serialize response",
+          "kind": "internal",
+          "start_offset_ns": "325000000",
+          "duration_ns": "12000000",
+          "outcome": "ok",
+          "http_status": 200,
+          "error_type": null
+        }
+      ],
+      "quality_issues": []
+    }
+  },
+  "audit": {
+    "schema": "zerotrace.audit",
+    "schema_version": "1.0.0",
+    "generated_at": "2026-11-10T11:24:00.000Z",
+    "producer_version": "frontend-0.2.0",
+    "payload": {
+      "result_id": "audit-demo-001",
+      "generated_at": "2026-11-10T11:24:00.000Z",
+      "findings": [
+        {
+          "finding_id": "r4-orders-payment",
+          "occurrence_id": "occ-demo-001",
+          "recommendation_id": "rec-demo-001",
+          "rule_id": "R4",
+          "rule_version": "1.0.0",
+          "title": "Повторы не укладываются в таймаут вызывающего сервиса",
+          "severity": "high",
+          "confidence": "high",
+          "basis": "config_aware",
+          "edge": {
+            "caller": "orders",
+            "callee": "payment",
+            "operation": "POST /charge"
+          },
+          "explanation": "Gateway ждёт ответ от orders 2 секунды. При этом orders может потратить на вызов payment до 3,15 секунды: три попытки по секунде и две паузы. Нижняя цепочка не укладывается в известный верхний бюджет.",
+          "affected_count": 5,
+          "denominator_count": 5,
+          "evidence": {
+            "attempts": 3,
+            "timeout_ns": "1000000000",
+            "backoff_total_ns": "150000000",
+            "required_ns": "3150000000",
+            "budget_ns": "2000000000",
+            "config_revision": "12",
+            "source": "Конфигурация демостенда",
+            "kind": "retry_budget"
+          },
+          "recommendation": {
+            "text": "Ограничить вызов payment двумя попытками по 800 мс.",
+            "why": "Две попытки и пауза 50 мс потребуют до 1 650 мс. Останется 350 мс на прочую работу orders. Это локальная проверка бюджета, а не гарантия времени всего запроса.",
+            "risks": [
+              "Сокращение таймаута может увеличить число отказов, если payment стабильно отвечает дольше 800 мс.",
+              "Перед применением нужно подтвердить время успешного ответа и свежесть конфигурации."
+            ],
+            "changes": [
+              {
+                "field": "Таймаут одной попытки",
+                "before": "1 000 мс",
+                "after": "800 мс"
+              },
+              {
+                "field": "Число попыток",
+                "before": "3",
+                "after": "2"
+              }
+            ]
+          },
+          "exemplars": [
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92000",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92001",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92002",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92003",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92004",
+              "generation": 1,
+              "revision": 2
+            }
+          ]
+        },
+        {
+          "finding_id": "observed-retries",
+          "occurrence_id": "occ-observed-001",
+          "recommendation_id": "rec-observed-001",
+          "rule_id": "observed-retries",
+          "rule_version": "1.0.0",
+          "title": "Наблюдаются повторы вызова",
+          "severity": "high",
+          "confidence": "high",
+          "basis": "observed",
+          "edge": {
+            "caller": "orders",
+            "callee": "payment",
+            "operation": "POST /charge"
+          },
+          "explanation": "Несколько попыток связаны с одним вызовом.",
+          "affected_count": 5,
+          "denominator_count": 5,
+          "evidence": {
+            "kind": "trace_observation",
+            "source": "HTTP-трассы"
+          },
+          "recommendation": {
+            "text": "Проверить политику повторов.",
+            "why": "Повторы увеличивают число обращений.",
+            "risks": [],
+            "changes": []
+          },
+          "exemplars": [
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92000",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92001",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92002",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92003",
+              "generation": 1,
+              "revision": 2
+            },
+            {
+              "environment_id": "shop",
+              "trace_id": "0000000000000000000000004bf92004",
+              "generation": 1,
+              "revision": 2
+            }
+          ]
+        }
+      ],
+      "rule_evaluations": [
+        {
+          "rule_id": "R4",
+          "status": "evaluated",
+          "eligible_count": 5
+        },
+        {
+          "rule_id": "R1",
+          "status": "not_implemented",
+          "eligible_count": 0
+        },
+        {
+          "rule_id": "R2",
+          "status": "not_implemented",
+          "eligible_count": 0
+        },
+        {
+          "rule_id": "R3",
+          "status": "not_implemented",
+          "eligible_count": 0
+        },
+        {
+          "rule_id": "R5",
+          "status": "not_implemented",
+          "eligible_count": 0
+        },
+        {
+          "rule_id": "R6",
+          "status": "not_implemented",
+          "eligible_count": 0
+        },
+        {
+          "rule_id": "R7",
+          "status": "not_implemented",
+          "eligible_count": 0
+        },
+        {
+          "rule_id": "R8",
+          "status": "not_implemented",
+          "eligible_count": 0
+        },
+        {
+          "rule_id": "D1",
+          "status": "not_implemented",
+          "eligible_count": 0
+        }
+      ]
+    }
+  },
+  "capabilities": {
+    "schema": "zerotrace.capabilities",
+    "schema_version": "1.0.0",
+    "generated_at": "2026-11-10T11:24:00.000Z",
+    "producer_version": "frontend-0.2.0",
+    "payload": {
+      "mode": "demo",
+      "api_version": "1.0.0",
+      "source_name": "Интернет-магазин (демоданные)",
+      "source_state": "unknown",
+      "apply_enabled": false,
+      "limits": {
+        "max_trace_spans": 2000
+      }
+    }
+  },
+  "journal": {
+    "schema": "zerotrace.journal",
+    "schema_version": "1.0.0",
+    "generated_at": "2026-11-10T11:24:00.000Z",
+    "producer_version": "frontend-0.2.0",
+    "payload": [
+      {
+        "operation_id": "op-example",
+        "target": "orders",
+        "requested_at": "2026-11-10T11:24:00Z",
+        "status": "applying",
+        "verification": null,
+        "actual_changes": []
+      }
+    ]
+  },
+  "plan": {
+    "schema": "zerotrace.change-plan",
+    "schema_version": "1.0.0",
+    "generated_at": "2026-11-10T11:24:00.000Z",
+    "producer_version": "frontend-0.2.0",
+    "payload": {
+      "plan_id": "plan-demo-001",
+      "plan_hash": "demo-plan-readonly",
+      "finding_id": "r4-orders-payment",
+      "target": "orders / POST /charge",
+      "expected_revision": "12",
+      "expires_at": "2026-11-10T23:59:59Z",
+      "changes": [
+        {
+          "field": "Таймаут одной попытки",
+          "before": "1 000 мс",
+          "after": "800 мс"
+        },
+        {
+          "field": "Число попыток",
+          "before": "3",
+          "after": "2"
+        }
+      ],
+      "warnings": [
+        "Демонстрационный план. Изменения не отправляются ни в один сервис.",
+        "Исполнение будет доступно после подключения управляющего адаптера."
+      ],
+      "apply_enabled": false
+    }
+  }
+}

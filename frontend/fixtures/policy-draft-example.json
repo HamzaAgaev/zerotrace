@@ -1,0 +1,32 @@
+{
+  "schema": "zerotrace.exploration",
+  "schema_version": "1.0.0",
+  "generated_at": "2026-11-10T14:31:02.467Z",
+  "payload": {
+    "kind": "policy-draft",
+    "mode": "demo",
+    "applied": false,
+    "occurrence_id": "occ-demo-001",
+    "target": {
+      "caller": "orders",
+      "callee": "payment",
+      "operation": "POST /charge"
+    },
+    "expected_config_revision": "12",
+    "assumptions": [
+      "fixed-backoff",
+      "not-a-server-change-plan"
+    ],
+    "draft": {
+      "timeout": 800,
+      "attempts": 2,
+      "backoff": 50,
+      "budget": 2000
+    },
+    "check": {
+      "valid": true,
+      "required": 1650,
+      "reserve": 350
+    }
+  }
+}

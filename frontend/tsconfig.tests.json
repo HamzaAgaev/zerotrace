@@ -1,0 +1,1 @@
+{"compilerOptions":{"target":"ES2022","module":"NodeNext","moduleResolution":"NodeNext","strict":true,"skipLibCheck":true,"esModuleInterop":true,"outDir":".test-build","rootDir":"."},"include":["tests/**/*.ts","src/api/types.ts","src/api/fixtures.ts","src/api/client.ts","src/lib.ts"]}
