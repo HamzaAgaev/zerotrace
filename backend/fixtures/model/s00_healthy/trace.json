@@ -1,0 +1,95 @@
+{
+  "trace_ref": {
+    "environment_id": "shop",
+    "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": 1,
+    "revision": 1
+  },
+  "first_received_at_ns": "1763000000000000000",
+  "last_received_at_ns": "1763000000600000000",
+  "assembly_state": "quiet",
+  "spans": [
+    {
+      "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "span_id": "0000000000000001",
+      "parent_span_id": null,
+      "service": "orders",
+      "instance_id": null,
+      "service_version": null,
+      "name": "SERVER GET /checkout",
+      "kind": "server",
+      "start_ns": "1763000000000000000",
+      "end_ns": "1763000000500000000",
+      "duration_ns": "500000000",
+      "clock_domain": "host-1",
+      "operation": "GET /checkout",
+      "target": null,
+      "otel_status": "unset",
+      "http_status": 200,
+      "grpc_status": null,
+      "error_type": null,
+      "resend_count": null,
+      "idempotency": "unknown",
+      "links_present": false,
+      "async_markers": [],
+      "field_coverage": {
+        "service.name": true,
+        "operation": true,
+        "http_status": true
+      },
+      "diagnostics": []
+    },
+    {
+      "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "span_id": "0000000000000002",
+      "parent_span_id": "0000000000000001",
+      "service": "orders",
+      "instance_id": null,
+      "service_version": null,
+      "name": "CLIENT POST /pay",
+      "kind": "client",
+      "start_ns": "1763000000010000000",
+      "end_ns": "1763000000360000000",
+      "duration_ns": "350000000",
+      "clock_domain": "host-1",
+      "operation": "POST /pay",
+      "target": null,
+      "otel_status": "unset",
+      "http_status": 200,
+      "grpc_status": null,
+      "error_type": null,
+      "resend_count": null,
+      "idempotency": "unknown",
+      "links_present": false,
+      "async_markers": [],
+      "field_coverage": {
+        "service.name": true,
+        "operation": true,
+        "http_status": true
+      },
+      "diagnostics": []
+    }
+  ],
+  "roots": [
+    "0000000000000001"
+  ],
+  "parent_index": {
+    "0000000000000001": null,
+    "0000000000000002": "0000000000000001"
+  },
+  "children_index": {
+    "0000000000000001": [
+      "0000000000000002"
+    ],
+    "0000000000000002": []
+  },
+  "quality": {
+    "issues": [],
+    "orphan_count": 0,
+    "conflicting_span_count": 0,
+    "unknown_service_count": 0,
+    "source_loss": null,
+    "parse_errors": 0,
+    "forced_reason": null
+  }
+}

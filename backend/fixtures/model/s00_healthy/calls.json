@@ -1,0 +1,61 @@
+{
+  "trace_ref": {
+    "environment_id": "shop",
+    "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": 1,
+    "revision": 1
+  },
+  "grouping_version": "1.0.0",
+  "attempts": [
+    {
+      "trace_ref": {
+        "environment_id": "shop",
+        "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "generation": 1,
+        "revision": 1
+      },
+      "attempt_id": "0000000000000002",
+      "edge_id": "6dabb8f08c546ae9fb91a12e7ea12100b82d43d6467679cc3d4bea835c91655e",
+      "duration_ns": "350000000",
+      "start_ns": "1763000000010000000",
+      "server_span_id": null,
+      "server_duration_ns": null,
+      "caller_server_span_id": null,
+      "upstream_attempt_id": null,
+      "offset_in_caller_ns": null,
+      "outcome": "ok",
+      "client_http_status": 200,
+      "server_http_status": null,
+      "error_type": null,
+      "resend_count": null,
+      "call_id": "call-1",
+      "attempt_index": 1,
+      "gap_before_ns": null,
+      "first_path": true,
+      "classification_basis": "single_client_span",
+      "confidence": "high"
+    }
+  ],
+  "calls": [
+    {
+      "trace_ref": {
+        "environment_id": "shop",
+        "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "generation": 1,
+        "revision": 1
+      },
+      "call_id": "call-1",
+      "edge_id": "6dabb8f08c546ae9fb91a12e7ea12100b82d43d6467679cc3d4bea835c91655e",
+      "owner_span_id": null,
+      "attempt_ids": [
+        "0000000000000002"
+      ],
+      "hypothesis": "single",
+      "confidence": "high",
+      "evidence_codes": [
+        "single_attempt"
+      ],
+      "gaps_ns": []
+    }
+  ]
+}

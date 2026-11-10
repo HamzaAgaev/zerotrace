@@ -1,0 +1,123 @@
+{
+  "trace_ref": {
+    "environment_id": "sandbox",
+    "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "generation": 1,
+    "revision": 1
+  },
+  "grouping_version": "1.0.0",
+  "attempts": [
+    {
+      "trace_ref": {
+        "environment_id": "sandbox",
+        "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "generation": 1,
+        "revision": 1
+      },
+      "attempt_id": "0000000000000002",
+      "edge_id": "c978771e21f44e79f91e0637c107835ee0faf3bb59c8d161b1ca69d3ef5faf62",
+      "duration_ns": "250000000",
+      "start_ns": "1763000000005000000",
+      "server_span_id": null,
+      "server_duration_ns": null,
+      "caller_server_span_id": null,
+      "upstream_attempt_id": null,
+      "offset_in_caller_ns": null,
+      "outcome": "http_error",
+      "client_http_status": 503,
+      "server_http_status": null,
+      "error_type": null,
+      "resend_count": null,
+      "call_id": "call-1",
+      "attempt_index": 1,
+      "gap_before_ns": null,
+      "first_path": true,
+      "classification_basis": "explicit_lab_labels",
+      "confidence": "high"
+    },
+    {
+      "trace_ref": {
+        "environment_id": "sandbox",
+        "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "generation": 1,
+        "revision": 1
+      },
+      "attempt_id": "0000000000000003",
+      "edge_id": "c978771e21f44e79f91e0637c107835ee0faf3bb59c8d161b1ca69d3ef5faf62",
+      "duration_ns": "250000000",
+      "start_ns": "1763000000305000000",
+      "server_span_id": null,
+      "server_duration_ns": null,
+      "caller_server_span_id": null,
+      "upstream_attempt_id": null,
+      "offset_in_caller_ns": null,
+      "outcome": "http_error",
+      "client_http_status": 503,
+      "server_http_status": null,
+      "error_type": null,
+      "resend_count": null,
+      "call_id": "call-1",
+      "attempt_index": 2,
+      "gap_before_ns": "50000000",
+      "first_path": false,
+      "classification_basis": "explicit_lab_labels",
+      "confidence": "high"
+    },
+    {
+      "trace_ref": {
+        "environment_id": "sandbox",
+        "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "generation": 1,
+        "revision": 1
+      },
+      "attempt_id": "0000000000000004",
+      "edge_id": "c978771e21f44e79f91e0637c107835ee0faf3bb59c8d161b1ca69d3ef5faf62",
+      "duration_ns": "245000000",
+      "start_ns": "1763000000605000000",
+      "server_span_id": null,
+      "server_duration_ns": null,
+      "caller_server_span_id": null,
+      "upstream_attempt_id": null,
+      "offset_in_caller_ns": null,
+      "outcome": "http_error",
+      "client_http_status": 503,
+      "server_http_status": null,
+      "error_type": null,
+      "resend_count": null,
+      "call_id": "call-1",
+      "attempt_index": 3,
+      "gap_before_ns": "50000000",
+      "first_path": false,
+      "classification_basis": "explicit_lab_labels",
+      "confidence": "high"
+    }
+  ],
+  "calls": [
+    {
+      "trace_ref": {
+        "environment_id": "sandbox",
+        "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "generation": 1,
+        "revision": 1
+      },
+      "call_id": "call-1",
+      "edge_id": "c978771e21f44e79f91e0637c107835ee0faf3bb59c8d161b1ca69d3ef5faf62",
+      "owner_span_id": "0000000000000001",
+      "attempt_ids": [
+        "0000000000000002",
+        "0000000000000003",
+        "0000000000000004"
+      ],
+      "hypothesis": "retry",
+      "confidence": "high",
+      "evidence_codes": [
+        "explicit_lab_labels",
+        "sequential_gaps"
+      ],
+      "gaps_ns": [
+        "50000000",
+        "50000000"
+      ]
+    }
+  ]
+}

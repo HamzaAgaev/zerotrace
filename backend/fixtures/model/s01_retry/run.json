@@ -1,0 +1,12 @@
+{
+  "run_id": "run-fixture-1",
+  "environment_id": "sandbox",
+  "trace_refs": [
+    {
+      "environment_id": "sandbox",
+      "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation": 1,
+      "revision": 1
+    }
+  ]
+}
