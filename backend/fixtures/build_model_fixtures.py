@@ -77,6 +77,7 @@ def span(
     operation: str,
     otel_status: str = "unset",
     http_status: int | None = None,
+    target: str | None = None,
 ) -> NormalizedSpan:
     return NormalizedSpan(
         trace_id=trace_id,
@@ -90,6 +91,7 @@ def span(
         duration_ns=duration_ns,
         clock_domain="host-1",
         operation=operation,
+        target=target,
         otel_status=otel_status,  # type: ignore[arg-type]
         http_status=http_status,
         field_coverage={"service.name": True, "operation": True, "http_status": True},
@@ -150,6 +152,7 @@ def build_s00() -> None:
         350 * MS,
         "POST /pay",
         http_status=200,
+        target="payment",
     )
     g = graph(ref, [root, client], t0, t0 + 600 * MS)
     write_json(OUT / "s00_healthy" / "trace.json", g.to_dict())
@@ -227,6 +230,7 @@ def build_s01() -> None:
             "POST /pay",
             otel_status="error",
             http_status=503,
+            target="payment",
         )
         for i in range(3)
     ]

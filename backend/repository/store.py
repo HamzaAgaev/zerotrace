@@ -5,12 +5,13 @@ import sqlite3
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Literal
 
 from contracts import NormalizedSpan, QualityIssue, SourceBinding, TraceRef
 from contracts.p2 import AssemblyState
 from ingest.normalize import NormalizedBatch
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -40,6 +41,22 @@ CREATE TABLE IF NOT EXISTS spans (
     received_at_ns INTEGER NOT NULL,
     PRIMARY KEY (project_id, trace_id, generation, span_id)
 );
+CREATE TABLE IF NOT EXISTS trace_runs (
+    project_id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    run_id TEXT NOT NULL,
+    PRIMARY KEY (project_id, trace_id, generation)
+);
+CREATE TABLE IF NOT EXISTS run_samples (
+    run_id TEXT PRIMARY KEY,
+    environment_id TEXT NOT NULL,
+    expected_count INTEGER NOT NULL,
+    deadline_at_ns INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    frozen_refs_json TEXT,
+    created_at_ns INTEGER NOT NULL
+);
 """
 
 
@@ -59,6 +76,16 @@ class TraceMeta:
     span_count: int
 
 
+@dataclass(frozen=True)
+class RunSample:
+    run_id: str
+    environment_id: str
+    status: Literal["waiting", "ready", "partial"]
+    expected_count: int
+    received_count: int
+    trace_refs: list[TraceRef]
+
+
 def _canonical_payload(span: NormalizedSpan) -> str:
     return json.dumps(span.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -68,7 +95,9 @@ class SpanStore:
         self._path = Path(path)
         if str(self._path) != ":memory:":
             self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
+        # RLock: collection helpers call resolve_trace and other read methods
+        # while already holding the store lock.
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=FULL")
@@ -114,9 +143,15 @@ class SpanStore:
             self._conn.execute("BEGIN")
             try:
                 for trace_id, spans in by_trace.items():
-                    refs.append(
-                        self._ingest_trace(binding, trace_id, spans, received_at_ns, diagnostics)
-                    )
+                    ref = self._ingest_trace(binding, trace_id, spans, received_at_ns, diagnostics)
+                    refs.append(ref)
+                    run_id = batch.run_ids.get(trace_id)
+                    if run_id is not None and trace_id not in batch.probe_trace_ids:
+                        self._conn.execute(
+                            "INSERT OR IGNORE INTO trace_runs "
+                            "(project_id, trace_id, generation, run_id) VALUES (?, ?, ?, ?)",
+                            (binding.project_id, trace_id, ref.generation, run_id),
+                        )
                 self._conn.execute("COMMIT")
             except BaseException:
                 self._conn.execute("ROLLBACK")
@@ -415,3 +450,149 @@ class SpanStore:
                 self._conn.execute("ROLLBACK")
                 raise
         return True
+
+    def start_collection(
+        self,
+        run_id: str,
+        environment_id: str,
+        expected_count: int,
+        deadline_at_ns: int,
+    ) -> None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT environment_id, expected_count, deadline_at_ns FROM run_samples "
+                "WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is not None:
+                if (
+                    str(row[0]) != environment_id
+                    or int(row[1]) != expected_count
+                    or int(row[2]) != deadline_at_ns
+                ):
+                    raise ValueError(f"run_id {run_id!r} already started with other parameters")
+                return
+            self._conn.execute(
+                "INSERT INTO run_samples (run_id, environment_id, expected_count, "
+                "deadline_at_ns, status, frozen_refs_json, created_at_ns) "
+                "VALUES (?, ?, ?, ?, 'waiting', NULL, ?)",
+                (run_id, environment_id, expected_count, deadline_at_ns, deadline_at_ns),
+            )
+
+    def get_sample(self, run_id: str) -> RunSample | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT environment_id, expected_count, deadline_at_ns, status, "
+                "frozen_refs_json FROM run_samples WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            environment_id = str(row[0])
+            if row[4] is None:
+                refs = self._collect_run_refs(environment_id, run_id)
+                return RunSample(
+                    run_id=run_id,
+                    environment_id=environment_id,
+                    status=str(row[3]),  # type: ignore[arg-type]
+                    expected_count=int(row[1]),
+                    received_count=len(refs),
+                    trace_refs=refs,
+                )
+        return self._row_to_sample(run_id, row)
+
+    def finalize_collection(self, run_id: str, now_ns: int) -> RunSample | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT environment_id, expected_count, deadline_at_ns, status, "
+                "frozen_refs_json FROM run_samples WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            environment_id, expected_count, deadline_at_ns, _status, frozen = row
+            if frozen is not None:
+                return self._row_to_sample(run_id, row)
+            refs = self._collect_run_refs(str(environment_id), run_id)
+            received = len(refs)
+            resolved_status: Literal["waiting", "ready", "partial"]
+            if received >= int(expected_count):
+                resolved_status = "ready"
+            elif now_ns >= int(deadline_at_ns):
+                resolved_status = "partial"
+            else:
+                resolved_status = "waiting"
+            if resolved_status == "waiting":
+                return RunSample(
+                    run_id=run_id,
+                    environment_id=str(environment_id),
+                    status="waiting",
+                    expected_count=int(expected_count),
+                    received_count=received,
+                    trace_refs=refs,
+                )
+            frozen_json = json.dumps([r.to_dict() for r in refs])
+            self._conn.execute(
+                "UPDATE run_samples SET status = ?, frozen_refs_json = ? WHERE run_id = ?",
+                (resolved_status, frozen_json, run_id),
+            )
+        return RunSample(
+            run_id=run_id,
+            environment_id=str(environment_id),
+            status=resolved_status,
+            expected_count=int(expected_count),
+            received_count=received,
+            trace_refs=refs,
+        )
+
+    def _collect_run_refs(self, environment_id: str, run_id: str) -> list[TraceRef]:
+        rows = self._conn.execute(
+            "SELECT t.trace_id, t.generation, t.revision FROM trace_runs tr "
+            "JOIN traces t ON t.project_id = tr.project_id AND t.trace_id = tr.trace_id "
+            "AND t.generation = tr.generation "
+            "WHERE tr.run_id = ? AND t.environment_id = ? "
+            "ORDER BY t.first_received_at_ns, t.trace_id",
+            (run_id, environment_id),
+        ).fetchall()
+        refs: list[TraceRef] = []
+        seen: set[str] = set()
+        for trace_id, generation, _revision in rows:
+            if str(trace_id) in seen:
+                continue
+            seen.add(str(trace_id))
+            meta = self.resolve_trace(environment_id, str(trace_id), int(generation))
+            if meta is None:
+                continue
+            if not self._has_root_server_span(meta):
+                continue
+            refs.append(meta.trace_ref)
+        return refs
+
+    def _has_root_server_span(self, meta: TraceMeta) -> bool:
+        rows = self._conn.execute(
+            "SELECT payload FROM spans WHERE project_id = ? AND trace_id = ? "
+            "AND generation = ? ORDER BY start_ns, span_id LIMIT 50",
+            (meta.project_id, meta.trace_ref.trace_id, meta.trace_ref.generation),
+        ).fetchall()
+        has_root = False
+        for (payload,) in rows:
+            span = NormalizedSpan.from_dict(json.loads(payload))
+            if span.parent_span_id is None and span.kind == "server":
+                has_root = True
+                break
+        return has_root
+
+    @staticmethod
+    def _row_to_sample(run_id: str, row: Any) -> RunSample:
+        environment_id, expected_count, _deadline, status, frozen = row
+        refs: list[TraceRef] = []
+        if frozen is not None:
+            refs = [TraceRef.from_dict(d) for d in json.loads(str(frozen))]
+        return RunSample(
+            run_id=run_id,
+            environment_id=str(environment_id),
+            status=str(status),  # type: ignore[arg-type]
+            expected_count=int(expected_count),
+            received_count=len(refs),
+            trace_refs=refs,
+        )

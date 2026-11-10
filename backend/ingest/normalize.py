@@ -82,6 +82,12 @@ class NormalizedBatch:
     spans: list[NormalizedSpan]
     resources: list[ResourceInfo] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
+    run_ids: dict[str, str] = field(default_factory=dict)
+    probe_trace_ids: set[str] = field(default_factory=set)
+
+
+_RUN_ID_KEYS = ("zerotrace.run_id", "run_id")
+_PROBE_KEYS = ("zerotrace.probe", "lab.probe")
 
 
 def normalize(
@@ -92,6 +98,8 @@ def normalize(
     spans: list[NormalizedSpan] = []
     resources: list[ResourceInfo] = []
     batch_diagnostics: list[str] = []
+    run_ids: dict[str, str] = {}
+    probe_trace_ids: set[str] = set()
     for rs in batch.resource_spans:
         resource_attrs, resource_notes = _redact_attributes(
             rs.resource_attributes, redaction_profile
@@ -107,7 +115,43 @@ def normalize(
             spans.append(
                 _normalize_span(raw, resource_attrs, info, source_profile, redaction_profile)
             )
-    return NormalizedBatch(spans=spans, resources=resources, diagnostics=batch_diagnostics)
+            _collect_run_markers(raw, run_ids, probe_trace_ids, batch_diagnostics)
+    return NormalizedBatch(
+        spans=spans,
+        resources=resources,
+        diagnostics=batch_diagnostics,
+        run_ids=run_ids,
+        probe_trace_ids=probe_trace_ids,
+    )
+
+
+def _collect_run_markers(
+    raw: RawSpan,
+    run_ids: dict[str, str],
+    probe_trace_ids: set[str],
+    diagnostics: list[str],
+) -> None:
+    for key in _RUN_ID_KEYS:
+        value = raw.attributes.get(key)
+        if value is None:
+            continue
+        run_id = str(value)
+        existing = run_ids.get(raw.trace_id)
+        if existing is None:
+            run_ids[raw.trace_id] = run_id
+            diagnostics.append(f"run_id marker {key} for trace {raw.trace_id}")
+        elif existing != run_id:
+            diagnostics.append(
+                f"conflicting run_id for trace {raw.trace_id}: "
+                f"keeping {existing!r}, ignoring {run_id!r} from {key}"
+            )
+        break
+    for key in _PROBE_KEYS:
+        value = raw.attributes.get(key)
+        if value is not None and str(value).lower() == "true":
+            probe_trace_ids.add(raw.trace_id)
+            diagnostics.append(f"probe trace {raw.trace_id} marked by {key}")
+            break
 
 
 def _redact_attributes(

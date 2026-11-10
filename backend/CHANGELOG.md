@@ -5,6 +5,45 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.2.0] — 2026-11-11 02:53 МСК
+
+Стыки первого показа: цепочка для стенда, выборки прогонов, приём OTLP.
+
+### Добавлено
+
+- `core/chain.py`: `extract_chain(graph, calls)` — проверенная последовательная
+  цепочка для генератора стенда (стык B → A) либо типизированный отказ
+  (empty_trace / ambiguous_root / missing_link / ambiguous_link /
+  parallel_branches / cycle) с конкретными проблемными связями. Внешний
+  адресат без server-спана допустим последним шагом; повторные попытки
+  одного logical call не размножают звенья; признаки неполноты передаются
+  в `incompleteness`.
+- Фиксация выборок прогонов (стык A → B → C): `normalize` извлекает
+  lab-метки `zerotrace.run_id`/`run_id` и `zerotrace.probe`/`lab.probe`;
+  `repository` хранит `trace_runs` и `run_samples`.
+  `start_collection` (идемпотентно), `finalize_collection` /
+  `get_sample` → статус waiting/ready/partial с expected/received counts
+  и замороженными точными TraceRef; повторное чтение после фиксации
+  возвращает тот же набор, поздние трассы выборку не меняют;
+  probe-трассы исключены.
+- `app/otlp_api/`: ручка приёма `POST /v1/traces` — Bearer-токен →
+  SourceBinding (401 на неизвестный), decode → normalize → транзакционная
+  запись; 200 только после commit, сбой записи → 503 без ложного ACK;
+  ответ ExportTraceServiceResponse в формате запроса.
+- Fixtures: `target` на клиентских спанах model-фикстур (согласовано с
+  OTLP-фикстурами, где callee виден через `server.address`).
+
+### Исправлено
+
+- Deadlock в `SpanStore`: вложенные чтения под общим замком (Lock → RLock).
+
+### Тесты
+
+170 passed (+21): цепочка (happy path, отказы, двухзвенная цепочка),
+выборки прогонов (waiting→ready, partial, freeze-стабильность, probe,
+конфликт параметров), OTLP handler (protobuf/JSON приём, 401/413/415/503,
+дубликат без двойного счёта).
+
 ## [0.1.0] — 2026-11-11 01:15 МСК
 
 Первый рабочий срез: контракты данных и сквозной конвейер приёма OTLP.
