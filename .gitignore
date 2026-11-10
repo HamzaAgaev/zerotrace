@@ -1,52 +1,54 @@
-.DS_Store
+# Dependencies
 node_modules/
+
+# Build output
 dist/
-*.log
+build/
+target/
+eval-out/
+.test-build/
+
+# Environment files
 .env
 .env.*
 !.env.example
 
-.test-build/
+# Logs
+*.log
 
-# Локальные архивы и предыдущие проекты
-/chats/
-/old-projects/
-/ZeroTrace-team-plan.zip
-
-# Сгенерированные артефакты вложенных проектов
-target/
-eval-out/
-
-#Python
+# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .eggs/
-build/
-dist/
 
-#Virtualenvs
+# Virtualenvs
 .venv/
 venv/
 
-#Tests/tooling
+# Tests / tooling caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 
-#SQLiteruntimedata(WAL/SHMизrepository)
+# SQLite runtime data (WAL/SHM) and local data
 *.db
 *.db-wal
 *.db-shm
 *.sqlite3
 data/
-#OS
+
+# Local archives and old projects
+/chats/
+/old-projects/
+ZeroTrace-team-plan/
+ZeroTrace-team-plan.zip
+
+# OS
 .DS_Store
 
-#Editors
+# Editors
 .idea/
 .vscode/
-
-ZeroTrace-team-plan/
