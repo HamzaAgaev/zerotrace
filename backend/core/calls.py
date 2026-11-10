@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import itertools
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from contracts import (
+from backend.contracts import (
     Attempt,
     CallModel,
     EdgeKey,
@@ -24,9 +24,9 @@ from contracts import (
     ServiceKey,
     TraceGraph,
 )
-from contracts.p2 import Confidence, Hypothesis, Outcome
+from backend.contracts.p2 import Confidence, Hypothesis, Outcome
 
-DEFAULT_GROUPING_VERSION = "1.0.0"
+DEFAULT_GROUPING_VERSION = "1.1.0"
 OPERATION_NORMALIZATION_VERSION = "1.0.0"
 DEFAULT_PROJECT_ID = "default"
 DEFAULT_NAMESPACE = "default"
@@ -73,10 +73,15 @@ class _Segment:
     gaps_ns: tuple[int, ...]
 
 
-def derive_calls(graph: TraceGraph, grouping_version: str = DEFAULT_GROUPING_VERSION) -> CallModel:
+def derive_calls(
+    graph: TraceGraph,
+    grouping_version: str = DEFAULT_GROUPING_VERSION,
+    *,
+    project_id: str = DEFAULT_PROJECT_ID,
+) -> CallModel:
     spans_by_id = {s.span_id: s for s in graph.spans}
     drafts = [
-        _build_draft(graph, span, spans_by_id)
+        _build_draft(graph, span, spans_by_id, project_id)
         for span in sorted(graph.spans, key=lambda s: (s.start_ns, s.span_id))
         if span.kind == "client" and not span.async_markers
     ]
@@ -93,11 +98,13 @@ def derive_calls(graph: TraceGraph, grouping_version: str = DEFAULT_GROUPING_VER
         first = segment.attempts[0]
         for index, draft in enumerate(segment.attempts, start=1):
             gap_before = (
-                None
-                if index == 1
-                else draft.span.start_ns - segment.attempts[index - 2].span.end_ns
+                draft.span.start_ns - segment.attempts[index - 2].span.end_ns
+                if index > 1 and _same_clock(draft.span, segment.attempts[index - 2].span)
+                else None
             )
-            first_path: bool | None = None if segment.hypothesis == "ambiguous" else index == 1
+            first_path: bool | None = (
+                index == 1 if segment.hypothesis in {"single", "retry"} else None
+            )
             attempts.append(
                 Attempt(
                     trace_ref=graph.trace_ref,
@@ -142,19 +149,46 @@ def derive_calls(graph: TraceGraph, grouping_version: str = DEFAULT_GROUPING_VER
     return CallModel(
         trace_ref=graph.trace_ref,
         grouping_version=grouping_version,
-        attempts=attempts,
+        attempts=_resolve_first_paths(graph, attempts),
         calls=calls,
     )
 
 
+def _resolve_first_paths(graph: TraceGraph, attempts: list[Attempt]) -> list[Attempt]:
+    # A locally first retry is on the trace's first path only when its ancestors are too.
+    by_span = {a.attempt_id: a for a in attempts}
+    first_paths: dict[str, bool | None] = {}
+    seen: set[str] = set()
+    stack: list[tuple[str, str | None, bool | None]] = [(root, None, True) for root in graph.roots]
+    while stack:
+        node, upstream, first = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        attempt = by_span.get(node)
+        if attempt is not None:
+            if (
+                attempt.upstream_attempt_id != upstream
+                or first is None
+                or attempt.first_path is None
+            ):
+                first = None
+            else:
+                first = first and attempt.first_path
+            first_paths[node] = first
+            upstream = node
+        stack.extend((child, upstream, first) for child in graph.children_index.get(node, []))
+    return [replace(a, first_path=first_paths.get(a.attempt_id)) for a in attempts]
+
+
 def _build_draft(
-    graph: TraceGraph, span: NormalizedSpan, spans_by_id: dict[str, NormalizedSpan]
+    graph: TraceGraph, span: NormalizedSpan, spans_by_id: dict[str, NormalizedSpan], project_id: str
 ) -> _AttemptDraft:
     candidates = _server_candidates(graph, span, spans_by_id)
     server = candidates[0] if len(candidates) == 1 else None
     ambiguous_link = len(candidates) > 1
     caller = _caller_server(span, spans_by_id)
-    edge = _build_edge(graph.trace_ref.environment_id, span, server, caller)
+    edge = _build_edge(project_id, graph.trace_ref.environment_id, span, server, caller)
     outcome, basis, confidence = _classify_outcome(span)
     if ambiguous_link:
         basis = f"{basis};ambiguous_server_link"
@@ -208,11 +242,16 @@ def _intervals_overlap(a: NormalizedSpan, b: NormalizedSpan) -> bool:
 
 
 def _same_clock(a: NormalizedSpan, b: NormalizedSpan) -> bool:
-    return a.clock_domain is not None and a.clock_domain == b.clock_domain
+    return a.clock_domain not in (None, "", "unknown") and a.clock_domain == b.clock_domain
 
 
 def _same_scope(a: NormalizedSpan, b: NormalizedSpan) -> bool:
-    return _same_clock(a, b) and a.instance_id == b.instance_id
+    return (
+        _same_clock(a, b)
+        and a.instance_id == b.instance_id
+        and a.service == b.service
+        and (a.service_namespace or DEFAULT_NAMESPACE) == (b.service_namespace or DEFAULT_NAMESPACE)
+    )
 
 
 def _caller_server(
@@ -243,12 +282,13 @@ def _upstream_attempt_id(
 
 
 def _build_edge(
+    project_id: str,
     environment_id: str,
     client: NormalizedSpan,
     server: NormalizedSpan | None,
     caller: NormalizedSpan | None,
 ) -> EdgeKey:
-    caller_key = _service_key(environment_id, caller.service if caller else client.service)
+    caller_key = span_service_key(project_id, environment_id, caller or client)
     if caller is not None:
         caller_operation = _operation_key(caller, "server_span")
     else:
@@ -261,7 +301,7 @@ def _build_edge(
         )
 
     if server is not None:
-        callee = EndpointKey.service_ep(_service_key(environment_id, server.service))
+        callee = EndpointKey.service_ep(span_service_key(project_id, environment_id, server))
         callee_operation = _operation_key(server, "server_span")
     elif client.target:
         callee = EndpointKey.external(client.target)
@@ -278,12 +318,12 @@ def _build_edge(
     )
 
 
-def _service_key(environment_id: str, service_name: str) -> ServiceKey:
+def span_service_key(project_id: str, environment_id: str, span: NormalizedSpan) -> ServiceKey:
     return ServiceKey(
-        project_id=DEFAULT_PROJECT_ID,
+        project_id=project_id,
         environment=environment_id,
-        namespace=DEFAULT_NAMESPACE,
-        service_name=service_name,
+        namespace=span.service_namespace or DEFAULT_NAMESPACE,
+        service_name=span.service,
     )
 
 
@@ -359,9 +399,11 @@ def _min_confidence(a: Confidence, b: Confidence) -> Confidence:
 
 
 def _group_drafts(drafts: list[_AttemptDraft]) -> list[list[_AttemptDraft]]:
-    groups: dict[tuple[str, str | None], list[_AttemptDraft]] = {}
+    groups: dict[tuple[str, str | None, str | None], list[_AttemptDraft]] = {}
     for draft in drafts:
-        groups.setdefault((draft.edge_id, draft.owner_span_id), []).append(draft)
+        groups.setdefault(
+            (draft.edge_id, draft.owner_span_id, draft.span.logical_call_id), []
+        ).append(draft)
     ordered = sorted(
         groups.values(),
         key=lambda g: (min(d.span.start_ns for d in g), min(d.span.span_id for d in g)),
@@ -372,20 +414,46 @@ def _group_drafts(drafts: list[_AttemptDraft]) -> list[list[_AttemptDraft]]:
 
 
 def _segment_group(group: list[_AttemptDraft]) -> list[_Segment]:
+    labelled = any(
+        d.span.logical_call_id is not None or d.span.attempt_index is not None for d in group
+    )
+    same_clock = all(_same_clock(group[0].span, d.span) for d in group)
+    if labelled:
+        if not same_clock:
+            group = sorted(group, key=lambda d: d.span.attempt_index or 0)
+        indices = [d.span.attempt_index for d in group]
+        if not group[0].span.logical_call_id or indices != list(range(1, len(group) + 1)):
+            return [_Segment(tuple(group), "ambiguous", "low", ("incomplete_lab_labels",), ())]
     if len(group) == 1:
         return [_Segment((group[0],), "single", "high", ("single_attempt",), ())]
-
-    if any(d.explicit_marker for d in group):
-        if _has_overlap(group):
+    if not same_clock:
+        # Explicit ordinal evidence measures attempts even when no shared timeline
+        # permits measuring their pauses or distinguishing overlapping intervals.
+        if labelled:
             return [
-                _Segment(tuple(group), "hedge", "medium", ("explicit_resend_marker", "overlap"), ())
+                _Segment(tuple(group), "retry", "high", ("explicit_lab_labels", "unknown_gaps"), ())
             ]
+        ordered = sorted(
+            group, key=lambda d: -1 if d.span.resend_count is None else d.span.resend_count
+        )
+        ordinals = [d.span.resend_count for d in ordered]
+        if group[0].owner_span_id is not None and ordinals == list(range(len(group))):
+            return [
+                _Segment(
+                    tuple(ordered), "retry", "high", ("explicit_resend_marker", "unknown_gaps"), ()
+                )
+            ]
+        return [_Segment(tuple(group), "ambiguous", "low", ("incomparable_attempt_clocks",), ())]
+    if labelled or any(d.explicit_marker for d in group):
+        marker = "explicit_lab_labels" if labelled else "explicit_resend_marker"
+        if _has_overlap(group):
+            return [_Segment(tuple(group), "hedge", "medium", (marker, "overlap"), ())]
         return [
             _Segment(
                 tuple(group),
                 "retry",
                 "high",
-                ("explicit_resend_marker", "sequential_gaps"),
+                (marker, "sequential_gaps"),
                 tuple(_gaps(group)),
             )
         ]

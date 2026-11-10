@@ -3,9 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from contracts.base import TraceRef
-from contracts.p2 import CallModel, NormalizedSpan, TraceGraph
-from contracts.p3 import percentile_ns
+from backend.contracts.base import TraceRef
+from backend.contracts.p2 import CallModel, NormalizedSpan, TraceGraph
+from backend.contracts.p3 import percentile_ns
 
 Interval = tuple[int, int]
 

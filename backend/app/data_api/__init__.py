@@ -1,4 +1,5 @@
-from .handlers import (
+from backend._compat import publish_legacy_package
+from backend.app.data_api.handlers import (
     MAX_LIMIT,
     PRODUCER_VERSION,
     SCHEMA_TRACE,
@@ -11,7 +12,7 @@ from .handlers import (
     get_trace,
     list_traces,
 )
-from .views import (
+from backend.app.data_api.views import (
     quality_issue_codes,
     root_span,
     span_outcome,
@@ -39,3 +40,5 @@ __all__ = [
     "trace_detail",
     "trace_summary",
 ]
+
+publish_legacy_package(__name__, ["adapter", "handlers", "views"])

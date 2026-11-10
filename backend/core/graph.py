@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contracts import (
+from backend.contracts import (
     IngestLimits,
     NormalizedSpan,
     Quality,
@@ -8,7 +8,7 @@ from contracts import (
     TraceGraph,
     TraceRef,
 )
-from contracts.p2 import AssemblyState
+from backend.contracts.p2 import AssemblyState
 
 
 def build_graph(
@@ -22,15 +22,15 @@ def build_graph(
 ) -> TraceGraph:
     issues: list[QualityIssue] = []
 
-    deduped, conflicting_span_count = _dedupe_spans(spans)
-    if conflicting_span_count:
+    deduped, conflicts = _dedupe_spans(spans)
+    if conflicts:
         issues.append(
             QualityIssue(
                 code="conflicting_span",
-                scope="trace",
-                span_ids=[],
+                scope="span",
+                span_ids=sorted(conflicts),
                 details=(
-                    f"{conflicting_span_count} duplicate span_id(s) with conflicting"
+                    f"{len(conflicts)} duplicate span_id(s) with conflicting"
                     " content; first accepted"
                 ),
             )
@@ -129,23 +129,23 @@ def build_graph(
         quality=Quality(
             issues=issues,
             orphan_count=orphan_count,
-            conflicting_span_count=conflicting_span_count,
+            conflicting_span_count=len(conflicts),
             unknown_service_count=unknown_service_count,
         ),
     )
 
 
-def _dedupe_spans(spans: list[NormalizedSpan]) -> tuple[list[NormalizedSpan], int]:
+def _dedupe_spans(spans: list[NormalizedSpan]) -> tuple[list[NormalizedSpan], set[str]]:
     seen: dict[str, NormalizedSpan] = {}
     order: list[str] = []
-    conflicting = 0
+    conflicting = {s.span_id for s in spans if "conflicting_span" in s.diagnostics}
     for span in spans:
         existing = seen.get(span.span_id)
         if existing is None:
             seen[span.span_id] = span
             order.append(span.span_id)
         elif existing != span:
-            conflicting += 1
+            conflicting.add(span.span_id)
     return [seen[sid] for sid in order], conflicting
 
 

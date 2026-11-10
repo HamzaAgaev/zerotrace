@@ -63,6 +63,11 @@ def outcome(span):
         return "error"
     status = span.get("http_status")
     if type(status) is int and 100 <= status <= 599:
+        # P2/P7 interprets 4xx at a SERVER as a client error. Explicit OTel
+        # errors above still take precedence; older view DTOs carry their outcome.
+        server = str(span.get("kind", "")).lower() == "server"
+        if server and (span.get("otel_status") is not None or value == "ok"):
+            return "error" if status >= 500 else "ok"
         return "error" if status >= 400 else "ok"
     if value == "ok" or str(span.get("otel_status", "")).lower() == "ok":
         return "ok"
@@ -185,6 +190,8 @@ def measure_trace(graph, entry_selector=None):
         raise AnalyticsError("ambiguous_entry", "Entry service and operation are required")
     if entry_selector:
         for key, actual in (("service", service), ("operation", entry_operation)):
+            if key == "service" and isinstance(entry_selector.get(key), str):
+                actual = service_name(actual)
             if key in entry_selector and entry_selector[key] != actual:
                 raise AnalyticsError("cohorts_not_comparable", "Entry does not match the requested selector",
                                      details={"ref": ref, "field": key})

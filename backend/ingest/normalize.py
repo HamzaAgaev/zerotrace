@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from contracts.p2 import Idempotency, NormalizedSpan, OtelStatus, SpanKind
+from backend.contracts.p2 import Idempotency, NormalizedSpan, OtelStatus, SpanKind
 
 from .decoder import DecodedBatch, RawSpan
 
@@ -218,6 +218,16 @@ def _normalize_span(
         idempotency=idempotency,
         links_present=raw.links_count > 0,
         async_markers=async_markers,
+        service_namespace=info.namespace if info.namespace != "default" else None,
+        run_id=attrs["run_id"]
+        if kind == "server" and isinstance(attrs.get("run_id"), str)
+        else None,
+        logical_call_id=(
+            attrs["logical_call_id"]
+            if kind == "client" and isinstance(attrs.get("logical_call_id"), str)
+            else None
+        ),
+        attempt_index=_as_int(attrs.get("attempt_index")) if kind == "client" else None,
         field_coverage=field_coverage,
         diagnostics=diagnostics,
     )

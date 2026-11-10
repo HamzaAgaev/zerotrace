@@ -15,7 +15,7 @@ def build(snapshot, *, graph=None, projection=None, comparison=None, analysis_re
                     "sampling": snapshot["sampling"], "quality": snapshot["quality"]})
     payload["versions"] = {
         "producer": VERSION, "model": snapshot["model_version"],
-        "normalization": snapshot.get("normalization_version"),
+        "normalization": snapshot.get("normalization_version"), "grouping": snapshot.get("grouping_version"),
         "ruleset": snapshot["ruleset_version"], "thresholds": snapshot["thresholds_version"],
         "projection": (projection or {}).get("algorithm_version"),
         "comparison": (comparison or {}).get("algorithm_version"),

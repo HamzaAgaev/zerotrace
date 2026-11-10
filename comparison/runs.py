@@ -137,8 +137,14 @@ def _attempts(row, graph, run, change, edge):
             raise AnalyticsError("invalid_run_sample", "Conflicting call and edge identities")
         if (call_ref is not None and call_ref != change["call_ref"]) or (has_edge and not exact_edge):
             continue
-        group = label(client, "logical_call_id") or attempt.get("call_id")
-        index = observed("attempt_index")
+        if attempt.get("membership_source") == "derived":
+            # B also produces synthetic IDs/indexes for heuristic groups. A laboratory run
+            # must carry its own measured membership on each addressed CLIENT span.
+            group = label(client, "logical_call_id")
+            index = label(client, "attempt_index")
+        else:
+            group = label(client, "logical_call_id") or attempt.get("call_id")
+            index = observed("attempt_index")
         if not isinstance(group, str) or not group or type(index) is not int or index < 1:
             raise AnalyticsError("invalid_run_sample", "Missing laboratory call membership or attempt index")
         call_groups[group].append(index)
@@ -168,21 +174,28 @@ def _measure(run, graphs, change, edge):
     return result
 
 
-def compare_runs(before, after, expected_change=None):
-    """Compare frozen run bundles. Their ordering is baseline then candidate."""
-    if not isinstance(before, dict) or not isinstance(after, dict):
-        raise AnalyticsError("invalid_run", "Two run records are required", 400)
-    for run in (before, after):
-        if run.get("status") == "failed":
-            raise AnalyticsError("run_failed", "The load run failed")
-    for run in (before, after):
-        collection = run.get("trace_collection", {})
+def validate_run_collections(*runs):
+    if any(not isinstance(run, dict) for run in runs):
+        raise AnalyticsError("invalid_run", "Expected run records from the control component", 422)
+    if any(run.get("status") == "failed" for run in runs):
+        raise AnalyticsError("run_failed", "The load run failed")
+    if any(run.get("status") == "running" for run in runs):
+        raise AnalyticsError("traces_pending", "Trace collection has not finished", 409)
+    for run in runs:
+        collection = run.get("trace_collection")
         if not isinstance(collection, dict):
-            raise AnalyticsError("invalid_run_sample", "Missing trace collection")
-        if run.get("status") == "running" or collection.get("status") == "waiting":
+            raise AnalyticsError("invalid_run_sample", "Run metadata must include a frozen trace collection")
+        if collection.get("status") == "waiting":
             raise AnalyticsError("traces_pending", "Trace collection has not finished", 409)
         if run.get("status") != "completed" or collection.get("status") not in ("ready", "partial"):
             raise AnalyticsError("invalid_run", "Unsupported run or collection status")
+        if not isinstance(collection.get("trace_refs"), list):
+            raise AnalyticsError("invalid_run_sample", "Expected a list of frozen trace references")
+
+
+def compare_runs(before, after, expected_change=None):
+    """Compare frozen run bundles. Their ordering is baseline then candidate."""
+    validate_run_collections(before, after)
     if not before.get("run_id") or not after.get("run_id") or before["run_id"] == after["run_id"]:
         _incompatible("Two distinct run IDs are required")
     for key in ("stand_id", "scenario_revision", "fault_revision", "load"):

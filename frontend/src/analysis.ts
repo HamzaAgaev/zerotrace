@@ -11,10 +11,10 @@ export function unionLength(intervals: [number, number][]): number {
   for (const [a,b] of sorted) { total += Math.max(0, b-Math.max(a,end)); end = Math.max(end,b); }
   return total;
 }
-export interface ServiceStats { name: string; count: number; errors: number; unknown: number; median: number | null; p95: number | null; own: number; traceIds: string[] }
+export interface ServiceStats { name: string; count: number; errors: number; unknown: number; median: number | null; p95: number | null; own: number | null; traceIds: string[] }
 export interface EdgeStats { id: string; caller: string; callee: string; count: number; errors: number; unknown: number; median: number | null; p95: number | null; traceIds: string[] }
 export function summarize(details: TraceDetail[]): { services: ServiceStats[]; edges: EdgeStats[] } {
-  const services = new Map<string, { spans: Span[]; own: number; ids: Set<string> }>();
+  const services = new Map<string, { spans: Span[]; own: number | null; ids: Set<string> }>();
   const edges = new Map<string, { caller: string; callee: string; spans: Span[]; ids: Set<string> }>();
   for (const trace of details) {
     const map = new Map(trace.spans.map(s => [s.span_id,s]));
@@ -22,9 +22,15 @@ export function summarize(details: TraceDetail[]): { services: ServiceStats[]; e
       if (span.kind === 'server') {
         const group = services.get(span.service) ?? { spans: [], own: 0, ids: new Set<string>() };
         group.spans.push(span); group.ids.add(trace.summary.trace_id);
-        const start = numericMs(span.start_offset_ns), end = start + numericMs(span.duration_ns);
-        const occupied = unionLength(trace.spans.filter(s => s.parent_span_id === span.span_id).map(s => [Math.max(start,numericMs(s.start_offset_ns)), Math.min(end,numericMs(s.start_offset_ns)+numericMs(s.duration_ns))]));
-        group.own += Math.max(0,end-start-occupied); services.set(span.service,group);
+        const children = trace.spans.filter(s => s.parent_span_id === span.span_id);
+        if (children.length && trace.quality_issues.includes('cross_clock_uncertain')) {
+          group.own = null;
+        } else if (group.own !== null) {
+          const start = numericMs(span.start_offset_ns), end = start + numericMs(span.duration_ns);
+          const occupied = unionLength(children.map(s => [Math.max(start,numericMs(s.start_offset_ns)), Math.min(end,numericMs(s.start_offset_ns)+numericMs(s.duration_ns))]));
+          group.own += Math.max(0, end-start-occupied);
+        }
+        services.set(span.service,group);
       }
       const parent = span.parent_span_id ? map.get(span.parent_span_id) : null;
       if (span.kind !== 'server' || !parent || parent.service === span.service) continue;

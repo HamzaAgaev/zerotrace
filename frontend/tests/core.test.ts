@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTraces, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
+import { findingsForTrace, filterTraces, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
 import { demoDetail, demoFinding, demoTraces, demoAudit } from '../src/api/fixtures.js';
 import { ApiError, createClient, normalizeBaseUrl, unwrap, validatePayload } from '../src/api/client.js';
 const envelope = (payload: unknown) => ({ schema: 'test', schema_version: '1.0.0', producer_version: 'test', generated_at: '2026-11-10T00:00:00Z', payload });
@@ -67,4 +67,24 @@ test('audit accepts policy observations, uses remaining budget and prevents a pl
   const client = createClient({mode: 'live', baseUrl: ''}, async () => { called = true; throw new Error(); });
   await assert.rejects(client.createPlan(advisory), (e: unknown) => e instanceof ApiError && e.code === 'no_change_intent');
   assert.equal(called, false);
+});
+
+test('trace detail matches exact occurrences beyond the audit exemplars', () => {
+  const detail = demoDetail(demoTraces[0].trace_id);
+  const finding = { ...demoFinding, exemplars: [] };
+  const exact = { ...detail, finding_occurrence_ids: [finding.occurrence_id],
+    summary: { ...detail.summary, finding_count: 1 } };
+  validatePayload('trace', exact);
+  assert.deepEqual(findingsForTrace(exact, [finding]), [finding]);
+  assert.deepEqual(findingsForTrace(exact, [{ ...finding, occurrence_id: 'other' }]), []);
+  assert.deepEqual(findingsForTrace(detail, [finding]), []);
+  assert.throws(() => validatePayload('trace', { ...exact, finding_occurrence_ids: [] }));
+});
+
+
+test('trace detail accepts a signed offset from an incompatible clock domain', () => {
+  const detail = demoDetail(demoTraces[0].trace_id);
+  const spans = detail.spans.map((span, i) => i ? { ...span, start_offset_ns: '-1000' } : span);
+  validatePayload('trace', { ...detail, spans, quality_issues: ['cross_clock_uncertain'] });
+  assert.throws(() => validatePayload('trace', { ...detail, spans: [{ ...spans[0], duration_ns: '-1000' }] }));
 });

@@ -1,6 +1,6 @@
-from ingest.normalize import NormalizedBatch
-
-from .store import IngestResult, SpanStore, TraceMeta
+from backend._compat import publish_legacy_package
+from backend.ingest.normalize import NormalizedBatch
+from backend.repository.store import IngestResult, SpanStore, TraceMeta
 
 __all__ = [
     "IngestResult",
@@ -8,3 +8,5 @@ __all__ = [
     "SpanStore",
     "TraceMeta",
 ]
+
+publish_legacy_package(__name__, ["store"])

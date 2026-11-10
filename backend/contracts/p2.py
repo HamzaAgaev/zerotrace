@@ -62,6 +62,10 @@ class NormalizedSpan:
     idempotency: Idempotency = "unknown"
     links_present: bool = False
     async_markers: list[str] = field(default_factory=list)
+    service_namespace: str | None = None
+    run_id: str | None = None
+    logical_call_id: str | None = None
+    attempt_index: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -89,6 +93,17 @@ class NormalizedSpan:
             "async_markers": list(self.async_markers),
             "field_coverage": dict(self.field_coverage),
             "diagnostics": list(self.diagnostics),
+            # Preserve the canonical SQLite payload for spans without lab labels.
+            **{
+                key: value
+                for key, value in (
+                    ("service_namespace", self.service_namespace),
+                    ("run_id", self.run_id),
+                    ("logical_call_id", self.logical_call_id),
+                    ("attempt_index", self.attempt_index),
+                )
+                if value is not None
+            },
         }
 
     @staticmethod
@@ -118,6 +133,10 @@ class NormalizedSpan:
             async_markers=list(d.get("async_markers", [])),
             field_coverage=dict(d.get("field_coverage", {})),
             diagnostics=list(d.get("diagnostics", [])),
+            service_namespace=d.get("service_namespace"),
+            run_id=d.get("run_id"),
+            logical_call_id=d.get("logical_call_id"),
+            attempt_index=d.get("attempt_index"),
         )
 
 

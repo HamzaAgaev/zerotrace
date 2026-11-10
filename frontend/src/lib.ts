@@ -1,4 +1,4 @@
-import type { Route, Span, TraceRef, TraceSummary } from './api/types.js';
+import type { Finding, TraceDetail, Route, Span, TraceRef, TraceSummary } from './api/types.js';
 export const serviceColors: Record<string, string> = { gateway: '#96a2ff', orders: '#65c9ba', payment: '#dbad6b', inventory: '#65c9ba', pricing: '#dbad6b', 'catalog-api': '#96a2ff' };
 export function ms(value: string | null | undefined): number | null { if (value == null || !/^\d+$/.test(value)) return null; return Number(BigInt(value)) / 1e6; }
 export function duration(value: string | null | undefined): string { const n = ms(value); if (n === null && typeof value === 'string' && /^-\d+$/.test(value)) return '−' + duration(value.slice(1)); if (n === null) return 'Неизвестно'; return n >= 1000 ? `${(n / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} с` : `${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} мс`; }
@@ -33,4 +33,14 @@ export function timelineRows(spans: Span[]): { span: Span; depth: number }[] {
   const map = new Map(spans.map(s => [s.span_id, s])); const visited = new Set<string>(); const output: { span: Span; depth: number }[] = [];
   const walk = (span: Span, depth: number) => { if (visited.has(span.span_id)) return; visited.add(span.span_id); output.push({ span, depth: Math.min(depth, 20) }); spans.filter(s => s.parent_span_id === span.span_id).sort((a,b) => Number(BigInt(a.start_offset_ns) - BigInt(b.start_offset_ns))).forEach(s => walk(s, depth + 1)); };
   spans.filter(s => !s.parent_span_id || !map.has(s.parent_span_id)).forEach(s => walk(s, 0)); spans.forEach(s => walk(s, 0)); return output;
+}
+
+export function findingsForTrace(detail: TraceDetail, findings: Finding[]): Finding[] {
+  if (detail.finding_occurrence_ids !== undefined) {
+    const ids = new Set(detail.finding_occurrence_ids);
+    return findings.filter(f => ids.has(f.occurrence_id));
+  }
+  const trace = detail.trace_ref;
+  return findings.filter(f => f.exemplars.some(ref => ref.trace_id === trace.trace_id &&
+    ref.environment_id === trace.environment_id && ref.generation === trace.generation && ref.revision === trace.revision));
 }

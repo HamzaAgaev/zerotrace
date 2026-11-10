@@ -22,7 +22,9 @@ def read_json(path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="ZeroTrace backend analytics")
-    parser.add_argument("--data", type=Path, help="Offline dataset from A/B or a local fixture")
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--data", type=Path, help="Offline dataset from A/B or a local fixture")
+    inputs.add_argument("--span-store", type=Path, help="Existing SQLite span database from backend/repository")
     parser.add_argument("--store", default=":memory:", help="SQLite path for saved analysis results")
     sub = parser.add_subparsers(dest="command", required=True)
     for cmd in ("audit", "state", "export"):
@@ -42,7 +44,7 @@ def main(argv=None):
     check = sub.add_parser("eval")
     check.add_argument("actual")
     check.add_argument("expected")
-    serve = sub.add_parser("serve", help="Serve only analytics routes on loopback")
+    serve = sub.add_parser("serve", help="Serve analytics (and trace data with --span-store) on loopback")
     serve.add_argument("--port", type=int, default=8001)
     options = parser.parse_args(argv)
     store = None
@@ -52,13 +54,27 @@ def main(argv=None):
             value = evalkit.score(read_json(options.actual), read_json(options.expected))
             print(json.dumps(wire(value), ensure_ascii=False, indent=2, allow_nan=False))
             return {"passed": 0, "blocked": 3, "failed": 1}[value["status"]]
-        if options.data is None:
-            parser.error("--data is required for this command")
+        if options.span_store is not None:
+            from .repository_source import RepositorySource
+            if not options.span_store.is_file():
+                parser.error("--span-store must point to an existing SQLite file")
+            if options.store != ":memory:" and Path(options.store).exists() and options.span_store.samefile(options.store):
+                parser.error("--store must be separate from the input --span-store database")
+            source = RepositorySource(options.span_store)
+        elif options.data is not None:
+            source = FixtureSource.from_file(options.data)
+        else:
+            parser.error("--span-store or --data is required for this command")
         store = LocalResultStore(options.store)
-        service = AnalyticsService(FixtureSource.from_file(options.data), store)
+        service = AnalyticsService(source, store)
         code = 0
         if options.command == "serve":
-            with make_server("127.0.0.1", options.port, AnalyticsApp(service)) as server:
+            if options.span_store is not None:
+                from .backend_routes import BackendApp
+                app = BackendApp(service)
+            else:
+                app = AnalyticsApp(service)
+            with make_server("127.0.0.1", options.port, app) as server:
                 print(f"Analytics HTTP at http://127.0.0.1:{server.server_port}", flush=True)
                 server.serve_forever()
             return 0

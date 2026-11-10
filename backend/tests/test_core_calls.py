@@ -121,7 +121,7 @@ class TestFixtures:
     def test_grouping_version_propagated(self):
         model = derive_calls(load_trace("s00_healthy"), grouping_version="2.1.0")
         assert model.grouping_version == "2.1.0"
-        assert derive_calls(load_trace("s00_healthy")).grouping_version == "1.0.0"
+        assert derive_calls(load_trace("s00_healthy")).grouping_version == "1.1.0"
 
 
 class TestGrouping:

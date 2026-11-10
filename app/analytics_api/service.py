@@ -1,9 +1,13 @@
 """Application use cases shared by the product router and the offline CLI."""
 from __future__ import annotations
 
+from collections import OrderedDict
+from threading import Lock
+
 import comparison
 import projection
 import rules
+from comparison.runs import validate_run_collections
 from analytics_support import AnalyticsError, VERSION, digest, ref_key, wire
 from app.reports.bundle import build
 from .provider import AnalyticsSource
@@ -29,6 +33,26 @@ class AnalyticsService:
     def __init__(self, source: AnalyticsSource, results: ResultStore):
         self.source = source
         self.results = results
+        self._findings_cache = OrderedDict()
+        self._findings_lock = Lock()
+
+    def findings_by_trace(self, view, environment_id):
+        """Index occurrences by exact revision, including traces beyond the exemplar limit."""
+        cache_key = view.audit_cache_key(environment_id) if hasattr(view, "audit_cache_key") else None
+        if cache_key is not None:
+            with self._findings_lock:
+                index = self._findings_cache.get(cache_key)
+                if index is not None:
+                    self._findings_cache.move_to_end(cache_key)
+                    return index
+        _, audit = self._audit(view, environment_id)
+        index = {ref_key(row["trace_ref"]): tuple(row["occurrence_ids"]) for row in audit["trace_findings"]}
+        if cache_key is not None:
+            with self._findings_lock:
+                self._findings_cache[cache_key] = index
+                if len(self._findings_cache) > 16:
+                    self._findings_cache.popitem(last=False)
+        return index
 
     def _audit(self, view, environment_id, mode=None):
         env = view.environment(environment_id)
@@ -113,10 +137,7 @@ class AnalyticsService:
                     if run.get("run_id") != run_id:
                         raise AnalyticsError("inconsistent_dataset", "Provider returned another run", 409)
                     runs.append(run)
-                if any(r.get("status") == "failed" for r in runs):
-                    raise AnalyticsError("run_failed", "Failed run cannot be compared")
-                if any(r.get("status") == "running" or r["trace_collection"]["status"] == "waiting" for r in runs):
-                    raise AnalyticsError("traces_pending", "Trace collection is still open", 409)
+                validate_run_collections(*runs)
                 for i, run in enumerate(runs):
                     frozen = run["trace_collection"]["trace_refs"]
                     runs[i] = {**run, "traces": [_trace(view, ref) for ref in frozen]}

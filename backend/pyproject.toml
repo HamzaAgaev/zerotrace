@@ -13,7 +13,14 @@ dependencies = ["opentelemetry-proto>=1.27"]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 
 [tool.setuptools]
-packages = ["contracts", "ingest", "repository", "core", "app", "app.data_api"]
+packages = [
+    "backend", "backend.contracts", "backend.ingest", "backend.repository",
+    "backend.core", "backend.app", "backend.app.data_api",
+    "contracts", "ingest", "repository", "core", "app", "app.data_api",
+]
+
+[tool.setuptools.package-dir]
+backend = "."
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -26,6 +33,7 @@ line-length = 100
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 
 [tool.mypy]
+mypy_path = ".."
 python_version = "3.11"
-packages = ["contracts"]
+packages = ["backend.contracts"]
 strict = true

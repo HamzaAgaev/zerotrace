@@ -72,6 +72,7 @@ def run(model, policies=(), thresholds=None, baselines=None):
         if p not in by_edge[p["edge_id"]]:
             by_edge[p["edge_id"]].append(p)
     findings, observations = [], []
+    trace_occurrences = defaultdict(list)
     entries = defaultdict(list)
     generated = model.get("generated_at") or datetime.now(timezone.utc).isoformat()
     edges = sorted(set(ctx.by_edge) | set(ctx.groups) | set(by_edge))
@@ -90,6 +91,9 @@ def run(model, policies=(), thresholds=None, baselines=None):
     data_hash = digest([ctx.normalized_identity(), model.get("dataset_ref"), sampling, model.get("model_version"),
                         {k: model.get(k) for k in ("environment_kind", "workload_id", "caller_version",
                                                    "callee_version", "config_revision", "timeout_scope", "edges")}])
+    grouping_version = model.get("grouping_version")
+    if grouping_version is not None:
+        data_hash = digest([data_hash, grouping_version])
     identity = [model.get("project_id"), ctx.environment]
     occurrence = digest([identity, data_hash, config_refs, threshold_hash, baseline_refs, VERSION])
     paths = retry_paths(ctx, limits)
@@ -149,13 +153,18 @@ def run(model, policies=(), thresholds=None, baselines=None):
             if finding:
                 finding["thresholds_hash"] = threshold_hash
                 findings.append(finding)
+                for key in result.affected:
+                    trace_occurrences[key].append(finding["occurrence_id"])
     findings.sort(key=lambda f: (f["score"] is None, -f["score"] if f["score"] is not None else 0,
                                  -SEVERITY[f["severity"]], -CONFIDENCE[f["confidence"]], f["finding_id"]))
     return dict(result_id=occurrence, generated_at=generated, environment_id=ctx.environment,
+                grouping_version=grouping_version,
                 ruleset_version=VERSION, model_version=model.get("model_version", "p2-v1"),
                 dataset_ref=model.get("dataset_ref"), dataset_hash=data_hash, config_refs=config_refs,
                 thresholds_version=limits.defaults.version, thresholds_hash=threshold_hash, baseline_refs=baseline_refs,
                 sampling=sampling, observations=observations, findings=findings,
+                trace_findings=[{"trace_ref": asref(key), "occurrence_ids": sorted(trace_occurrences[key])}
+                                for key in sorted(trace_occurrences)],
                 rule_evaluations=[evaluation(rule, entries[rule]) for rule in RECOMMENDATIONS])
 
 

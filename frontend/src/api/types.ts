@@ -14,7 +14,7 @@ export interface Span {
   kind: 'server' | 'client' | 'internal'; start_offset_ns: string; duration_ns: string;
   outcome: Outcome; http_status: number | null; error_type: string | null;
 }
-export interface TraceDetail { summary: TraceSummary; trace_ref: TraceRef; spans: Span[]; quality_issues: string[] }
+export interface TraceDetail { summary: TraceSummary; trace_ref: TraceRef; finding_occurrence_ids?: string[]; spans: Span[]; quality_issues: string[] }
 export interface Finding {
   finding_id: string; occurrence_id: string; recommendation_id: string; rule_id: string; rule_version: string;
   title: string; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium' | 'low';

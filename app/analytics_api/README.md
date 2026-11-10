@@ -25,6 +25,36 @@ python3.11 -m unittest discover -v
 
 Scorer запускается через `python3.11 -m app.analytics_api eval actual.json expected.json`. В [описании eval](../../evalkit/README.md) приведены входы и операнды. Коды CLI: 0 — расчёт выполнен, 1 — ошибка входа/исполнения или провал eval, 2 — достигнут заданный `audit --fail-on` уровень, 3 — недостаточно данных для обязательной проверки (`--require-rule`).
 
+## Запуск с хранилищем Михаила
+
+Из корня репозитория можно открыть существующую SQLite-базу `backend.repository.SpanStore`. CLI читает базу через `--span-store`. Флаг `--store` по-прежнему указывает отдельную базу сохранённых результатов.
+
+```sh
+python3.11 -m app.analytics_api --span-store /path/to/spans.sqlite3 audit shop
+python3.11 -m app.analytics_api --span-store /path/to/spans.sqlite3 serve --port 8001
+```
+
+В этом режиме на одном адресе доступны `GET /api/v1/traces`, `GET /api/v1/traces/{id}` и аналитические маршруты. Список и карточка содержат число находок по точной ревизии. Поле карточки `finding_occurrence_ids` позволяет найти все её записи в полном аудите, включая трассы за пределами пяти примеров в находке. Экран источников, журнал и операции изменения обслуживает компонент A.
+
+Для локальной проверки можно заполнить новую базу двумя OTLP-примерами из репозитория. В примере приём, нормализация и запись выполняются кодом B.
+
+```python
+from pathlib import Path
+from backend.contracts import IngestLimits, SourceBinding
+from backend.ingest import RedactionProfile, SourceProfile, decode_otlp, normalize
+from backend.repository import SpanStore
+
+binding = SourceBinding("demo", "demo-project", "shop")
+with SpanStore(Path("spans.sqlite3")) as store:
+    for i, name in enumerate(("s00_healthy", "s01_retry"), start=1):
+        body = (Path("backend/fixtures/otlp") / f"{name}.json").read_bytes()
+        decoded = decode_otlp(body, "application/json", None, IngestLimits())
+        profile = SourceProfile(source_id="demo", clock_domain="fixture-clock")
+        store.ingest(normalize(decoded, profile, RedactionProfile()), binding, i)
+```
+
+Пример задаёт общие часы для сгенерированных спанов. Для внешнего источника домен часов должен быть известен из настроек сбора. При отсутствии таких сведений аналитика может сосчитать явно отмеченные повторы, но воздержится от расчёта выигрыша по несопоставимым временным отметкам.
+
 ## Подключение к A/B
 
 ```python
@@ -41,7 +71,7 @@ register_analytics(flask_app, analytics)
 - `trace(ref)` возвращает ровно выбранную версию. Составной ключ включает окружение, trace ID, generation и revision. Модель примера хранит дополнительные ревизии и другие эпохи в `historical_traces`.
 - `run(id)` возвращает состояние, стенд, scenario/fault revision, нагрузку, снимок конфига и зафиксированную `trace_collection`. Для общего случая у кандидата должен быть `expected_change` с владельцем, call_ref, полем и значениями до/после из подтверждённой операции A. Сценарий P11 допускает один однозначный вызов с изменением max_attempts.
 
-Реализация A/B может инъектировать свой `ResultStore.put_many/get`. Локальная реализация хранит immutable-результаты атомарно и переживает перезапуск с файловой SQLite. Для P6 Никита вызывает `analytics.recommendation(environment_id, occurrence_id, recommendation_id)`, затем проверяет актуальные права, цель, capability и ревизию. Чистая функция `rules.verify_symptom` доступна планировщику A. Типы Python между компонентами и формат хранилища пока остаются внутренним интерфейсом.
+Реализация A/B может инъектировать свой `ResultStore.put_many/get`. Локальная реализация хранит immutable-результаты атомарно и переживает перезапуск с файловой SQLite. Для P6 Никита вызывает `analytics.recommendation(environment_id, occurrence_id, recommendation_id)`, затем проверяет актуальные права, цель, capability и ревизию. Чистая функция `rules.verify_symptom` доступна планировщику A. Для встраивания в процесс создайте `AnalyticsService(RepositorySource(span_store, control_snapshot=read_control), result_store)`. `RepositorySource` и `BackendApp` находятся в `app.analytics_api.repository_source` и `app.analytics_api.backend_routes`. Функция `read_control()` возвращает входы A для одного чтения: `{"environments": {env_id: settings}, "runs": {run_id: run}}`. При отсутствии функции сервис работает по телеметрии B. Для P4 значения `policies` и `environment_kind` передаются в settings явно. Для P11 нужны метаданные двух прогонов A, их зафиксированные TraceRef, `run_id` входных SERVER-спанов и метки попыток CLIENT-спанов. Новая ревизия трассы даёт 409 для запроса прежней ревизии, если B уже заменил её по позднему спану. Ранее сохранённый отчёт остаётся доступным по ID.
 
 ## Публичный интерфейс
 
@@ -49,4 +79,4 @@ register_analytics(flask_app, analytics)
 
 Сравнения прогонов и групп принимаются на одном маршруте по двум разным формам запроса. Для P10 алгоритм применяет P3 linear interpolation с округлением half-up в наносекундах. В P9 выбор вложенной ветки исключается с пояснением. Эти две семантики закреплены в командном черновике и расходятся с текущим локальным превью TypeScript.
 
-Реальный интеграционный прогон требует поставщиков A/B с OTLP, их хранилищем и лабораторией. Готовый WSGI-модуль и `register_analytics` дают точки подключения. Независимые измерения для валидации точности P9 и размеченные сценарии для P8 предоставляет стенд A.
+Интеграционные тесты проходят путь от OTLP-фикстур через нормализацию B и SQLite до HTTP и CLI. Для проверки на запущенном лабораторном сервисе нужны стенд и управляющие метаданные A. Независимые измерения для P9 и размеченные сценарии для P8 предоставляет стенд A.

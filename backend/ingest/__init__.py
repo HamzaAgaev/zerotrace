@@ -1,4 +1,5 @@
-from .decoder import (
+from backend._compat import publish_legacy_package
+from backend.ingest.decoder import (
     MEDIA_JSON,
     MEDIA_PROTOBUF,
     BadRequestError,
@@ -10,7 +11,7 @@ from .decoder import (
     UnsupportedMediaTypeError,
     decode_otlp,
 )
-from .normalize import (
+from backend.ingest.normalize import (
     NormalizedBatch,
     RedactionProfile,
     ResourceInfo,
@@ -35,3 +36,5 @@ __all__ = [
     "decode_otlp",
     "normalize",
 ]
+
+publish_legacy_package(__name__, ["decoder", "normalize"])

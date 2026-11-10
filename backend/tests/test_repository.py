@@ -114,7 +114,9 @@ def test_conflicting_span_keeps_first_accepted(store: SpanStore):
     conflicting = make_span("a" * 32, "1" * 16, name="GET /other", otel_status="error")
     result = store.ingest(NormalizedBatch(spans=[conflicting]), BINDING, T0 + 1_000)
     assert [d.code for d in result.diagnostics] == ["conflicting_span"]
-    assert result.trace_refs[0].revision == 1
+    assert result.trace_refs[0].revision == 2
+    replay = store.ingest(NormalizedBatch(spans=[conflicting]), BINDING, T0 + 2_000)
+    assert replay.trace_refs == result.trace_refs
 
     loaded = store.get_spans(result.trace_refs[0])
     assert loaded is not None

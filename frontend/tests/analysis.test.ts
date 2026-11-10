@@ -31,3 +31,11 @@ test('parallel interval model retains offsets and limiting sibling',()=>{const t
 test('invalid quality, bounds, cycles and overlapping branch choices reject projection',()=>{assert.throws(()=>projectIntervals(demoDetail(demoTraces[0].trace_id),{}));const trace=tree([span('root',null,0,100),span('a','root',0,80),span('b','a',0,50)]);assert.throws(()=>projectIntervals(trace,{a:50,b:50}),/непересекающиеся/);assert.throws(()=>projectIntervals(trace,{missing:10}));assert.throws(()=>projectIntervals(tree([span('root',null,0,100),span('a','root',90,20)]),{}),/границы/);assert.throws(()=>projectIntervals(tree([span('root',null,0,100),span('a','b',0,10),span('b','a',0,10)]),{}),/недостижимые/);});
 test('healthy fixture projection is monotonic for each eligible branch',()=>{const trace=demoDetail(demoTraces[5].trace_id);const baseline=projectIntervals(trace,{});for(const s of trace.spans.filter(s=>s.parent_span_id)){let previous=baseline.baseline;for(const percent of [0,25,50,75,100]){const r=projectIntervals(trace,{[s.span_id]:percent});assert.ok(r.projected<=previous+1e-8);assert.ok(r.projected>=0);previous=r.projected;}}});
 test('new deep links retain route when a finding query is attached',()=>{for(const page of ['graph','timings','policies','compare'])assert.deepEqual(readRoute(`#/${page}?finding=x`),{page});});
+
+test('cross-clock durations remain visible without subtracting unrelated child intervals', () => {
+  const trace = tree([span('root', null, 0, 100), span('child', 'root', -50, 80)]);
+  const stats = summarize([{ ...trace, quality_issues: ['cross_clock_uncertain'] }]);
+  const root = stats.services.find(s => s.name === trace.spans[0].service);
+  assert.equal(root?.own, null);
+  assert.notEqual(root?.median, null);
+});

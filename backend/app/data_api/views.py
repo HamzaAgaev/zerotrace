@@ -14,8 +14,8 @@ Derivation rules:
 
 from __future__ import annotations
 
-from contracts.p2 import CallModel, NormalizedSpan, TraceGraph
-from contracts.p7 import SpanView, TraceDetail, TraceSummary, UiOutcome, UiSpanKind
+from backend.contracts.p2 import CallModel, NormalizedSpan, TraceGraph
+from backend.contracts.p7 import SpanView, TraceDetail, TraceSummary, UiOutcome, UiSpanKind
 
 HTTP_SERVER_ERROR_MIN = 500
 FINDING_HYPOTHESES = frozenset({"retry", "hedge"})
@@ -85,7 +85,9 @@ def quality_issue_codes(graph: TraceGraph) -> list[str]:
     if graph.quality.source_loss is not None:
         add("source_loss")
     reference = reference_clock_domain(graph)
-    if any(s.clock_domain != reference for s in graph.spans):
+    if len(graph.spans) > 1 and (
+        reference in (None, "", "unknown") or any(s.clock_domain != reference for s in graph.spans)
+    ):
         add("cross_clock_uncertain")
     return codes
 

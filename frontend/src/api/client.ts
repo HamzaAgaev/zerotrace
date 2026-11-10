@@ -18,6 +18,7 @@ const obj = (value: unknown): value is Record<string, unknown> => !!value && typ
 const str = (v: unknown): v is string => typeof v === 'string';
 const count = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const nanos = (v: unknown) => str(v) && /^\d+$/.test(v);
+const signedNanos = (v: unknown) => str(v) && /^-?\d+$/.test(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(str);
 const outcome = (v: unknown) => ['ok', 'error', 'unknown'].includes(String(v));
 const http = (v: unknown) => v === null || (count(v) && v >= 100 && v <= 599);
@@ -37,7 +38,7 @@ function isFinding(f: unknown): boolean {
   const e = f.evidence, r = f.recommendation;
   const validEvidence = str(e.source) && (
     (e.kind === 'retry_budget' && f.basis === 'config_aware' && count(e.attempts) &&
-      ['timeout_ns', 'backoff_total_ns', 'required_ns', 'budget_ns'].every(k => nanos(e[k])) && (e.available_ns === undefined || (str(e.available_ns) && /^-?\d+$/.test(e.available_ns))) && str(e.config_revision)) ||
+      ['timeout_ns', 'backoff_total_ns', 'required_ns', 'budget_ns'].every(k => nanos(e[k])) && (e.available_ns === undefined || signedNanos(e.available_ns)) && str(e.config_revision)) ||
     (e.kind === 'policy_observation' && f.basis === 'config_aware') ||
     (e.kind === 'trace_observation' && ['observed', 'inferred'].includes(String(f.basis)))
   );
@@ -48,7 +49,10 @@ export function validatePayload(kind: 'list' | 'trace' | 'audit' | 'capabilities
   if (kind === 'journal') valid = Array.isArray(value) && value.every(e => obj(e) && str(e.operation_id) && str(e.target) && str(e.requested_at) && ['planned','applying','applied','no_op','rejected','unknown','failed'].includes(String(e.status)) && (e.verification === null || ['checking','insufficient_data','symptom_absent','symptom_present','inconclusive'].includes(String(e.verification))) && changes(e.actual_changes));
   if (obj(value)) {
     if (kind === 'list') valid = Array.isArray(value.items) && value.items.every(isSummary) && count(value.total);
-    if (kind === 'trace') valid = isSummary(value.summary) && isTraceRef(value.trace_ref) && sameTraceRef(value.summary.trace_ref, value.trace_ref) && strings(value.quality_issues) && Array.isArray(value.spans) && value.spans.every(s => obj(s) && str(s.span_id) && /^[a-f0-9]{16}$/.test(s.span_id) && (s.parent_span_id === null || str(s.parent_span_id)) && str(s.service) && str(s.name) && ['server','client','internal'].includes(String(s.kind)) && nanos(s.duration_ns) && nanos(s.start_offset_ns) && outcome(s.outcome) && http(s.http_status) && (s.error_type === null || str(s.error_type)));
+    if (kind === 'trace') valid = isSummary(value.summary) &&
+      (value.finding_occurrence_ids === undefined || (strings(value.finding_occurrence_ids)
+        && new Set(value.finding_occurrence_ids).size === value.finding_occurrence_ids.length
+        && value.finding_occurrence_ids.length === value.summary.finding_count)) && isTraceRef(value.trace_ref) && sameTraceRef(value.summary.trace_ref, value.trace_ref) && strings(value.quality_issues) && Array.isArray(value.spans) && value.spans.every(s => obj(s) && str(s.span_id) && /^[a-f0-9]{16}$/.test(s.span_id) && (s.parent_span_id === null || str(s.parent_span_id)) && str(s.service) && str(s.name) && ['server','client','internal'].includes(String(s.kind)) && nanos(s.duration_ns) && signedNanos(s.start_offset_ns) && outcome(s.outcome) && http(s.http_status) && (s.error_type === null || str(s.error_type)));
     if (kind === 'audit') valid = str(value.result_id) && str(value.generated_at) && Array.isArray(value.rule_evaluations) && value.rule_evaluations.every(r => obj(r) && str(r.rule_id) && ['evaluated','not_implemented','insufficient_data','not_applicable'].includes(String(r.status)) && count(r.eligible_count)) && Array.isArray(value.findings) && value.findings.every(isFinding);
     if (kind === 'capabilities') valid = str(value.mode) && str(value.api_version) && str(value.source_name) && ['receiving','idle','unknown'].includes(String(value.source_state)) && typeof value.apply_enabled === 'boolean' && obj(value.limits) && count(value.limits.max_trace_spans);
     if (kind === 'plan') valid = str(value.plan_id) && str(value.plan_hash) && str(value.finding_id) && str(value.target) && str(value.expected_revision) && str(value.expires_at) && changes(value.changes) && strings(value.warnings) && typeof value.apply_enabled === 'boolean';

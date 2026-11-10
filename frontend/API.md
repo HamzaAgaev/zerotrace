@@ -57,7 +57,7 @@ JournalEntry использует requested_at и actual_changes, статусы
 
 TraceSummary: trace_ref, trace_id, operation, service, start_ns, duration_ns, span_count, service_count, outcome(ok/error/unknown), http_status:number|null, finding_count, quality_issues:string[].
 
-TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},spans,quality_issues}`. Span содержит span_id,parent_span_id|null,service,name,kind(server/client/internal),start_offset_ns,duration_ns,outcome,http_status|null,error_type|null. `start_offset_ns` считается для выбранной шкалы на сервере/adapter; frontend не вычитает timestamps разных clocks. Готовность модели и clock quality остаются у B/C.
+TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},spans,quality_issues}`. Span содержит span_id,parent_span_id|null,service,name,kind(server/client/internal),start_offset_ns,duration_ns,outcome,http_status|null,error_type|null. `start_offset_ns` считается для выбранной шкалы на сервере/adapter; frontend не вычитает timestamps разных clocks. При `cross_clock_uncertain` смещение может быть отрицательным, а общая шкала скрыта. В объединённом API список содержит `finding_count` для точной ревизии. Карточка дополнительно возвращает `finding_occurrence_ids` для сопоставления с аудитом.
 
 ### Для Амира (C)
 
