@@ -1,0 +1,14 @@
+{
+  "name": "zerotrace-frontend",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "tsc -p tsconfig.tests.json && node --test .test-build/tests/*.test.js"
+  },
+  "dependencies": { "react": "19.3.1", "react-dom": "19.3.1" },
+  "devDependencies": { "@types/node": "22.19.0", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "typescript": "5.7.3", "vite": "6.4.5" }
+}
