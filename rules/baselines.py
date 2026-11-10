@@ -25,8 +25,11 @@ def build_reference(segment, attempts, sampling, *, version, created_at, valid_u
             or timestamp(created_at) >= timestamp(valid_until) or not version):
         raise ValueError("baseline requires a scoped unselected sample and validity interval")
     durations, errors, seen, refs = [], 0, set(), set()
+    revisions = {}
     for a in attempts:
         key = refkey(a["trace_ref"])
+        if revisions.setdefault(key[:3], key[3]) != key[3]:
+            raise ValueError("baseline contains multiple revisions of the same trace")
         if (key[0] != segment["environment_id"] or any(a.get(k) != segment[k] for k in
                 ("edge_id", "caller_version", "callee_version", "workload_id"))):
             raise ValueError("mixed or unknown baseline segments")

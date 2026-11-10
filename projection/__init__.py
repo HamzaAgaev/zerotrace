@@ -5,7 +5,7 @@ import json
 from math import isfinite
 import re
 
-from analytics_support import AnalyticsError, digest, ref_key
+from analytics_support import AnalyticsError, digest, ref_key, valid_span_id
 from .intervals import Intervals
 
 VERSION = "interval-blocks-v1.0.0"
@@ -37,7 +37,7 @@ def _changes(value):
         if not isinstance(change, dict):
             raise _error("invalid_changes", "A reduction needs a span and percentage.")
         node, percent = change.get("span_id"), change.get("speedup_percent")
-        if not isinstance(node, str) or not node or node in changes:
+        if not valid_span_id(node) or node in changes:
             raise _error("invalid_changes", "Each selected span must have a distinct ID.")
         if type(percent) not in (int, float) or not 0 <= percent <= 100 or not isfinite(percent):
             raise _error("invalid_changes", "Reduction must be a finite number from 0 to 100 inclusive.")
@@ -55,7 +55,11 @@ def _integer(value):
 
 def _bounds(span):
     start = _integer(span.get("start_offset_ns", span.get("offset_ns", span.get("start_ns"))))
-    duration = _integer(span["duration_ns"]) if "duration_ns" in span else _integer(span.get("end_ns")) - start
+    if "duration_ns" in span:
+        duration = _integer(span["duration_ns"])
+    else:
+        # end_ns is an absolute timestamp. Offsets are relative to the displayed root.
+        duration = _integer(span.get("end_ns")) - _integer(span.get("start_ns"))
     if duration < 0:
         raise ValueError("Negative span duration")
     if "start_ns" in span and "end_ns" in span:
@@ -64,10 +68,22 @@ def _bounds(span):
     return start, start + duration
 
 
-def _quality(graph, scope, root, explicit_root):
+def _quality(graph, scope, root, explicit_root, span_count, locations):
     quality = graph.get("quality") or {}
-    issues = list(quality.get("issues", [])) + list(graph.get("quality_issues", []))
-    if quality.get("source_loss"):
+    summary = graph.get("summary") or {}
+    issues = [*quality.get("issues", []), *graph.get("quality_issues", []), *summary.get("quality_issues", [])]
+    # Counters without complete span locations cannot be scoped away by choosing a subtree.
+    for field, code in (("orphan_count", "missing_parent"), ("conflicting_span_count", "conflicting_span")):
+        localized = {span_id for issue in issues if isinstance(issue, dict) and issue.get("code") == code
+                     for span_id in issue.get("span_ids", [])}
+        if (quality.get(field) or 0) > len(localized | locations[code]):
+            issues.append(code)
+    if summary.get("span_count", span_count) != span_count:
+        issues.append("span_count_mismatch")
+    if graph.get("assembly_state") == "forced" or quality.get("forced_reason"):
+        issues.append("forced_close")
+    sampling = graph.get("sampling")
+    if quality.get("source_loss") or isinstance(sampling, dict) and sampling.get("known_losses"):
         issues.append("source_loss")
     blockers, warnings = set(), set()
     for issue in issues:
@@ -79,7 +95,7 @@ def _quality(graph, scope, root, explicit_root):
             warnings.add("partial_trace_scope")
         elif code in {"missing_parent", "multiple_roots", "cycle", "depth_limit",
                       "cross_clock_uncertain", "conflicting_span", "source_loss", "invalid_bounds",
-                      "disconnected", "orphan", "clock_skew", "missing_span"}:
+                      "disconnected", "orphan", "clock_skew", "missing_span", "span_count_mismatch", "forced_close"}:
             blockers.add(code)
         else:
             # Unknown fields (e.g. HTTP status) do not by themselves invalidate intervals.
@@ -125,18 +141,29 @@ def analyze(graph, request, policy=None):
     raw = graph.get("spans", [])
     if not isinstance(raw, list) or any(not isinstance(s, dict) for s in raw):
         raise _error("invalid_graph", "Expected a list of spans.")
-    if any(not isinstance(s.get("span_id"), str) or not s["span_id"] for s in raw):
+    if any(not valid_span_id(s.get("span_id")) for s in raw):
         raise _error("invalid_graph", "Every span needs an ID.")
-    if any(s.get("parent_span_id") is not None and not isinstance(s["parent_span_id"], str) for s in raw):
-        raise _error("invalid_graph", "Parent span ID must be a string or null.")
-    spans = {s["span_id"]: s for s in raw}
+    if any(s.get("parent_span_id") is not None and not valid_span_id(s["parent_span_id"]) for s in raw):
+        raise _error("invalid_graph", "Parent span ID must be valid or null.")
+    spans = {}
+    conflicting_parents = defaultdict(set)
+    for s in raw:
+        n = s["span_id"]
+        if n in spans and s != spans[n]:
+            conflicting_parents[n].update((spans[n].get("parent_span_id"), s.get("parent_span_id")))
+        else:
+            spans[n] = s
     root = request.get("root_span_id")
     explicit = root is not None
-    if explicit and (not isinstance(root, str) or root not in spans):
+    if explicit and not valid_span_id(root):
+        raise _error("invalid_projection", "Malformed scope root span ID.")
+    if explicit and root not in spans:
         raise _error("unknown_span", "Selected scope root is unavailable.")
     if changes.keys() - spans.keys():
         raise _error("unknown_span", "A selected span is unavailable.")
-    canonical = {"trace_ref": ref, "spans": sorted(raw, key=lambda s: s["span_id"]),
+    canonical = {"trace_ref": ref, "spans": sorted(spans.values(), key=lambda s: s["span_id"]), "conflicts": sorted(conflicting_parents),
+                 "summary": {k: v for k, v in (graph.get("summary") or {}).items() if k in {"quality_issues", "span_count"}},
+                 "assembly_state": graph.get("assembly_state"), "sampling": graph.get("sampling"),
                  "quality": graph.get("quality"), "quality_issues": graph.get("quality_issues", []),
                  "clock_compatible": graph.get("clock_compatible"), "root_span_id": root, "changes": selected,
                  "algorithm_version": VERSION}
@@ -154,7 +181,7 @@ def analyze(graph, request, policy=None):
         result["applicability"]["reason_codes"] = sorted(reasons)
         return result
 
-    if len(raw) != len(spans):
+    if conflicting_parents and not explicit:
         return unavailable(["conflicting_span"])
     if not spans:
         return unavailable(["empty_trace"])
@@ -192,15 +219,19 @@ def analyze(graph, request, policy=None):
         stack.extend((c, level + 1) for c in sorted(children[node], reverse=True))
     excluded = sorted(spans.keys() - seen)
     result["applicability"]["excluded_span_ids"] = excluded
+    if any(node in seen or parents & seen for node, parents in conflicting_parents.items()):
+        return unavailable(["conflicting_span"])
     if not explicit and excluded:
         # Components without a parentless root originate in an orphan or a cycle.
         return unavailable(["disconnected", "missing_parent" if missing else "cycle"])
     if changes.keys() - seen:
         raise _error("span_outside_scope", "A selected branch lies outside the scope root.")
-    blockers, warnings = _quality(graph, seen, root, explicit)
+    blockers, warnings = _quality(graph, seen, root, explicit, len(spans),
+                                  {"missing_parent": missing, "conflicting_span": set(conflicting_parents)})
     if explicit and (excluded or spans[root].get("parent_span_id")):
         warnings.add("partial_trace_scope")
     bounds, observed = {}, {}
+    clock_groups, domains = {}, defaultdict(set)
     for n in order:
         s = spans[n]
         if s.get("links_present") or s.get("links") or s.get("async_markers") or str(s.get("kind")).lower() in {"producer", "consumer"}:
@@ -212,6 +243,14 @@ def analyze(graph, request, policy=None):
             continue
         bounds[n] = (start, end)
         p = s.get("parent_span_id")
+        # An unknown clock on an intermediary does not prove that two named
+        # clocks elsewhere can be compared. Explicit alignment bridges domains.
+        clock_groups[n] = n if n == root or s.get("clock_compatible") is True else clock_groups.get(p, n)
+        clock = s.get("clock_domain")
+        if clock not in (None, "", "unknown") and graph.get("clock_compatible") is not True:
+            domains[clock_groups[n]].add(clock)
+            if len(domains[clock_groups[n]]) > 1:
+                blockers.add("cross_clock_uncertain")
         if n == root or p not in bounds:
             continue
         parent = spans[p]
@@ -220,12 +259,13 @@ def analyze(graph, request, policy=None):
         parent_relative = "start_offset_ns" in parent or "offset_ns" in parent
         if child_relative != parent_relative:
             blockers.add("mixed_time_axes")
-        if explicit_clock is False or graph.get("clock_compatible") is False:
+        child_clock, parent_clock = s.get("clock_domain"), parent.get("clock_domain")
+        unknown = (None, "", "unknown")
+        common_clock = child_clock == parent_clock and child_clock not in unknown
+        aligned = explicit_clock is True or graph.get("clock_compatible") is True
+        if (explicit_clock is False or graph.get("clock_compatible") is False
+                or not aligned and not child_relative and not common_clock):
             blockers.add("cross_clock_uncertain")
-        elif not child_relative and explicit_clock is not True and graph.get("clock_compatible") is not True:
-            common_clock = s.get("clock_domain") == parent.get("clock_domain") and s.get("clock_domain") not in (None, "", "unknown")
-            if not common_clock:
-                blockers.add("cross_clock_uncertain")
         lo, hi = bounds[p]
         if start < lo or end > hi:
             if max(lo - start, end - hi) > TOLERANCE_NS:
@@ -256,7 +296,7 @@ def analyze(graph, request, policy=None):
     base = model.duration(root)
     gain = base - projected[root]
     result.update(projected_ns=str(projected[root]), gain_ns=str(gain), gain_ratio=gain / base if base else None,
-                  limiting_branches=sorted(limiting), observations=_observations(spans, order, bounds))
+                  limiting_branches=sorted(limiting), observations=_observations(spans, order, observed))
     if effective and gain == 0:
         result["warnings"].append("no_gain_in_selected_scope")
     for n in order:

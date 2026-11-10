@@ -87,8 +87,9 @@ def _attempts(row, graph, run, change, edge):
         raise AnalyticsError("invalid_run_sample", "Frozen trace has incomplete call observations",
                              details={"ref": row["ref"], "issues": row["issues"]})
     root = row["root"]
-    if label(root, "run_id") != run["run_id"] or label(root, "probe") or graph.get("probe"):
-        raise AnalyticsError("invalid_run_sample", "A probe or foreign request is present in the frozen sample",
+    if (str(root.get("kind", "")).lower() != "server" or label(root, "run_id") != run["run_id"]
+            or label(root, "probe") or graph.get("probe")):
+        raise AnalyticsError("invalid_run_sample", "Expected a non-probe entry SERVER from the selected run",
                              details={"ref": row["ref"]})
     call_groups = defaultdict(list)
     attempts = {}
@@ -97,24 +98,47 @@ def _attempts(row, graph, run, change, edge):
         if not key or key in attempts or attempt.get("trace_ref", row["ref"]) != row["ref"]:
             raise AnalyticsError("invalid_run_sample", "Invalid normalized attempt identity")
         attempts[key] = attempt
+    snapshot_service = run["config_snapshot"].get("service")
+    has_owner_binding = snapshot_service is not None or any(
+        label(span, "service_id") == change["service_id"] or service_name(span.get("service")) == change["service_id"]
+        for span in graph["spans"])
     for client in row["clients"]:
-        if service_name(client.get("service")) != change["service_id"]:
-            continue
         attempt = attempts.get(client["span_id"], {})
-        call_ref = label(client, "call_ref") or attempt.get("call_ref")
-        edge_id = label(client, "edge_id") or attempt.get("edge_id")
-        has_call_ref = call_ref is not None
+        span_service = client.get("service")
+        registry_id = label(client, "service_id")
+        if registry_id is not None:
+            same_owner = registry_id == change["service_id"]
+        elif isinstance(span_service, dict) and isinstance(snapshot_service, dict):
+            same_owner = span_service == snapshot_service
+        else:
+            same_owner = service_name(span_service) == (service_name(snapshot_service) or change["service_id"])
+        # An exact machine edge already identifies the caller; a display name cannot
+        # be compared to an opaque adapter ID. A call_ref alone is local to its owner.
+        def observed(name):
+            from_span, normalized = label(client, name), attempt.get(name)
+            if from_span is not None and normalized is not None and from_span != normalized:
+                raise AnalyticsError("invalid_run_sample", f"Conflicting {name} on the same attempt")
+            return from_span if from_span is not None else normalized
+
+        edge_id = observed("edge_id")
         has_edge = edge is not None and edge_id is not None
-        if not has_call_ref and not has_edge:
+        exact_edge = has_edge and edge_id == edge
+        if not same_owner and not exact_edge:
+            if (not has_edge and registry_id is None and not has_owner_binding
+                    and observed("call_ref") in (None, change["call_ref"])):
+                raise AnalyticsError("invalid_run_sample", "Cannot resolve the owner of a possible target call")
+            continue
+        if exact_edge and not same_owner and (registry_id is not None or snapshot_service is not None):
+            raise AnalyticsError("invalid_run_sample", "The observed caller contradicts the configured edge")
+        call_ref = observed("call_ref")
+        if call_ref is None and not has_edge:
             raise AnalyticsError("invalid_run_sample", "Missing target identity on client span of the configured service")
-        if has_call_ref and has_edge and (call_ref == change["call_ref"]) != (edge_id == edge):
+        if call_ref is not None and has_edge and (call_ref == change["call_ref"]) != exact_edge:
             raise AnalyticsError("invalid_run_sample", "Conflicting call and edge identities")
-        if (has_call_ref and call_ref != change["call_ref"]) or (has_edge and edge_id != edge):
+        if (call_ref is not None and call_ref != change["call_ref"]) or (has_edge and not exact_edge):
             continue
         group = label(client, "logical_call_id") or attempt.get("call_id")
-        index = label(client, "attempt_index")
-        if index is None:
-            index = attempt.get("attempt_index")
+        index = observed("attempt_index")
         if not isinstance(group, str) or not group or type(index) is not int or index < 1:
             raise AnalyticsError("invalid_run_sample", "Missing laboratory call membership or attempt index")
         call_groups[group].append(index)

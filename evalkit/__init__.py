@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from analytics_support import AnalyticsError
 
-VERSION = "p8-score-v1.0.0"
+VERSION = "p8-score-v1.0.1"
 SEVERITIES = ("low", "medium", "high")
 ABSENT = object()
 
@@ -55,10 +55,7 @@ def _matches(finding, spec):
     version = spec.get("rule_version")
     if version is not None and finding.get("rule_version", finding.get("version")) != version:
         return False
-    selector = spec.get("selector", {})
-    if not isinstance(selector, dict):
-        raise _invalid("Finding selector must be an object.")
-    return all(_lookup(finding, path) == value for path, value in selector.items())
+    return all(_lookup(finding, path) == value for path, value in spec.get("selector", {}).items())
 
 
 def _matches_value(value, condition):
@@ -106,11 +103,12 @@ def _evaluated_scope(evaluation, spec):
     if spec.get("rule_version") is not None and evaluation.get("rule_version") != spec["rule_version"]:
         return False
     edge = spec.get("selector", {}).get("edge_id")
-    if edge is not None and "by_edge" in evaluation:
-        rows = [r for r in evaluation["by_edge"] if r.get("edge_id") == edge]
+    if edge is not None:
+        rows = [r for r in _list(evaluation, "by_edge") if r.get("edge_id") == edge]
     else:
         rows = [evaluation]
-    return any(r.get("status") == "evaluated" and r.get("eligible_count", 1) != 0 for r in rows)
+    return any(r.get("status") == "evaluated" and type(r.get("eligible_count")) is int
+               and r["eligible_count"] > 0 for r in rows)
 
 
 def _projection_scores(actual, expected, assertions, blocked):
@@ -134,7 +132,7 @@ def _projection_scores(actual, expected, assertions, blocked):
                 "source": measured.get("source"), "trace_ref": predicted.get("trace_ref")}
         status = predicted.get("status", "missing")
         if blocked:
-            state, reason = "blocked", "missing_capability_or_mode"
+            state, reason = "blocked", "prerequisites_not_met"
         elif status != "available" or predicted.get("projected_ns") is None:
             state, reason = "blocked", "projection_" + str(status)
         else:
@@ -183,22 +181,30 @@ def score(actual_results, expected):
     if mode is not None and mode not in {"trace_only", "config_aware"}:
         raise _invalid("Expected trace_only or config_aware mode.")
     mode_mismatch = mode is not None and actual.get("mode") != mode
-    blocked = bool(missing or mode_mismatch)
+    mismatches = {field: {"expected": expected[field], "actual": actual[field]}
+                  for field in ("scenario_id", "scenario_version", "build_ref", "seed")
+                  if expected.get(field) is not None and actual.get(field) is not None
+                  and expected[field] != actual[field]}
+    blocked = bool(missing or mode_mismatch or mismatches)
     assertions, positive, forbidden = [], set(), set()
     if blocked:
         assertions.append({"kind": "prerequisites", "status": "blocked", "missing_capabilities": missing,
-                           "expected_mode": mode, "actual_mode": actual.get("mode")})
+                           "expected_mode": mode, "actual_mode": actual.get("mode"),
+                           "mismatched_inputs": mismatches})
     positive_hit = positive_miss = 0
     for kind in ("must_find", "must_not_find"):
         for spec in _list(expected, kind):
             if not isinstance(spec.get("rule_id"), str) or not spec["rule_id"]:
                 raise _invalid("A finding assertion needs a rule ID.")
+            if not isinstance(spec.get("selector", {}), dict):
+                raise _invalid("Finding selector must be an object.")
             matches = [i for i, f in enumerate(findings) if _matches(f, spec)]
             candidates = [{"finding": findings[i], "failed_fields": _finding_checks(findings[i], spec)} for i in matches]
             usable = [i for i, row in zip(matches, candidates) if not row["failed_fields"]]
             evaluated = any(_evaluated_scope(r, spec) for r in rules)
-            # A finding is direct evidence even when remaining observations are incomplete.
-            if blocked or (not matches and not evaluated):
+            # A qualified forbidden finding proves a violation even on partial input.
+            evidence = usable if kind == "must_not_find" else matches
+            if blocked or (not evidence and not evaluated):
                 state = "blocked"
             elif kind == "must_find":
                 state = "passed" if usable else "failed"
@@ -226,9 +232,9 @@ def score(actual_results, expected):
     counts = Counter(a["status"] for a in assertions)
     status = "failed" if counts["failed"] else ("blocked" if counts["blocked"] or not assertions else "passed")
     labelled = len(positive) + len(forbidden)
-    return {"scorer_version": VERSION, "scenario_id": expected.get("scenario_id", actual.get("scenario_id")),
-            "scenario_version": expected.get("scenario_version"), "build_ref": actual.get("build_ref"),
-            "seed": actual.get("seed"), "mode": mode or actual.get("mode"), "status": status,
+    return {"scorer_version": VERSION, "scenario_id": actual.get("scenario_id", expected.get("scenario_id")),
+            "scenario_version": actual.get("scenario_version", expected.get("scenario_version")), "build_ref": actual.get("build_ref"),
+            "seed": actual.get("seed"), "mode": actual.get("mode"), "status": status,
             "counts": {s: counts[s] for s in ("passed", "failed", "blocked")}, "assertions": assertions,
             "unlabelled_findings": unexpected, "unexpected_findings": unexpected,
             "trace_refs": actual.get("trace_refs", []), "artifacts": actual.get("artifacts", []),

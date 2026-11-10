@@ -4,10 +4,10 @@ from __future__ import annotations
 import html
 import json
 
-from analytics_support import VERSION, digest, wire
+from analytics_support import VERSION, digest, ref_key, wire
 
 
-def build(snapshot, *, graph=None, projection=None, comparison=None):
+def build(snapshot, *, graph=None, projection=None, comparison=None, analysis_refs=None):
     payload = wire({"schema": "zerotrace.report", "schema_version": "1.0.0",
                     "producer_version": VERSION, "snapshot": snapshot,
                     "selected_graph": graph, "projection": projection, "comparison": comparison,
@@ -20,7 +20,10 @@ def build(snapshot, *, graph=None, projection=None, comparison=None):
         "projection": (projection or {}).get("algorithm_version"),
         "comparison": (comparison or {}).get("algorithm_version"),
     }
-    payload["input_refs"] = {"dataset": snapshot["dataset_ref"], "traces": snapshot["trace_refs"],
+    scopes = {"snapshot": snapshot["trace_refs"], **(analysis_refs or {})}
+    traces = {ref_key(ref): ref for refs in scopes.values() for ref in refs}
+    payload["input_refs"] = {"dataset": snapshot["dataset_ref"],
+                             "traces": [traces[key] for key in sorted(traces)], "by_analysis": scopes,
                              "configs": snapshot["config_refs"], "baselines": snapshot["baseline_refs"]}
     payload["input_hashes"] = {"dataset": snapshot["dataset_hash"], "thresholds": snapshot["thresholds_hash"],
                                "projection": (projection or {}).get("input_hash"),

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, replace
 from analytics_support import digest, ref_key as refkey
 from math import isfinite
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 MAX_NS = (1 << 63) - 1
 
 

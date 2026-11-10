@@ -71,6 +71,34 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(fail["status"], "failed")
         self.assertEqual(fail["metrics"]["false_positives"], 0)
 
+    def test_scenario_identity_and_evidence_of_eligibility(self):
+        actual = case([], scenario_id="different", scenario_version="v2")
+        result = score(actual, {"scenario_id": "s00", "scenario_version": "v1",
+                                "must_not_find": [{"rule_id": "R4"}]})
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["scenario_id"], "different")
+        self.assertEqual(result["assertions"][0]["mismatched_inputs"]["scenario_version"],
+                         {"expected": "v1", "actual": "v2"})
+        for count in (None, False, -1, "1"):
+            actual["audit"]["rule_evaluations"] = [{"rule_id":"R4", "status":"evaluated",
+                                                    "eligible_count": count}]
+            self.assertEqual(score(actual, {"must_not_find":[{"rule_id":"R4"}]})["status"], "blocked")
+        actual["audit"]["rule_evaluations"][0]["eligible_count"] = 3
+        self.assertEqual(score(actual, {"must_not_find":[{"rule_id":"R4",
+                         "selector":{"edge_id":"missing"}}]})["status"], "blocked")
+
+    def test_unqualified_finding_cannot_clear_an_ineligible_negative_assertion(self):
+        actual = case([finding("R4")])
+        actual["audit"]["rule_evaluations"] = []
+        spec = {"rule_id": "R4", "severity_min": "high"}
+        self.assertEqual(score(actual, {"must_not_find": [spec]})["status"], "blocked")
+        actual["audit"]["findings"][0]["severity"] = "high"
+        self.assertEqual(score(actual, {"must_not_find": [spec]})["status"], "failed")
+        mismatch = score(actual, {"mode": "trace_only", "must_not_find": [spec]})
+        self.assertEqual((mismatch["status"], mismatch["mode"]), ("blocked", "config_aware"))
+        with self.assertRaises(AnalyticsError):
+            score(case([]), {"must_find": [{"rule_id": "R7", "selector": ["wrong"]}]})
+
     def test_quality_policy_and_apply_evidence(self):
         actual = case([], quality={"missing":0}, apply={"outcome":"conflict"}, policy={"effective":2})
         expected = {"apply_assertions":[{"path":"apply.outcome", "equals":"conflict"}],

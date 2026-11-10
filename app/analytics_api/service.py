@@ -66,7 +66,7 @@ class AnalyticsService:
     def _state(self, view, environment_id):
         env, result = self._audit(view, environment_id)
         model = env["model"]
-        refs = [trace["trace_ref"] for trace in model["traces"]]
+        refs = sorted((trace["trace_ref"] for trace in model["traces"]), key=ref_key)
         state = {**result, "environment_id": environment_id, "trace_refs": refs,
                  "dataset_ref": model["dataset_ref"], "policies": env.get("policies", []),
                  "services": model.get("services", []), "edges": model.get("edges", []),
@@ -92,6 +92,7 @@ class AnalyticsService:
 
     def _save_analysis(self, kind, result, env, refs, *, graph=None):
         result = wire(result)
+        refs = sorted(refs, key=ref_key)
         key = digest([kind, env, refs, result])
         self.results.put_many([(kind, key, {"environment_id": env, "refs": refs,
                                           "result": result, "graph": graph})])
@@ -142,16 +143,18 @@ class AnalyticsService:
             raise AnalyticsError("report_scope_mismatch", "Snapshot belongs to another environment")
         included = {ref_key(ref) for ref in state["trace_refs"]}
         selected = {}
+        analysis_refs = {}
         for kind, key in (("projection", projection_id), ("comparison", comparison_id)):
             if key:
                 record = self.results.get(kind, key)
                 if (record["environment_id"] != environment_id
                         or (kind == "projection" and any(ref_key(r) not in included for r in record["refs"]))):
                     raise AnalyticsError("report_scope_mismatch", "Analysis uses different input revisions")
+                analysis_refs[kind] = record["refs"]
                 selected[kind] = record["result"]
                 if kind == "projection":
                     selected["graph"] = record["graph"]
-        bundle = build(state, **selected)
+        bundle = build(state, analysis_refs=analysis_refs, **selected)
         self.results.put_many([("report", bundle["report_id"], bundle)])
         return bundle
 

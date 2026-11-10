@@ -20,7 +20,7 @@ def timing_checks(ctx, edge, limits, reference):
         server_ns = integer(a.get("server_duration_ns"))
         error = attempt_error(a)
         if (quality_issue(a) or ctx.graph_issue(key, [a["attempt_id"], a.get("server_span_id")], {"missing_parent", "conflicting_span", "cycle"})
-                or not a.get("server_span_id") or server_ns is None
+                or not ctx.linked(key, a["attempt_id"], a.get("server_span_id"), "client", "server") or server_ns is None
                 or client_ns is None or error is None):
             longer.reject("missing_reliable_client_server_pair")
         else:
@@ -41,7 +41,9 @@ def timing_checks(ctx, edge, limits, reference):
         if (quality_issue(a) or ctx.graph_issue(key, [a["attempt_id"], a.get("upstream_attempt_id"), a.get("caller_server_span_id")],
                                                {"cross_clock_uncertain", "missing_parent", "conflicting_span", "cycle"})
                 or offset is None or upper_wait is None or quality_issue(upstream)
-                or not a.get("caller_server_span_id") or upstream.get("server_span_id") != a["caller_server_span_id"]
+                or upstream.get("server_span_id") != a.get("caller_server_span_id")
+                or not ctx.linked(key, upstream["attempt_id"], a.get("caller_server_span_id"), "client", "server")
+                or not ctx.linked(key, a.get("caller_server_span_id"), a["attempt_id"], "server", "client")
                 or a.get("clock_compatible") is False or a.get("upstream_attempt_id") == a["attempt_id"]):
             late.reject("missing_ancestry_or_compatible_offset")
         else:
@@ -76,10 +78,13 @@ def retry_paths(ctx, limits_by_edge):
                 roots.append(group)
             elif (group.key, parent) in ctx.by_id:
                 upstream = ctx.attempts[(group.key, parent)]
-                if upstream.get("server_span_id") and all(
-                        a.get("caller_server_span_id") == upstream["server_span_id"] for a in group.attempts):
+                if ctx.linked(group.key, parent, upstream.get("server_span_id"), "client", "server") and all(
+                        a.get("caller_server_span_id") == upstream["server_span_id"]
+                        and ctx.linked(group.key, a["caller_server_span_id"], a["attempt_id"], "server", "client")
+                        for a in group.attempts):
                     children[(group.key, parent)].append(group)
     for root in roots:
+        evaluations = []
         stack = [([root], (), 0)]
         while stack:
             groups, path, retry_levels = stack.pop()
@@ -92,22 +97,25 @@ def retry_paths(ctx, limits_by_edge):
             parts = [a for g in groups for a in g.attempts]
             firsts = [a for a in parts if a.get("first_path") is True]
             complete = all(type(a.get("first_path")) is bool for a in parts) and len(firsts) == 1
-            if len(path) > 1 and retries >= 2:
-                result = results.setdefault(edge, Assessment("R3", edge))
-                if complete:
-                    limit = limits_by_edge.for_edge(edge)
-                    hit = len(parts) >= limit.amp_medium
-                    result.consider([root.key], hit)
-                    if hit:
-                        data = trace_evidence(path=list(path), first_path_attempt_id=firsts[0]["attempt_id"],
-                                              trace_ref=asref(root.key), observed_attempts=len(parts),
-                                              upstream_attempt_ids=sorted({a["upstream_attempt_id"] for a in parts}),
-                                              theoretical_bound=None)
-                        if not result.finding or result.finding["evidence"]["observed_attempts"] < len(parts):
-                            result.report("Вложенные повторы усиливают число попыток", "Число попыток посчитано на связанной цепочке подтверждённых вызовов.",
-                                          data, severity="high" if len(parts) >= limit.amp_high else "medium")
-                else:
-                    result.reject("missing_first_path")
+            if complete:
+                # A claimed first path cannot traverse a later retry of an ancestor.
+                first = firsts[0]
+                while first is not None:
+                    parent_group = ctx.by_id[(root.key, first["attempt_id"])]
+                    if parent_group.attempts[0] is not first or first.get("first_path") is False:
+                        complete = False
+                        break
+                    first = ctx.attempts.get((root.key, first.get("upstream_attempt_id")))
+            if len(path) > 1:
+                limit = limits_by_edge.for_edge(edge)
+                hit = complete and retries >= 2 and len(parts) >= limit.amp_medium
+                data = None
+                if hit:
+                    data = trace_evidence(path=list(path), first_path_attempt_id=firsts[0]["attempt_id"],
+                                          trace_ref=asref(root.key), observed_attempts=len(parts),
+                                          upstream_attempt_ids=sorted({a["upstream_attempt_id"] for a in parts}),
+                                          theoretical_bound=None)
+                evaluations.append((path, complete, data))
             by_edge = defaultdict(list)
             ambiguous = set()
             for parent in parts:
@@ -122,6 +130,24 @@ def retry_paths(ctx, limits_by_edge):
             for ce, batch in by_edge.items():
                 if ce not in ambiguous:
                     stack.append((batch, path, retries))
+        # Publish the deepest affected edge for each independent branch of this root.
+        superseded = {path[:i] for path, _, data in evaluations if data
+                      for i in range(2, len(path))}
+        for path, complete, data in evaluations:
+            edge = path[-1]
+            result = results.setdefault(edge, Assessment("R3", edge))
+            if not complete:
+                result.reject("missing_first_path")
+                continue
+            if data and path in superseded:
+                result.reject("deeper_affected_edge")
+                continue
+            result.consider([root.key], bool(data))
+            if data and (not result.finding or result.finding["evidence"]["observed_attempts"] < data["observed_attempts"]):
+                severity = "high" if data["observed_attempts"] >= limits_by_edge.for_edge(edge).amp_high else "medium"
+                result.report("Вложенные повторы усиливают число попыток",
+                              "Число попыток посчитано на связанной цепочке подтверждённых вызовов.",
+                              data, severity=severity)
     return results
 
 
@@ -172,6 +198,9 @@ def retry_checks(ctx, edge, policy, limits):
             if code is None:
                 status.reject("missing_client_status")
                 continue
+            if protocol == "http" and not 100 <= code <= 599:
+                status.reject("invalid_client_http_status")
+                continue
             allowed = sourced(policy, "retry_on") if current(policy) else None
             if isinstance(allowed, dict):
                 allowed = allowed.get(protocol)
@@ -179,9 +208,6 @@ def retry_checks(ctx, edge, policy, limits):
                 hit = str(code) not in {str(x) for x in allowed}
                 basis = "configured_retry_on"
             elif protocol == "http":
-                if not isinstance(code, int) or not 100 <= code <= 599:
-                    status.reject("invalid_client_http_status")
-                    continue
                 hit = 400 <= code < 500 and code not in (408, 425, 429)
                 basis = "default_http_v1"
             else:
@@ -231,7 +257,8 @@ def check_timeout_order(ctx, edge, policy):
         hit = timeout >= upstream
         order.consider(ctx.edge_refs[edge], hit)
         if hit:
-            order.report("Внутренний таймаут достигает таймаута вызывающей стороны", "Сравнены настройки пары связанных вызовов.",
+            order.report("Внутренний таймаут достигает таймаута вызывающей стороны",
+                         f"Внутренний таймаут {timeout} нс, таймаут вызывающей стороны {upstream} нс.",
                          trace_evidence(inner_timeout_ns=str(timeout), outer_timeout_ns=str(upstream),
                                         config_revision=policy.get("config_revision"), policy_source=policy.get("source")),
                          basis="config_aware")

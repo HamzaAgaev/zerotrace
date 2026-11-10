@@ -72,7 +72,11 @@ class AnalyticsApp:
             raise AnalyticsError("missing_environment", "Select an environment", 400)
         env = query.get("environment_id")
         if name == "audit":
-            return envelope(name, audit_view(self.service.audit(env, query.get("mode"))))
+            profile = query.get("view", "v1")
+            if profile not in {"v1", "full"}:
+                raise AnalyticsError("invalid_view", "Expected v1 or full", 400)
+            return envelope(name, audit_view(self.service.audit(env, query.get("mode")),
+                                             include_policy=profile == "full"))
         if name == "state":
             return envelope("snapshot", self.service.state(env))
         if name == "policies":

@@ -1,7 +1,7 @@
 """Local sequential policy arithmetic in integer nanoseconds."""
 from __future__ import annotations
 
-from .common import integer
+from .common import MAX_NS, integer
 
 
 def flatten_policies(policies, environment):
@@ -19,17 +19,39 @@ def flatten_policies(policies, environment):
             continue
         owner = policy.get("service", {})
         inherited = {k: policy[k] for k in ("capabilities", "environment_id", "source", "freshness",
-                     "workload_id", "caller_version", "callee_version") if k in policy}
+                     "environment_kind", "stale", "workload_id", "caller_version", "callee_version") if k in policy}
         inherited["config_revision"] = policy.get("revision")
-        inherited["service_id"] = policy.get("service_id") or (owner.get("service_name") if isinstance(owner, dict) else owner)
+        # The adapter registry owns service_id. Display names can repeat across namespaces.
+        inherited["service_id"] = policy.get("service_id")
+        if owner:
+            inherited["service"] = owner
         if isinstance(owner, dict) and owner.get("environment"):
+            if owner["environment"] != environment:
+                raise ValueError("policy service belongs to another environment")
             inherited.setdefault("environment_id", owner["environment"])
         for row in rows:
             # An external timeout is usable only if explicitly bound to this call.
             matches = [entry for entry in policy.get("external_timeouts", [])
                        if entry.get("call_ref") and entry["call_ref"] == row.get("call_ref")]
             budget = {"budget_ns": matches[0].get("timeout_ns")} if len(matches) == 1 else {}
-            result.append({**inherited, **budget, **row})
+            merged = {**budget, **row, **inherited}
+            # P4 identifies the configuration owner and epoch at the snapshot level.
+            # A nested edge can narrow, but cannot grant, the snapshot's capabilities.
+            caps = policy.get("capabilities") or {}
+            if "capabilities" in row:
+                edge_caps = row["capabilities"] or {}
+                caps = {**caps,
+                        "apply_recommendation": caps.get("apply_recommendation") is True
+                        and edge_caps.get("apply_recommendation") is True,
+                        "write_fields": sorted(set(caps.get("write_fields", [])) &
+                                               set(edge_caps.get("write_fields", [])))}
+            merged["capabilities"] = caps
+            identity_fields = ("config_revision", "service_id", "service", "environment_id", "environment_kind", "source")
+            if any(k in row and k in inherited and row[k] != inherited[k] for k in identity_fields):
+                merged["binding_conflict"] = True
+            if row.get("stale") or row.get("freshness") in ("stale", "unavailable", "unknown"):
+                merged["stale"] = True
+            result.append(merged)
     for row in result:
         if row.get("environment_id", environment) != environment:
             raise ValueError("policy belongs to another environment")
@@ -53,7 +75,8 @@ def sourced(policy, key):
 
 
 def current(policy):
-    return bool(policy) and not policy.get("stale") and policy.get("freshness") not in {"stale", "unavailable", "unknown"}
+    return (bool(policy) and not policy.get("binding_conflict") and not policy.get("stale")
+            and policy.get("freshness") not in ("stale", "unavailable", "unknown"))
 
 
 def pauses_ns(n, backoff):
@@ -111,6 +134,9 @@ def retry_budget(result, policy, refs, limits, *, lab=False):
         return
     available = budget - reserve - elapsed
     required = n * timeout + pauses
+    if required > MAX_NS or available < -MAX_NS-1:
+        result.reject("budget_outside_int64")
+        return
     deficit = required > available
     result.consider(refs, deficit)
     if not deficit:
@@ -120,7 +146,7 @@ def retry_budget(result, policy, refs, limits, *, lab=False):
                     config_revision=str(policy["config_revision"]), attempts=n, timeout_ns=str(timeout),
                     backoff_total_ns=str(pauses), required_ns=str(required), budget_ns=str(budget),
                     available_ns=str(available), reserve_ns=str(reserve), elapsed_ns=str(elapsed),
-                    jitter_bound="upper" if backoff and backoff.get("jitter") == "full" else "configured",
+                    jitter_bound="upper" if isinstance(backoff, dict) and backoff.get("jitter") == "full" else "configured",
                     operand_sources={k: (policy[k].get("source") if isinstance(policy.get(k), dict) and "value" in policy[k]
                                           else policy.get("source", policy.get("effective_source"))) for k in
                                      ("max_attempts", "per_attempt_timeout_ns", "budget_ns", "backoff")})

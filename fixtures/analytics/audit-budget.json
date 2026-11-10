@@ -4,14 +4,14 @@
   "producer_version": "0.1.0",
   "generated_at": "2026-11-10T12:00:00Z",
   "payload": {
-    "result_id": "31d5977fb100e5773d57ead04cb9b2a3a5d97d157592bb4207eeb92aba983047",
+    "result_id": "9d782ed3b62851b12502335b13f494a56696f124fcbd2a7c459060daee59ad4e",
     "generated_at": "2026-11-10T12:00:00Z",
     "findings": [
       {
         "finding_id": "2d767b6b5478cd65f89d4696ca51d162d714d974c3f78a078b8306bce785753d",
-        "occurrence_id": "993265e684a6941fc055ede418b403bbae4dbbf062ef0605432dc0d8a100c3e7",
+        "occurrence_id": "48aa429061e6c134a31522a8f8d18b2bf0b1f1f2f40c3a1945518f81022c70d7",
         "rule_id": "R4",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "title": "Превышен локальный бюджет повторов",
         "severity": "high",
         "confidence": "high",
@@ -79,7 +79,7 @@
           "recommended_attempts": 2,
           "recommended_required_ns": "550000000"
         },
-        "recommendation_id": "4b999493e3abddede610161f1bdbd157ab93f8a0b4c366db52d526d445970ebd",
+        "recommendation_id": "a93570ff13686f53aebc3ad428fef67943c51736d006c42da3d48dd2c592fdac",
         "recommendation": {
           "text": "Установить максимум 2 попыток у владельца вызова.",
           "why": "Уменьшение лимита сокращает расчётное число последовательных попыток.",
@@ -92,14 +92,15 @@
               "before": "3",
               "after": "2"
             }
-          ]
+          ],
+          "can_prepare_plan": true
         }
       },
       {
         "finding_id": "b7c8ca1b8980b7ad39b045547dd8aaeb02cc946b53cf7b73caaf1696992e42ab",
-        "occurrence_id": "a16129795995ccb5b6081e2c714fed0019844aee1ea716023d6dbd07ba777ddd",
+        "occurrence_id": "d6629ecbcdf4d486c16fb8327103e0af5480c1ad6a13a9ef4c696a122c4716f9",
         "rule_id": "OBS_RETRIES",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "title": "Наблюдаются повторные попытки",
         "severity": "low",
         "confidence": "high",
@@ -146,21 +147,97 @@
         ],
         "evidence": {
           "kind": "trace_observation",
-          "source": "Наблюдения по зафиксированной телеметрии"
+          "source": "Наблюдения по зафиксированной телеметрии",
+          "edge_id": "orders-payment",
+          "eligible_calls": 30,
+          "retry_calls": 30,
+          "observed_attempts": 90,
+          "attempts_without_confirmed_group": 0,
+          "excluded_by_reason": {},
+          "eligible_traces": 30,
+          "retry_ratio": 1.0,
+          "samples": [
+            {
+              "trace_ref": {
+                "environment_id": "lab",
+                "trace_id": "00000000000000000000000000000001",
+                "generation": 1,
+                "revision": 1
+              },
+              "attempt_ids": [
+                "0000000000000002",
+                "0000000000000004",
+                "0000000000000006"
+              ]
+            },
+            {
+              "trace_ref": {
+                "environment_id": "lab",
+                "trace_id": "00000000000000000000000000000002",
+                "generation": 1,
+                "revision": 1
+              },
+              "attempt_ids": [
+                "0000000000000002",
+                "0000000000000004",
+                "0000000000000006"
+              ]
+            },
+            {
+              "trace_ref": {
+                "environment_id": "lab",
+                "trace_id": "00000000000000000000000000000003",
+                "generation": 1,
+                "revision": 1
+              },
+              "attempt_ids": [
+                "0000000000000002",
+                "0000000000000004",
+                "0000000000000006"
+              ]
+            },
+            {
+              "trace_ref": {
+                "environment_id": "lab",
+                "trace_id": "00000000000000000000000000000004",
+                "generation": 1,
+                "revision": 1
+              },
+              "attempt_ids": [
+                "0000000000000002",
+                "0000000000000004",
+                "0000000000000006"
+              ]
+            },
+            {
+              "trace_ref": {
+                "environment_id": "lab",
+                "trace_id": "00000000000000000000000000000005",
+                "generation": 1,
+                "revision": 1
+              },
+              "attempt_ids": [
+                "0000000000000002",
+                "0000000000000004",
+                "0000000000000006"
+              ]
+            }
+          ]
         },
-        "recommendation_id": "cb16fba30d5eeff89f481094727361b3c49b5a5d1301589bfa457bf7318023ad",
+        "recommendation_id": "0dbc850b23d318701891105dc3769a61ad600db0e4c9a3e1e2b806508dae4066",
         "recommendation": {
           "text": "Проверьте подтверждённые группы попыток по примерам трасс.",
           "why": "Подтверждённые повторы в 30 из 30 пригодных логических вызовов.",
           "risks": [],
-          "changes": []
+          "changes": [],
+          "can_prepare_plan": false
         }
       }
     ],
     "rule_evaluations": [
       {
         "rule_id": "OBS_RETRIES",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "evaluated",
         "eligible_count": 30,
         "triggered_count": 30,
@@ -178,7 +255,7 @@
       },
       {
         "rule_id": "R1",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -200,7 +277,7 @@
       },
       {
         "rule_id": "R2",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -222,7 +299,7 @@
       },
       {
         "rule_id": "R3",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -244,7 +321,7 @@
       },
       {
         "rule_id": "R4",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "evaluated",
         "eligible_count": 1,
         "triggered_count": 1,
@@ -262,7 +339,7 @@
       },
       {
         "rule_id": "R5",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -284,7 +361,7 @@
       },
       {
         "rule_id": "R6",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -306,7 +383,7 @@
       },
       {
         "rule_id": "R7",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "evaluated",
         "eligible_count": 60,
         "triggered_count": 0,
@@ -324,7 +401,7 @@
       },
       {
         "rule_id": "R8",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -346,7 +423,7 @@
       },
       {
         "rule_id": "D1",
-        "rule_version": "1.0.0",
+        "rule_version": "1.1.0",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,

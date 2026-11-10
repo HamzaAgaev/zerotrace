@@ -6,7 +6,7 @@ import re
 from collections import Counter, defaultdict
 from statistics import median
 
-from analytics_support import AnalyticsError, percentile_ns, ref_key
+from analytics_support import AnalyticsError, percentile_ns, ref_key, valid_span_id
 
 ERRORS = {"error", "timeout", "fast_fail", "http_error", "grpc_error", "transport_error", "error_unknown"}
 VERSION = "1.0.0"
@@ -81,18 +81,21 @@ def union_length(intervals):
     return total
 
 
-def comparable_intervals(spans):
+def comparable_intervals(spans, clock_compatible=None):
     if not spans:
         return 0, 0
-    use_offsets = all(ns(s.get("start_offset_ns")) is not None for s in spans)
+    offsets = [ns(s.get("start_offset_ns", s.get("offset_ns"))) for s in spans]
+    use_offsets = all(start is not None for start in offsets)
     if len(spans) > 1:
         domains = {s.get("clock_domain") for s in spans}
         known = domains - {None, "", "unknown"}
-        if len(known) > 1 or (not use_offsets and domains != known) or (not use_offsets and not known):
+        if clock_compatible is False or any(s.get("clock_compatible") is False for s in spans):
+            return None
+        if clock_compatible is not True and (len(known) > 1 or not use_offsets and domains != known):
             return None
     intervals = []
-    for span in spans:
-        start = ns(span.get("start_offset_ns" if use_offsets else "start_ns"))
+    for span, offset in zip(spans, offsets):
+        start = offset if use_offsets else ns(span.get("start_ns"))
         length = duration(span)
         if start is None or length is None:
             return None
@@ -112,7 +115,7 @@ def operation(span):
 # A completely missing child cannot be detected from parent IDs alone.
 INCOMPLETE_CALL_DATA = {
     "source_loss", "missing_parent", "multiple_roots", "cycle", "depth_limit",
-    "conflicting_span", "span_count_mismatch", "missing_attempt_span", "forced_close",
+    "conflicting_span", "span_count_mismatch", "missing_attempt_span", "conflicting_attempt", "forced_close",
 }
 
 
@@ -132,21 +135,31 @@ def quality_codes(graph, spans):
         codes.add("forced_close")
     if summary.get("span_count", len(spans)) != len(spans):
         codes.add("span_count_mismatch")
+    attempts = {}
     for attempt in graph.get("attempts", []):
-        client = spans.get(attempt.get("attempt_id"))
-        if not client or str(client.get("kind", "")).lower() != "client":
+        key = attempt.get("attempt_id") if isinstance(attempt, dict) else None
+        if not valid_span_id(key) or key not in spans or str(spans[key].get("kind", "")).lower() != "client":
             codes.add("missing_attempt_span")
-    return codes
+            continue
+        from_span, from_attempt = label(spans[key], "edge_id"), attempt.get("edge_id")
+        if (key in attempts and attempts[key] != attempt or attempt.get("trace_ref", graph["trace_ref"]) != graph["trace_ref"]
+                or (from_span is not None and from_attempt is not None and from_span != from_attempt)):
+            codes.add("conflicting_attempt")
+        attempts[key] = attempt
+    return codes, attempts
 
 
 def measure_trace(graph, entry_selector=None):
     ref = graph["trace_ref"]
     ref_key(ref)
     spans = {}
-    for span in graph.get("spans", ()):
-        span_id = span.get("span_id")
-        if not span_id or not isinstance(span_id, str):
-            raise AnalyticsError("invalid_trace", "Missing span identity")
+    if not isinstance(graph.get("spans"), list):
+        raise AnalyticsError("invalid_trace", "Expected a list of spans")
+    for span in graph["spans"]:
+        span_id = span.get("span_id") if isinstance(span, dict) else None
+        if (not valid_span_id(span_id)
+                or span.get("parent_span_id") is not None and not valid_span_id(span["parent_span_id"])):
+            raise AnalyticsError("invalid_trace", "Invalid span or parent identity")
         if span_id in spans and spans[span_id] != span:
             raise AnalyticsError("invalid_trace", "Conflicting span identity", details={"ref": ref})
         spans[span_id] = span
@@ -188,22 +201,25 @@ def measure_trace(graph, entry_selector=None):
             direct.append(span)
         elif kind == "internal":
             stack.extend(children[span["span_id"]])
+    codes, attempts = quality_codes(graph, spans)
     groups = defaultdict(list)
+    descriptors = defaultdict(list)
     for span in direct:
         servers = [s for s in children[span["span_id"]] if str(s.get("kind", "")).lower() == "server"]
         target = span.get("target")
         if target is None and len(servers) == 1:
             target = servers[0].get("service")
-        edge = {"edge_id": label(span, "edge_id"), "operation": operation(span), "target": target}
-        groups[canonical(edge)].append(span)
+        edge = {"edge_id": label(span, "edge_id") or attempts.get(span["span_id"], {}).get("edge_id"), "operation": operation(span), "target": target}
+        key = canonical({"edge_id": edge["edge_id"]} if edge["edge_id"] else edge)
+        groups[key].append(span)
+        descriptors[key].append(edge)
     internal = [outcome(span) for span in spans.values() if span["span_id"] != root["span_id"]]
-    codes = quality_codes(graph, spans)
     calls_complete = codes.isdisjoint(INCOMPLETE_CALL_DATA)
     internal_status = "error" if "error" in internal else ("unknown" if not calls_complete or "unknown" in internal else "ok")
-    intervals = comparable_intervals(direct) if calls_complete and "cross_clock_uncertain" not in codes else None
+    intervals = comparable_intervals(direct, graph.get("clock_compatible")) if calls_complete and "cross_clock_uncertain" not in codes else None
     return {"ref": ref, "root": root, "service": service, "operation": entry_operation,
             "outcome": outcome(root), "duration": duration(root), "internal_outcome": internal_status,
-            "groups": groups, "intervals": intervals, "issues": sorted(codes), "calls_complete": calls_complete,
+            "groups": groups, "descriptors": descriptors, "intervals": intervals, "issues": sorted(codes), "calls_complete": calls_complete,
             "clients": [s for s in spans.values() if str(s.get("kind", "")).lower() == "client"],
             "project_id": graph.get("project_id", service.get("project_id") if isinstance(service, dict) else None),
             "workload_id": graph.get("workload_id", summary.get("workload_id")),
@@ -215,16 +231,27 @@ def ratio(numerator, denominator):
     return numerator / denominator if denominator else None
 
 
-def summarize(rows, edge_keys=()):
+def edge_descriptors(rows):
+    by_key = defaultdict(list)
+    for row in rows:
+        for key, labels in row["descriptors"].items():
+            by_key[key].extend(labels)
+    # Labels are presentation only. Prefer observed targets; make ties independent
+    # of export order, including when only the opposite cohort observed a target.
+    return {key: min(labels, key=lambda d: (d["target"] is None, canonical(d))) for key, labels in by_key.items()}
+
+
+def summarize(rows, descriptors=None):
+    descriptors = {**(descriptors or {}), **edge_descriptors(rows)}
     lengths = [r["duration"] for r in rows if r["duration"] is not None]
     outcomes = Counter(r["outcome"] for r in rows)
     internal = Counter(r["internal_outcome"] for r in rows)
     direct_calls = []
     complete_rows = [row for row in rows if row["calls_complete"]]
-    for key in sorted(set(edge_keys) | {k for r in rows for k in r["groups"]}):
+    for key in sorted(descriptors):
         counts = [len(r["groups"].get(key, ())) for r in complete_rows]
         times = [d for r in complete_rows for s in r["groups"].get(key, ()) if (d := duration(s)) is not None]
-        direct_calls.append({**json.loads(key), "median_calls_per_trace": median(counts) if counts else None,
+        direct_calls.append({**descriptors[key], "median_calls_per_trace": median(counts) if counts else None,
                              "pooled_median_duration_ns": percentile_ns(times, .5), "sample_count": sum(counts),
                              "duration_count": len(times)})
     intervals = [r["intervals"] for r in rows if r["intervals"] is not None]

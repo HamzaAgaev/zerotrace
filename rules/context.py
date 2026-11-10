@@ -2,6 +2,7 @@
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 
+from analytics_support import AnalyticsError
 from .common import digest, integer, refkey
 
 
@@ -32,6 +33,7 @@ class Context:
         self.environment = model.get("environment_id")
         if not isinstance(self.environment, str) or not self.environment:
             raise ValueError("environment_id required")
+        self.revisions = {}
         self.traces = {}
         self.spans = {}
         attempts = list(model.get("attempts", ()))
@@ -46,8 +48,11 @@ class Context:
                 if slot in self.spans and self.spans[slot] != span:
                     raise ValueError("conflicting span")
                 self.spans[slot] = span
-            attempts.extend({**item, "trace_ref": trace["trace_ref"]} for item in trace.get("attempts", ()))
-            calls.extend({**item, "trace_ref": trace["trace_ref"]} for item in trace.get("calls", ()))
+            for field, dest in (("attempts", attempts), ("calls", calls)):
+                for item in trace.get(field, ()):
+                    if "trace_ref" in item and self.ref(item["trace_ref"]) != key:
+                        raise AnalyticsError("trace_ref_mismatch", "Nested evidence belongs to a different trace")
+                    dest.append({**item, "trace_ref": trace["trace_ref"]})
         self.attempts = {}
         self.by_edge = defaultdict(list)
         self.groups = defaultdict(list)
@@ -107,10 +112,19 @@ class Context:
 
     def graph_issue(self, key, ids, codes):
         trace = self.traces.get(key, {})
+        quality = trace.get("quality") or {}
+        if "source_loss" in codes and quality.get("source_loss"):
+            return True
         relevant = {sid for sid in ids if sid}
-        for issue in [*trace.get("quality_issues", []), *(trace.get("quality") or {}).get("issues", [])]:
+        for issue in [*trace.get("quality_issues", []), *quality.get("issues", [])]:
             if isinstance(issue, str):
-                # Legacy UI text cannot identify which span was affected.
+                # Unscoped machine codes still identify the affected property.
+                # Legacy free text supplies no reliable signal for this purpose.
+                if issue in codes:
+                    return True
+                if issue in {"cross_clock_uncertain", "missing_parent", "conflicting_span", "source_loss",
+                             "multiple_roots", "depth_limit", "unknown_service", "missing_field", "cycle"}:
+                    continue
                 return True
             if issue.get("code") in codes:
                 affected_ids = issue.get("span_ids")
@@ -122,7 +136,33 @@ class Context:
         key = refkey(ref)
         if key[0] != self.environment:
             raise ValueError("trace belongs to another environment")
+        if self.revisions.setdefault(key[:3], key[3]) != key[3]:
+            raise AnalyticsError("conflicting_trace_revisions",
+                                 "An audit snapshot contains multiple revisions of the same trace", 409)
         return key
+
+    def linked(self, key, ancestor_id, descendant_id, ancestor_kind, descendant_kind):
+        """Check P2 relationship against actual spans when the graph is supplied."""
+        if not ancestor_id or not descendant_id or ancestor_id == descendant_id:
+            return False
+        if not self.traces.get(key, {}).get("spans"):
+            return True  # The normalized attempt supplies the verified relationship.
+        ancestor = self.spans.get((key, ancestor_id))
+        child = self.spans.get((key, descendant_id))
+        if not ancestor or not child or str(ancestor.get("kind")).lower() != ancestor_kind:
+            return False
+        if str(child.get("kind")).lower() != descendant_kind:
+            return False
+        parent_id = child.get("parent_span_id")
+        seen = {descendant_id}
+        while parent_id != ancestor_id:
+            parent = self.spans.get((key, parent_id))
+            if (not parent or parent_id in seen or str(parent.get("kind")).lower() != "internal"
+                    or len(seen) > 256):
+                return False
+            seen.add(parent_id)
+            parent_id = parent.get("parent_span_id")
+        return True
 
     @staticmethod
     def group_issue(call, parts, memberships, key):
@@ -169,6 +209,8 @@ class Context:
         for group in self.groups.get(edge, ()):
             if group.data.get("config_revision") is not None:
                 declarations.add(str(group.data["config_revision"]))
+        declarations.update(str(a["config_revision"]) for _, a in self.by_edge.get(edge, ())
+                            if a.get("config_revision") is not None)
         return not declarations or declarations == {str(revision)}
 
     def observations(self, edge, result):
@@ -211,5 +253,5 @@ class Context:
             "edge_labels": self.edge_labels,
             "attempts": [(key, public(row, a_fields)) for key, row in sorted(self.attempts.items())],
             "calls": [(g.key, public(g.data, c_fields)) for edge in sorted(self.groups) for g in self.groups[edge]],
-            "spans": [(key, public(span, ("kind", "method", "operation", "idempotency"))) for key, span in sorted(self.spans.items())],
+            "spans": [(key, public(span, ("kind", "parent_span_id", "method", "operation", "idempotency"))) for key, span in sorted(self.spans.items())],
         })

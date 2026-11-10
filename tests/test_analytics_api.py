@@ -52,6 +52,42 @@ class AnalyticsApiTest(unittest.TestCase):
         self.service.audit("lab")
         self.assertEqual(self.service.recommendation("lab", *ids), stored)
 
+    def test_policy_observation_is_visible_and_external_plan_is_read_only(self):
+        env = self.data["environments"]["healthy"]
+        env["policies"][0]["upstream_per_attempt_timeout_ns"] = "100000000"
+        status, res = http(self.app, "audit?environment_id=healthy&view=full")
+        self.assertEqual(status, 200)
+        self.assertEqual([f["rule_id"] for f in res["payload"]["findings"]], ["R8"])
+        finding = res["payload"]["findings"][0]
+        self.assertEqual(finding["evidence"]["kind"], "policy_observation")
+        self.assertEqual(finding["evidence"]["inner_timeout_ns"], "250000000")
+        self.assertFalse(finding["recommendation"]["can_prepare_plan"])
+        legacy = http(self.app, "audit?environment_id=healthy")[1]["payload"]
+        self.assertEqual(legacy["omitted_findings"][0]["finding_id"], finding["finding_id"])
+
+        env = self.data["environments"]["lab"]
+        env["model"]["environment_kind"] = "external"
+        env["policies"][0].update(budget_ns="1000000000", reserve_ns="300000000")
+        result = http(self.app, "audit?environment_id=lab&view=full")[1]["payload"]
+        r4 = next(f for f in result["findings"] if f["rule_id"] == "R4")
+        self.assertEqual(r4["evidence"]["available_ns"], "700000000")
+        self.assertFalse(r4["recommendation"]["can_prepare_plan"])
+
+    def test_cohort_identity_ignores_order_and_report_lists_historical_traces(self):
+        refs = self.data["runs"]["base"]["trace_collection"]["trace_refs"]
+        historical = self.data["runs"]["candidate"]["trace_collection"]["trace_refs"]
+        a, b = refs[:2], historical[:2]
+        def cohort(first, second):
+            return self.service.compare({"baseline_trace_refs": first, "candidate_trace_refs": second})
+        result = cohort(a, b)
+        self.assertEqual(result["analysis_id"], cohort(a[::-1], b[::-1])["analysis_id"])
+        self.assertNotEqual(result["analysis_id"], cohort(b, a)["analysis_id"])
+        p11 = self.service.compare({"baseline_run_id": "base", "candidate_run_id": "candidate"})
+        manifest = self.service.report("lab", comparison_id=p11["analysis_id"])["input_refs"]
+        self.assertEqual(manifest["by_analysis"]["snapshot"], refs)
+        self.assertEqual(manifest["traces"], refs + historical)
+        self.assertEqual(manifest["by_analysis"]["comparison"], refs + historical)
+
     def test_trace_only_mode_keeps_config_and_oracle_out_of_r4(self):
         audit = self.service.audit("lab", mode="trace_only")
         self.assertEqual(audit["mode"], "trace_only")

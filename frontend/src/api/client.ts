@@ -1,4 +1,5 @@
 import type { AuditResult, Capabilities, ChangePlan, Client, Connection, JournalEntry, ListPayload, TraceDetail, TraceRef } from './types.js';
+import { canPreparePlan } from './types.js';
 import { demoAudit, demoCapabilities, demoDetail, demoJournal, demoPlan, demoTraces } from './fixtures.js';
 export class ApiError extends Error { constructor(message: string, public status: number = 0, public code: string = 'unknown') { super(message); this.name = 'ApiError'; } }
 export function normalizeBaseUrl(input: string): string {
@@ -36,10 +37,11 @@ function isFinding(f: unknown): boolean {
   const e = f.evidence, r = f.recommendation;
   const validEvidence = str(e.source) && (
     (e.kind === 'retry_budget' && f.basis === 'config_aware' && count(e.attempts) &&
-      ['timeout_ns', 'backoff_total_ns', 'required_ns', 'budget_ns'].every(k => nanos(e[k])) && str(e.config_revision)) ||
+      ['timeout_ns', 'backoff_total_ns', 'required_ns', 'budget_ns'].every(k => nanos(e[k])) && (e.available_ns === undefined || (str(e.available_ns) && /^-?\d+$/.test(e.available_ns))) && str(e.config_revision)) ||
+    (e.kind === 'policy_observation' && f.basis === 'config_aware') ||
     (e.kind === 'trace_observation' && ['observed', 'inferred'].includes(String(f.basis)))
   );
-  return ['finding_id','occurrence_id','recommendation_id','rule_id','rule_version','title','explanation'].every(k => str(f[k])) && ['high','medium','low'].includes(String(f.severity)) && ['high','medium','low'].includes(String(f.confidence)) && ['config_aware','observed','inferred'].includes(String(f.basis)) && ['caller','callee','operation'].every(k => str((f.edge as Record<string,unknown>)[k])) && count(f.affected_count) && count(f.denominator_count) && Array.isArray(f.exemplars) && f.exemplars.every(isTraceRef) && validEvidence && str(r.text) && str(r.why) && strings(r.risks) && changes(r.changes);
+  return ['finding_id','occurrence_id','recommendation_id','rule_id','rule_version','title','explanation'].every(k => str(f[k])) && ['high','medium','low'].includes(String(f.severity)) && ['high','medium','low'].includes(String(f.confidence)) && ['config_aware','observed','inferred'].includes(String(f.basis)) && ['caller','callee','operation'].every(k => str((f.edge as Record<string,unknown>)[k])) && count(f.affected_count) && count(f.denominator_count) && Array.isArray(f.exemplars) && f.exemplars.every(isTraceRef) && validEvidence && (r.can_prepare_plan === undefined || typeof r.can_prepare_plan === 'boolean') && str(r.text) && str(r.why) && strings(r.risks) && changes(r.changes);
 }
 export function validatePayload(kind: 'list' | 'trace' | 'audit' | 'capabilities' | 'journal' | 'plan', value: unknown): void {
   let valid = false;
@@ -80,10 +82,13 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
       }
       return detail;
     },
-    getAudit: signal => request<AuditResult>(scoped('/api/v1/audit'), 'audit', signal),
+    getAudit: signal => request<AuditResult>(scoped('/api/v1/audit', { view: 'full' }), 'audit', signal),
     getCapabilities: signal => request<Capabilities>(scoped('/api/v1/capabilities'), 'capabilities', signal),
     getJournal: signal => request<JournalEntry[]>(scoped('/api/v1/journal'), 'journal', signal),
-    createPlan: (finding, signal) => request<ChangePlan>('/api/v1/change-plans', 'plan', signal, { environment_id: environmentId, occurrence_id: finding.occurrence_id, recommendation_id: finding.recommendation_id, finding_id: finding.finding_id, expected_config_revision: finding.evidence.config_revision }),
+    createPlan: async (finding, signal) => {
+      if (!canPreparePlan(finding)) throw new ApiError('Для этой рекомендации нет доступного изменения.', 0, 'no_change_intent');
+      return request<ChangePlan>('/api/v1/change-plans', 'plan', signal, { environment_id: environmentId, occurrence_id: finding.occurrence_id, recommendation_id: finding.recommendation_id, finding_id: finding.finding_id, expected_config_revision: finding.evidence.config_revision });
+    },
   };
-  return { listTraces: async signal => { await pause(signal); return { items: demoTraces, total: demoTraces.length }; }, getTrace: async (id, signal) => { await pause(signal); const detail = demoDetail(typeof id === 'string' ? id : id.trace_id); if (typeof id !== 'string' && !sameTraceRef(id, detail.trace_ref)) throw new ApiError('Эта ревизия трассы не найдена.', 404, 'trace_ref_not_found'); return detail; }, getAudit: async signal => { await pause(signal); return demoAudit; }, getCapabilities: async signal => { await pause(signal); return demoCapabilities; }, getJournal: async signal => { await pause(signal); return demoJournal; }, createPlan: async (finding, signal) => { await pause(signal); return demoPlan(finding); } };
+  return { listTraces: async signal => { await pause(signal); return { items: demoTraces, total: demoTraces.length }; }, getTrace: async (id, signal) => { await pause(signal); const detail = demoDetail(typeof id === 'string' ? id : id.trace_id); if (typeof id !== 'string' && !sameTraceRef(id, detail.trace_ref)) throw new ApiError('Эта ревизия трассы не найдена.', 404, 'trace_ref_not_found'); return detail; }, getAudit: async signal => { await pause(signal); return demoAudit; }, getCapabilities: async signal => { await pause(signal); return demoCapabilities; }, getJournal: async signal => { await pause(signal); return demoJournal; }, createPlan: async (finding, signal) => { if (!canPreparePlan(finding)) throw new ApiError('Для этой рекомендации нет доступного изменения.', 0, 'no_change_intent'); await pause(signal); return demoPlan(finding); } };
 }

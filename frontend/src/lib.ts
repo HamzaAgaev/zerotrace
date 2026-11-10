@@ -1,7 +1,7 @@
 import type { Route, Span, TraceRef, TraceSummary } from './api/types.js';
 export const serviceColors: Record<string, string> = { gateway: '#96a2ff', orders: '#65c9ba', payment: '#dbad6b', inventory: '#65c9ba', pricing: '#dbad6b', 'catalog-api': '#96a2ff' };
 export function ms(value: string | null | undefined): number | null { if (value == null || !/^\d+$/.test(value)) return null; return Number(BigInt(value)) / 1e6; }
-export function duration(value: string | null | undefined): string { const n = ms(value); if (n === null) return 'Неизвестно'; return n >= 1000 ? `${(n / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} с` : `${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} мс`; }
+export function duration(value: string | null | undefined): string { const n = ms(value); if (n === null && typeof value === 'string' && /^-\d+$/.test(value)) return '−' + duration(value.slice(1)); if (n === null) return 'Неизвестно'; return n >= 1000 ? `${(n / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} с` : `${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} мс`; }
 export function time(value: string): string { try { const date = new Date(Number(BigInt(value) / 1000000n)); return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return 'Неизвестно'; } }
 export function shortId(id: string): string { return `${id.slice(0, 8)}…${id.slice(-8)}`; }
 export function traceHref(ref: TraceRef | string): string {

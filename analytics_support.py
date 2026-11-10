@@ -32,6 +32,10 @@ def digest(value) -> str:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
+def valid_span_id(value) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{16}", value) is not None and value != "0" * 16
+
+
 def ref_key(ref: dict) -> tuple[str, str, int, int]:
     if not isinstance(ref, dict):
         raise AnalyticsError("invalid_trace_ref", "Expected a complete TraceRef")

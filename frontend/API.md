@@ -46,7 +46,7 @@ HTTP409 не становится demo fallback. На CORS/network/schema error 
 |---|---|---|
 | GET /api/v1/traces?environment_id=&limit=100&offset=0 | B | `{items:TraceSummary[],total:number}` |
 | GET /api/v1/traces/{id}?environment_id=&generation=&revision= | B | `TraceDetail` |
-| GET /api/v1/audit?environment_id= | C | `AuditResult` |
+| GET /api/v1/audit?environment_id=…&view=full | C | `AuditResult` |
 | GET /api/v1/capabilities?environment_id= | A | `Capabilities` |
 | GET /api/v1/journal?environment_id= | A | `JournalEntry[]` |
 | POST /api/v1/change-plans | A | `ChangePlan` |
@@ -61,7 +61,7 @@ TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},s
 
 ### Для Амира (C)
 
-AuditResult: result_id,generated_at,findings,rule_evaluations. Finding содержит готовые evidence operands/required/budget; браузер только форматирует ns и показывает текст. Конкретные refs occurrence/recommendation нужны для запроса plan. Для R4 evidence.kind = retry_budget. Для наблюдений без конфига evidence = {kind: trace_observation, source}; карточка отображает объяснение и рекомендацию без расчёта бюджета. exemplars содержит полные TraceRef.
+AuditResult: result_id,generated_at,findings,rule_evaluations. Finding содержит готовые evidence operands/required/budget; браузер только форматирует ns и показывает текст. Конкретные refs occurrence/recommendation нужны для запроса plan. Для R4 evidence.kind = retry_budget. Для наблюдений без конфига evidence = {kind: trace_observation, source}; карточка отображает объяснение и рекомендацию без расчёта бюджета. При `view=full` клиент также получает `policy_observation` для R8/D1. В расчёте R4 `available_ns` задаёт доступный остаток с учётом резерва и прошедшего времени. Для старого ответа без остатка используется `budget_ns`. Флаг `recommendation.can_prepare_plan` указывает на наличие исполнимого intent. `exemplars` содержит полные TraceRef.
 
 Пример evidence: attempts3,timeout_ns1000000000,backoff_total_ns150000000,required_ns3150000000,budget_ns2000000000,config_revision"12",source"Конфигурация стенда". Полные ключи/структура в types.ts.
 
@@ -96,8 +96,8 @@ Frontend вызывает только создание плана и отобр
 - Граф/тайминги: максимум 100 details с concurrency4; traces с более чем 2000 спанов пропускаются с предупреждением. Граф выводит до 40 сервисов. Один cross-service server span и его client-parent считаются одним наблюдаемым вызовом. Повторы не объединяются в логический запрос; это не коэффициент retry amplification. Неизвестный исход хранится отдельно.
 - Медиана/p95 — nearest-rank. Для связи берётся client-parent interval, при его отсутствии server interval; показатели объединённой выборки не имеют одного гарантированного источника. При переходе к серверным агрегатам нужен явный duration_basis для каждой метрики.
 - Время вне дочерних интервалов — server duration минус clipped union непосредственных children, суммируется по операциям; не CPU и не глобальный wall time.
-- Редактор видит только config_aware findings. Полного списка политик нет. Live backoff не восстанавливается из суммы пауз: пользователь задаёт fixed backoff явно. Демочерновик начинает с 75 мс средней паузы для суммы 150 мс; рекомендация с двумя попытками использует 50 мс.
-- Экспорт черновика: `zerotrace.exploration` 1.0.0, payload kind=policy-draft, mode, applied=false, occurrence_id, target, expected_config_revision, assumptions, draft{timeout,attempts,backoff,budget}, check. Размерности draft в мс. Это локальный документ, не POST payload и не ChangePlan.
+- Редактор работает с расчётами R4 и использует доступный остаток бюджета. Для исходного числа попыток он берёт суммарную паузу из аудита. При переходе на одну попытку сумма пауз равна нулю. Для другого числа попыток пользователь задаёт фиксированную паузу. Демочерновик начинает с 75 мс средней паузы для суммы 150 мс; рекомендация с двумя попытками использует 50 мс.
+- Экспорт черновика: `zerotrace.exploration` 1.0.0, payload kind=policy-draft, mode, applied=false, occurrence_id, target, expected_config_revision, assumptions, draft{timeout,attempts,backoff,budget}, check. Размерности draft в мс. При использовании суммы из аудита backoff равен null, а backoff_total_ms содержит использованную сумму. Это локальный документ, не POST payload и не ChangePlan.
 - Открытие исходного плана рекомендации по-прежнему вызывает POST /api/v1/change-plans с точными refs. Этот план не включает ручные правки; интерфейс это явно объясняет.
 - What-if: локальная browser-interval-blocks-preview-v1, до 8 непересекающихся выбранных веток. Корень один, родители известны, bounds строгие, cycles/depth>100/quality issues запрещены. Ускорение ветки масштабирует её длительность целиком, внутри родителя объединяются перекрывающиеся блоки, сохраняются offsets запусков; последовательные блоки сжимаются. Авторитетный расчёт позже должен прийти от C. Экспорт содержит trace_ref, branches, result, measured=false, applied=false.
 - Группы: только одна пара service/operation, непересекающиеся ids из загруженной выборки; медиана, p95, errors, unknown. Изменения структуры и причинность не вычисляются.

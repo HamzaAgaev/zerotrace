@@ -13,6 +13,10 @@ from .diagnostics import check_timeout_order, retry_checks, retry_paths, timing_
 from .drift import compare_policies
 
 
+SEVERITY = {"high": 3, "medium": 2, "low": 1}
+CONFIDENCE = {"high": 1, "medium": .7, "low": .4}
+
+
 def materialize(result, context, occurrence, labels):
     item = result.finding
     if not item:
@@ -25,10 +29,13 @@ def materialize(result, context, occurrence, labels):
         recs.append({**rec, "recommendation_id": rid, "version": VERSION,
                      "intents": [{**intent, "reason_ref": oid} for intent in rec["intents"]]})
     denominator = len(result.refs)
-    return {**item, "finding_id": fid, "occurrence_id": oid, "edge_id": result.edge,
+    ratio = len(result.affected) / denominator if denominator else None
+    score = SEVERITY[item["severity"]] * (.5 + ratio) * CONFIDENCE[item["confidence"]] if ratio is not None else None
+    return {**item, "score": score, "score_reason": "eligible_sample_priority" if score is not None else "missing_denominator",
+            "finding_id": fid, "occurrence_id": oid, "edge_id": result.edge,
             "edge": dict(labels), "environment_id": context[1], "rule_id": result.rule, "rule_version": VERSION,
             "affected_count": len(result.affected), "denominator_count": denominator,
-            "affected_ratio": len(result.affected) / denominator if denominator else None,
+            "affected_ratio": ratio,
             "exemplars": [asref(key) for key in sorted(result.affected)[:5]], "recommendations": recs}
 
 
@@ -140,9 +147,10 @@ def run(model, policies=(), thresholds=None, baselines=None):
             entries[result.rule].append(result)
             finding = materialize(result, identity, occurrence, labels)
             if finding:
+                finding["thresholds_hash"] = threshold_hash
                 findings.append(finding)
-    severity_order = {"high": 0, "medium": 1, "low": 2}
-    findings.sort(key=lambda f: (severity_order[f["severity"]], f["rule_id"] != "R4", f["rule_id"], f["finding_id"]))
+    findings.sort(key=lambda f: (f["score"] is None, -f["score"] if f["score"] is not None else 0,
+                                 -SEVERITY[f["severity"]], -CONFIDENCE[f["confidence"]], f["finding_id"]))
     return dict(result_id=occurrence, generated_at=generated, environment_id=ctx.environment,
                 ruleset_version=VERSION, model_version=model.get("model_version", "p2-v1"),
                 dataset_ref=model.get("dataset_ref"), dataset_hash=data_hash, config_refs=config_refs,
@@ -175,8 +183,23 @@ def verify_symptom(previous_finding, current_result, *, comparable, grace_elapse
         return "insufficient_data"
     rule = previous_finding["rule_id"]
     ev = next((item for item in current_result["rule_evaluations"] if item["rule_id"] == rule), {})
+    if (previous_finding.get("rule_version") != ev.get("rule_version")
+            or previous_finding.get("thresholds_hash") != current_result.get("thresholds_hash")):
+        return "inconclusive"
     detail = next((item for item in ev.get("by_edge", []) if item["edge_id"] == edge), None)
     if not detail or detail["status"] != "evaluated":
         return "insufficient_data"
+    if rule == "D1":
+        def comparison_key(item):
+            return item["field"], item["comparison"], item.get("source")
+        expected = {comparison_key(row) for row in previous_finding["evidence"]["differences"]}
+        policy_evidence = obs["policy_evidence"]
+        observed = {comparison_key(row) for row in policy_evidence["differences"]}
+        eligible = {comparison_key(row) for row in policy_evidence["evaluated_comparisons"]}
+        if expected & observed:
+            return "symptom_present"
+        if not expected <= eligible:
+            return "insufficient_data"
+        return "symptom_absent"
     return ("symptom_present" if any(f["finding_id"] == previous_finding["finding_id"]
                                      for f in current_result["findings"]) else "symptom_absent")

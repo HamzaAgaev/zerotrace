@@ -1,7 +1,7 @@
 """Descriptive comparison of two P10 cohorts in one repository snapshot."""
 from analytics_support import AnalyticsError, digest, ref_key
 
-from .metrics import VERSION, canonical, measure_trace, ratio, resolve, summarize
+from .metrics import VERSION, canonical, edge_descriptors, measure_trace, ratio, resolve, summarize
 
 
 def _groups(request):
@@ -46,8 +46,10 @@ def compare(graphs, request, policy=None):
         if any(v is None or v in ("unknown", "") for v in values):
             exploratory = True
             warnings.append(f"unknown_{key}")
-    keys = {key for row in rows for key in row["groups"]}
-    a, b = summarize(rows[:len(a_refs)], keys), summarize(rows[len(a_refs):], keys)
+    labels = edge_descriptors(rows)
+    a, b = summarize(rows[:len(a_refs)], labels), summarize(rows[len(a_refs):], labels)
+    if policy is not None and not isinstance(policy, dict):
+        raise AnalyticsError("invalid_policy", "Expected a cohort comparison policy object")
     small_n = (policy or {}).get("p95_warning_below", 20)
     if type(small_n) is not int or small_n < 1:
         raise AnalyticsError("invalid_policy", "p95_warning_below must be a positive count")
@@ -65,12 +67,15 @@ def compare(graphs, request, policy=None):
     scope = {"baseline_example": a_refs[0], "candidate_example": b_refs[0]}
     for k in ("root_latency_p50_ns", "root_latency_p95_ns", "root_error_ratio", "internal_error_trace_ratio", "overlap_ratio"):
         if a[k] is not None and b[k] is not None:
-            observations.append({"metric": k, "baseline": a[k], "candidate": b[k], **scope})
+            observations.append({"metric": k, "baseline": str(a[k]) if k.endswith("_ns") else a[k],
+                                 "candidate": str(b[k]) if k.endswith("_ns") else b[k], **scope})
     for left, right in zip(a["direct_calls"], b["direct_calls"]):
-        if left["median_calls_per_trace"] != right["median_calls_per_trace"]:
-            observations.append({"metric": "median_calls_per_trace", "operation": left["operation"],
-                                 "edge_id": left["edge_id"], "baseline": left["median_calls_per_trace"],
-                                 "candidate": right["median_calls_per_trace"], **scope})
+        for metric in ("median_calls_per_trace", "pooled_median_duration_ns"):
+            first, second = left[metric], right[metric]
+            if None not in (first, second) and first != second:
+                observations.append({"metric": metric, "operation": left["operation"], "edge_id": left["edge_id"],
+                                     "baseline": str(first) if metric.endswith("_ns") else first,
+                                     "candidate": str(second) if metric.endswith("_ns") else second, **scope})
     refs = {"baseline": a_refs, "candidate": b_refs}
     return {"algorithm_version": VERSION, "input_refs": refs,
             "input_hash": digest({"refs": refs, "selector": selector, "policy": policy, "version": version}),

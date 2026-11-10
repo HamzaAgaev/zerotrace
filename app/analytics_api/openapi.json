@@ -23,6 +23,20 @@
                 "config_aware"
               ]
             }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "v1",
+                "full"
+              ],
+              "default": "v1"
+            },
+            "description": "full adds policy_observation findings; v1 keeps the original frontend union."
           }
         ],
         "responses": {

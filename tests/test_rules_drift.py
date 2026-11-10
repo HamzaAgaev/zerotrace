@@ -1,6 +1,6 @@
 import unittest
 
-from rules import run
+from rules import run, verify_symptom
 from tests.test_rules import EDGE, MS, by_rule, ev, group, model, policy
 
 
@@ -77,6 +77,20 @@ class DriftTests(unittest.TestCase):
         self.assertEqual(f["denominator_count"], 0)
         self.assertIsNone(f["affected_ratio"])
 
+    def test_declared_and_runtime_policies_require_the_same_service_key(self):
+        data = model(**SEGMENT)
+        def snapshot(namespace, source, attempts):
+            owner = {"project_id": "demo", "environment": "lab", "namespace": namespace,
+                     "service_name": "orders"}
+            edge = policy(**SEGMENT, source=source, max_attempts=attempts)
+            del edge["service_id"]
+            return {"service": owner, "revision": "12", "source": source, "edges": [edge]}
+        runtime = snapshot("payments", "runtime", 3)
+        declared = snapshot("payments", "declared", 4)
+        self.assertIsNotNone(by_rule(run(data, [runtime, declared]), "D1"))
+        declared["service"]["namespace"] = "shipping"
+        self.assertIsNone(by_rule(run(data, [runtime, declared]), "D1"))
+
     def test_exact_cluster_tolerance_is_not_a_mismatch(self):
         # Default relative allowance for 250ms is 25ms; inclusive threshold.
         data = samples([275]*5)
@@ -86,6 +100,21 @@ class DriftTests(unittest.TestCase):
         self.assertEqual(out["observations"][0]["policy_evidence"]["observed_timeout"]["value_ns"],str(275*MS))
         tight = run(data,[policy(**SEGMENT)],{"tolerance_ns":1,"timeout_drift_relative":.01})
         self.assertIsNotNone(by_rule(tight,"D1"))
+
+    def test_verification_requires_the_original_drift_comparison(self):
+        data = samples([500]*5)
+        a, c = group("logical")
+        c.update(SEGMENT)
+        data["attempts"].extend(a)
+        data["calls"] = [c]
+        p = policy(**SEGMENT)
+        before = run(data, [p])
+        f = by_rule(before, "D1")
+        data["sampling"] = {"mode":"tail"}
+        after = run(data, [p])
+        self.assertEqual(ev(after,"D1")["status"], "evaluated")
+        self.assertEqual(verify_symptom(f, after, comparable=True, grace_elapsed=True, minimum_calls=1),
+                         "insufficient_data")
 
     def test_multiple_timeouts_in_one_trace_do_not_meet_minimum(self):
         data = samples([500]*5)

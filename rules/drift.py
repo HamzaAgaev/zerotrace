@@ -97,16 +97,19 @@ def timeout_sample(ctx, edge, model, segment, limits):
 def compare_policies(ctx, edge, model, policies, limits):
     result = Assessment("D1", edge)
     details = {"segment": None, "configured": {}, "observed_attempts": None, "observed_timeout": None,
-               "differences": [], "selection": "compare_fresh_sources_within_one_epoch_v1"}
+               "differences": [], "evaluated_comparisons": [], "selection": "compare_fresh_sources_within_one_epoch_v1"}
     fresh = [p for p in policies if current(p) and ctx.matching_policy(model, edge, p)]
     if not fresh:
         result.reject("missing_fresh_matching_snapshot")
         return result, details
+    owners = {digest(p["service"]) for p in fresh if p.get("service")}
     segments = {digest(domain(p, ctx.environment)) for p in fresh}
     segment = domain(fresh[0], ctx.environment)
-    if len(segments) != 1 or any(segment.get(k) is None for k in DIMENSIONS):
+    if len(segments) != 1 or len(owners) > 1 or any(segment.get(k) is None for k in DIMENSIONS):
         result.reject("unmatched_workload_or_versions")
         return result, details
+    if owners and all(p.get("service") for p in fresh):
+        segment["service"] = fresh[0]["service"]
     details["segment"] = segment
     configured = {}
     fields = details["configured"]
@@ -122,10 +125,11 @@ def compare_policies(ctx, edge, model, policies, limits):
             continue
         configured[field] = {src: next(iter(sources[src])) for src in sorted(sources)}
         if len(sources) == 2:
-            if not segment["service_id"] or not segment["call_ref"]:
+            if not (segment["service_id"] or segment.get("service")) or not segment["call_ref"]:
                 result.reject("missing_configuration_target")
                 continue
             different = sources["runtime"] != sources["declared"]
+            details["evaluated_comparisons"].append({"field": field, "comparison": "runtime_vs_declared"})
             result.consider(triggered=different)
             if different:
                 details["differences"].append({"field": field, "comparison": "runtime_vs_declared",
@@ -150,6 +154,9 @@ def compare_policies(ctx, edge, model, policies, limits):
                 affected += 1
                 if len(examples) < 5:
                     examples.append({"trace_ref": asref(g.key), "attempt_ids": g.data["attempt_ids"]})
+        if groups:
+            details["evaluated_comparisons"].append({"field": "max_attempts", "comparison": "observed_above_config",
+                                                      "source": source})
         if affected:
             details["differences"].append({"field": "max_attempts", "comparison": "observed_above_config",
                                            "source": source, "affected_calls": affected, "samples": examples})
@@ -166,6 +173,8 @@ def compare_policies(ctx, edge, model, policies, limits):
                 margin = tolerance(value, limits.timeout_drift_relative, limits.tolerance_ns)
                 different = high < value - margin or low > value + margin
                 sample["comparison_tolerances_ns"][source] = str(margin)
+                details["evaluated_comparisons"].append({"field": "per_attempt_timeout_ns",
+                                                         "comparison": "timeout_cluster_vs_config", "source": source})
                 result.consider(refs, different)
                 if different:
                     details["differences"].append({"field": "per_attempt_timeout_ns",

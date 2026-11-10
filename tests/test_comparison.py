@@ -3,10 +3,11 @@ import unittest
 
 from analytics_support import AnalyticsError, wire
 from comparison import compare, compare_runs
+from tests.span_ids import sid
 
 
 def span(span_id, parent, kind, start, length, service="orders", **kwargs):
-    return {"span_id": span_id, "parent_span_id": parent, "kind": kind, "name": "pay",
+    return {"span_id": sid(span_id), "parent_span_id": sid(parent), "kind": kind, "name": "pay",
             "service": service, "outcome": "ok", "start_offset_ns": str(start),
             "duration_ns": str(length), **kwargs}
 
@@ -55,11 +56,37 @@ class CohortTests(unittest.TestCase):
     def test_internal_wrapper_and_overlap(self):
         a, b = trace(1, 2), trace(2)
         a["spans"].append(span("wrap", "root", "internal", 0, 100))
-        a["spans"][1].update(parent_span_id="wrap", start_offset_ns="0", duration_ns="20")
+        a["spans"][1].update(parent_span_id=sid("wrap"), start_offset_ns="0", duration_ns="20")
         a["spans"][2].update(start_offset_ns="10", duration_ns="20")
         self.assertAlmostEqual(cohort([a], [b])["baseline"]["overlap_ratio"], 40 / 30)
         for s in a["spans"][1:3]:
             s["start_ns"] = s.pop("start_offset_ns")
+        self.assertIsNone(cohort([a], [b])["baseline"]["overlap_ratio"])
+
+    def test_machine_edge_stays_one_group_when_target_is_only_known_on_one_side(self):
+        a, b = trace(1), trace(2)
+        b["spans"][1].update(target="payment", duration_ns="12")
+        # In a P2 TraceGraph the authoritative edge is on the normalized Attempt.
+        client = a["spans"][1]
+        a["attempts"] = [{"attempt_id": client["span_id"], "edge_id": client.pop("edge_id")}]
+        z = cohort([a], [b])
+        for side in ("baseline", "candidate"):
+            self.assertEqual(len(z[side]["direct_calls"]), 1)
+            self.assertEqual(z[side]["direct_calls"][0]["median_calls_per_trace"], 1)
+        metrics = {o["metric"]: o for o in z["observations"]}
+        self.assertNotIn("median_calls_per_trace", metrics)
+        self.assertEqual(metrics["pooled_median_duration_ns"]["candidate"], "12")
+        a["quality"] = {"source_loss": True}
+        self.assertFalse(any(o["metric"] == "median_calls_per_trace" for o in cohort([a], [b])["observations"]))
+
+    def test_explicit_clock_disagreement_disables_overlap_not_durations(self):
+        a, b = trace(1, 2), trace(2)
+        a["clock_compatible"] = False
+        z = cohort([a], [b])["baseline"]
+        self.assertIsNone(z["overlap_ratio"])
+        self.assertEqual(z["direct_calls"][0]["pooled_median_duration_ns"], 10)
+        a.pop("clock_compatible")
+        a["spans"][1]["clock_compatible"] = False
         self.assertIsNone(cohort([a], [b])["baseline"]["overlap_ratio"])
 
     def test_percentiles_interpolation_denominators_and_warnings(self):
@@ -112,6 +139,14 @@ class CohortTests(unittest.TestCase):
         all_lost = cohort([incomplete], [healthy])["baseline"]
         self.assertIsNone(all_lost["direct_calls"][0]["median_calls_per_trace"])
 
+    def test_bad_ids_do_not_enter_cohort_counts(self):
+        a, b = trace(1), trace(2)
+        for field, value in (("parent_span_id", []), ("span_id", "0" * 16), ("span_id", "A" * 16)):
+            graph = {**a, "spans": [a["spans"][0], {**a["spans"][1], field: value}]}
+            with self.subTest(field=field, value=value), self.assertRaises(AnalyticsError) as error:
+                cohort([graph], [b])
+            self.assertEqual(error.exception.code, "invalid_trace")
+
     def test_identity_independent_of_permutation(self):
         a = [trace(1, 2), trace(2, 0)]
         b = [trace(3, 1)]
@@ -140,7 +175,7 @@ class RunTests(unittest.TestCase):
         for run in (self.a, self.b):
             for trace in run["traces"]:
                 root = trace["spans"][0]
-                root["parent_span_id"] = "forward"
+                root["parent_span_id"] = sid("forward")
                 trace["spans"].extend([
                     span("front", None, "server", 0, 120, "gateway", run_id=root.pop("run_id"), http_status=503),
                     span("forward", "front", "client", 0, 110, "gateway"),
@@ -148,6 +183,37 @@ class RunTests(unittest.TestCase):
         result = compare_runs(self.a, self.b)
         self.assertEqual(result["baseline"]["attempt_count_histogram"], {"3": 2})
         self.assertEqual(result["candidate"]["attempt_count_histogram"], {"2": 2})
+
+    def test_opaque_registry_owner_and_namespace_local_call_refs(self):
+        key = {"project_id": "shop", "environment": "lab", "namespace": "owner", "service_name": "orders"}
+        for run in (self.a, self.b):
+            run["config_snapshot"].update(service_id="opaque-registry-id", service=key)
+            for graph in run["traces"]:
+                for item in graph["spans"]:
+                    item["service"] = key
+                graph["spans"].append(span("foreign", "root", "client", 10, 10,
+                                           {**key, "namespace": "another"}, call_ref="pay"))
+        z = compare_runs(self.a, self.b)
+        self.assertEqual((z["baseline"]["attempts"], z["candidate"]["attempts"]), (6, 4))
+
+    def test_exact_edge_matches_opaque_id_without_name_mapping(self):
+        for run in (self.a, self.b):
+            run["config_snapshot"]["service_id"] = "opaque-registry-id"
+        self.assertEqual(compare_runs(self.a, self.b)["candidate"]["attempts"], 4)
+        graph = self.b["traces"][0]
+        graph["spans"][1].pop("edge_id")
+        graph["spans"][1]["call_ref"] = "pay"
+        self.assert_code("invalid_run_sample")
+
+    def test_contradictory_normalized_attempt_or_non_server_entry_rejected(self):
+        graph = self.b["traces"][0]
+        for fields in ({"edge_id": "other-edge"}, {"attempt_index": 3}):
+            with self.subTest(fields=fields):
+                graph["attempts"] = [{"attempt_id": sid("c0"), **fields}]
+                self.assert_code("invalid_run_sample")
+        del graph["attempts"]
+        graph["spans"][0]["kind"] = "client"
+        self.assert_code("invalid_run_sample")
 
     def test_measurements_independent_of_new_limit(self):
         self.b["traces"] = [trace(i, 3, "run-b") for i in (20, 21)]
@@ -209,7 +275,7 @@ class RunTests(unittest.TestCase):
             {"quality": {"source_loss": True}},
             {"quality": {"issues": [{"code": "missing_parent"}]}},
             {"sampling": {"known_losses": True}},
-            {"attempts": [{"attempt_id": "omitted-span"}]},
+            {"attempts": [{"attempt_id": sid("omitted-span")}]},
             {"summary": {"span_count": 2}},
             {"assembly_state": "forced"},
         ]:
@@ -219,7 +285,7 @@ class RunTests(unittest.TestCase):
 
     def test_orphan_or_disconnected_client_cycle_rejected_in_frozen_sample(self):
         graph = self.b["traces"][0]
-        graph["spans"][1]["parent_span_id"] = "lost-parent"
+        graph["spans"][1]["parent_span_id"] = sid("lost-parent")
         self.assert_code("incomplete_trace")
         graph["spans"][1]["parent_span_id"] = graph["spans"][2]["span_id"]
         graph["spans"][2]["parent_span_id"] = graph["spans"][1]["span_id"]
@@ -235,7 +301,7 @@ class RunTests(unittest.TestCase):
     def test_duplicate_export_location_and_normalized_attempts(self):
         graph = self.b["traces"][0]
         graph["spans"].append(span("processor", "root", "internal", 0, 100))
-        graph["spans"][1]["parent_span_id"] = "processor"
+        graph["spans"][1]["parent_span_id"] = sid("processor")
         graph["attempts"] = []
         for s in graph["spans"][1:3]:
             graph["attempts"].append({"attempt_id": s["span_id"], "edge_id": s.pop("edge_id"),

@@ -48,3 +48,23 @@ test('exact trace links preserve environment and revision and reject mismatched 
   await assert.rejects(client.getTrace({ ...ref, revision: ref.revision + 1 }),
     (e: unknown) => e instanceof ApiError && e.code === 'trace_ref_mismatch');
 });
+
+test('audit accepts policy observations, uses remaining budget and prevents a plan without an intent', async () => {
+  const { availableBudget, canPreparePlan } = await import('../src/api/types.js');
+  const budget = { ...demoFinding.evidence, budget_ns: '1000000000', available_ns: '-100000' };
+  const advisory = { ...demoFinding, evidence: budget, recommendation: { ...demoFinding.recommendation, can_prepare_plan: false } };
+  const observed = { ...advisory, rule_id: 'D1', evidence: { kind: 'policy_observation', source: 'runtime / declared' } };
+  validatePayload('audit', { ...demoAudit, findings: [advisory, observed] });
+  assert.throws(() => validatePayload('audit', {...demoAudit, findings: [{...observed, basis: 'observed'}]}), ApiError);
+  assert.equal(availableBudget({ ...budget, available_ns: '0' }), '0');
+  assert.equal(availableBudget(budget), '-100000');
+  assert.equal(availableBudget(demoFinding.evidence), demoFinding.evidence.budget_ns);
+  assert.equal(canPreparePlan(advisory), false);
+  assert.equal(canPreparePlan({...demoFinding, recommendation: {...demoFinding.recommendation, changes: []}}), false);
+  await assert.rejects(createClient({mode: 'demo', baseUrl: ''}).createPlan(advisory),
+    (e: unknown) => e instanceof ApiError && e.code === 'no_change_intent');
+  let called = false;
+  const client = createClient({mode: 'live', baseUrl: ''}, async () => { called = true; throw new Error(); });
+  await assert.rejects(client.createPlan(advisory), (e: unknown) => e instanceof ApiError && e.code === 'no_change_intent');
+  assert.equal(called, false);
+});

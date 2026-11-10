@@ -37,11 +37,17 @@ export function summarize(details: TraceDetail[]): { services: ServiceStats[]; e
   const stats = (spans: Span[]) => ({ count: spans.length, errors: spans.filter(s => s.outcome === 'error').length, unknown: spans.filter(s => s.outcome === 'unknown').length, median: percentile(spans.map(s => numericMs(s.duration_ns)), .5), p95: percentile(spans.map(s => numericMs(s.duration_ns)), .95) });
   return { services: [...services].map(([name,g]) => ({ name,...stats(g.spans), own:g.own,traceIds:[...g.ids] })).sort((a,b) => b.count-a.count || a.name.localeCompare(b.name)), edges:[...edges].map(([id,g]) => ({ id,caller:g.caller,callee:g.callee,...stats(g.spans),traceIds:[...g.ids] })) };
 }
-export interface BudgetDraft { timeout: number; attempts: number; backoff: number; budget: number }
-export function checkBudget(draft: BudgetDraft) {
+export interface BudgetDraft { timeout: number; attempts: number; backoff: number | null; budget: number }
+export function checkBudget(draft: BudgetDraft, configuredPauses?: { attempts: number; total: number }) {
   const { timeout, attempts, backoff, budget } = draft;
-  const valid = [timeout,attempts,backoff,budget].every(Number.isFinite) && timeout > 0 && budget > 0 && Number.isInteger(attempts) && attempts >= 1 && attempts <= 10 && backoff >= 0 && [timeout,backoff,budget].every(v => v <= 3_600_000);
-  const required = valid ? timeout*attempts+backoff*(attempts-1) : null;
+  // An aggregate does not imply a fixed per-retry delay at a different attempt count.
+  const pauses = backoff === null
+    ? attempts === 1 ? 0 : attempts === configuredPauses?.attempts ? configuredPauses.total : NaN
+    : backoff * (attempts - 1);
+  const valid = [timeout, attempts, budget, pauses].every(Number.isFinite)
+    && timeout > 0 && timeout <= 3_600_000 && Number.isInteger(attempts) && attempts >= 1 && attempts <= 10
+    && budget <= 3_600_000 && pauses >= 0 && (backoff === null || (backoff >= 0 && backoff <= 3_600_000));
+  const required = valid ? timeout * attempts + pauses : null;
   return { valid, required, reserve: required === null ? null : budget-required };
 }
 export function cohortStats(rows: TraceSummary[]) {
