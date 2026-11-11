@@ -138,7 +138,9 @@ class SpanStore:
         # RLock: collection helpers call resolve_trace and other read methods
         # while already holding the store lock.
         self._writer_lock = threading.RLock()
-        self._writer = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
+        self._writer = sqlite3.connect(
+            str(self._path), check_same_thread=False, isolation_level=None
+        )
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=FULL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -556,8 +558,10 @@ class SpanStore:
                 """,
                 (span_id, environment_id),
             ).fetchall()
-        return {TraceRef(environment_id, trace_id, generation, revision)
-                for trace_id, generation, revision in rows}
+        return {
+            TraceRef(environment_id, trace_id, generation, revision)
+            for trace_id, generation, revision in rows
+        }
 
     def list_trace_metas(self, environment_id: str) -> list[TraceMeta]:
         with self._lock:

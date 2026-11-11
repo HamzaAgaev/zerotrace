@@ -18,7 +18,6 @@ import re
 
 from contracts.p2 import CallModel, NormalizedSpan, TraceGraph
 from contracts.p7 import SpanView, TraceDetail, TraceSummary, UiOutcome, UiSpanKind
-
 from core.calls import parse_operation
 
 HTTP_METHOD_TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
@@ -133,8 +132,10 @@ def trace_summary(graph: TraceGraph, call_model: CallModel | None = None) -> Tra
     if method is None and root is not None:
         prefix, _, path = operation.partition(" ")
         # Recognize extension methods on observed HTTP routes.
-        if HTTP_METHOD_TOKEN.fullmatch(prefix) and path.startswith("/") and (
-            root.http_status is not None or root.field_coverage.get("operation")
+        if (
+            HTTP_METHOD_TOKEN.fullmatch(prefix)
+            and path.startswith("/")
+            and (root.http_status is not None or root.field_coverage.get("operation"))
         ):
             method, endpoint = prefix.upper(), path.strip()
     return TraceSummary(
@@ -163,14 +164,25 @@ def trace_detail(graph: TraceGraph, call_model: CallModel | None = None) -> Trac
     compactable = {}
     for client in graph.spans:
         children = graph.children_index.get(client.span_id, [])
-        if (client.kind != "client" or client.async_markers or len(children) != 1
-                or client.http_status is None or not 200 <= client.http_status < 400
-                or client.otel_status == "error" or client.error_type is not None):
+        if (
+            client.kind != "client"
+            or client.async_markers
+            or len(children) != 1
+            or client.http_status is None
+            or not 200 <= client.http_status < 400
+            or client.otel_status == "error"
+            or client.error_type is not None
+        ):
             continue
         server = by_id.get(children[0])
-        if (server is not None and server.kind == "server" and server.service != client.service
-                and server.http_status == client.http_status and server.otel_status != "error"
-                and server.error_type is None):
+        if (
+            server is not None
+            and server.kind == "server"
+            and server.service != client.service
+            and server.http_status == client.http_status
+            and server.otel_status != "error"
+            and server.error_type is None
+        ):
             compactable[client.span_id] = server.span_id
     return TraceDetail(
         summary=summary,

@@ -336,7 +336,8 @@ def create_app(config: dict) -> Flask:
         trace_only = (request.path == "/api/v1/traces" or trace_id is not None) and (
             request.args.get("include_findings") == "false"
         )
-        configs = snapshots(env) if env and report_id is None and not saved_snapshot and not trace_only else None
+        skip_snapshots = report_id is not None or saved_snapshot or trace_only
+        configs = snapshots(env) if env and not skip_snapshots else None
         with analytics.configured(env, configs):
             result = api.dispatch(environ)
         if isinstance(result, str):

@@ -131,8 +131,11 @@ class TraceDetail:
             "trace_ref": self.summary.trace_ref.to_dict(),
             "spans": [s.to_dict(include_kind=include_span_kind) for s in self.spans],
             "quality_issues": list(self.quality_issues),
-            **({"compactable_client_spans": self.compactable_client_spans}
-               if self.compactable_client_spans else {}),
+            **(
+                {"compactable_client_spans": self.compactable_client_spans}
+                if self.compactable_client_spans
+                else {}
+            ),
         }
 
     @staticmethod

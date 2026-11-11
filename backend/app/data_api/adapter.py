@@ -13,14 +13,16 @@ from collections.abc import Callable, Iterable, Sequence
 from contracts.base import TraceRef
 from contracts.p1 import IngestLimits
 from contracts.p2 import NormalizedSpan
-from repository.store import SpanStore, TraceMeta as RepositoryTraceMeta
+from repository.store import SpanStore
+from repository.store import TraceMeta as RepositoryTraceMeta
 
 from .handlers import GraphBuilder, TraceMeta
 
 
 class SpanStoreAdapter:
     def __init__(
-        self, store: SpanStore,
+        self,
+        store: SpanStore,
         list_metas: Callable[[str], Iterable[RepositoryTraceMeta]] | None = None,
     ) -> None:
         self._store = store

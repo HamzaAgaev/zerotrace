@@ -148,14 +148,20 @@ def list_traces(
         return ApiError(400, "invalid_method", "method must be an HTTP method token")
 
     if span_id is not None and (not SPAN_ID_RE.fullmatch(span_id) or span_id == ZERO_SPAN_ID):
-        return ApiError(400, "invalid_span_id", "span_id must be 16 lowercase hex characters and nonzero")
+        return ApiError(
+            400, "invalid_span_id", "span_id must be 16 lowercase hex characters and nonzero"
+        )
     if start_from_ns is not None and start_to_ns is not None and start_from_ns >= start_to_ns:
         return ApiError(400, "invalid_time_range", "start_from_ns must be less than start_to_ns")
 
     selected_method = method.upper()
     has_period = start_from_ns is not None or start_to_ns is not None
-    expanded = bool(query or service or status or method or sort is not None or span_id or has_period)
-    span_matches = store.trace_refs_for_span(environment_id, span_id) if span_id is not None else None
+    expanded = bool(
+        query or service or status or method or sort is not None or span_id or has_period
+    )
+    span_matches = (
+        store.trace_refs_for_span(environment_id, span_id) if span_id is not None else None
+    )
     items: list[TraceSummary] = []
     services: set[str] = set()
     methods: set[str] = set()
@@ -196,8 +202,9 @@ def list_traces(
     page = items[offset : offset + limit] if expanded else items
     payload: dict[str, Any] = {"items": [item.to_dict() for item in page], "total": len(metas)}
     if expanded:
-        payload.update(total=len(items),
-                       services=sorted(services), methods=sorted(methods), outcomes=outcomes)
+        payload.update(
+            total=len(items), services=sorted(services), methods=sorted(methods), outcomes=outcomes
+        )
     return _envelope(SCHEMA_TRACE_LIST, payload, generated_at)
 
 
