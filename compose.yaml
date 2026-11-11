@@ -1,0 +1,128 @@
+name: zerotrace
+x-demo-service: &demo-service
+  image: zerotrace:local
+  profiles: [demo]
+  restart: unless-stopped
+  volumes:
+    - source-tokens:/tokens:ro
+  depends_on:
+    zerotrace:
+      condition: service_healthy
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/_health',timeout=2)"]
+    interval: 5s
+    timeout: 3s
+    retries: 20
+  environment:
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://zerotrace:8000/v1/traces
+    OTEL_BSP_SCHEDULE_DELAY: '200'
+    OTEL_TRACES_SAMPLER: always_on
+    OTEL_SEMCONV_STABILITY_OPT_IN: http/dup
+
+services:
+  zerotrace:
+    image: zerotrace:local
+    build: .
+    init: true
+    ports:
+      - '127.0.0.1:8000:8000'
+    volumes:
+      - product-data:/data
+      - source-tokens:/tokens
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    stop_grace_period: 30s
+  gateway:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, gateway, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/gateway, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-gateway:/state
+  orders:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, orders, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/orders, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-orders:/state
+  inventory:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, inventory, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/inventory, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-inventory:/state
+  pricing:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, pricing, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/pricing, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-pricing:/state
+  delivery:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, delivery, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/delivery, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-delivery:/state
+  payment:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, payment, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/payment, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-payment:/state
+  fraud:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, fraud, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/fraud, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-fraud:/state
+  bank-api:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, bank-api, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/bank-api, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-bank-api:/state
+  notifications:
+    <<: *demo-service
+    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, notifications, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/notifications, --endpoint, http://zerotrace:8000/v1/traces]
+    volumes:
+      - source-tokens:/tokens:ro
+      - demo-notifications:/state
+  demo-load:
+    image: zerotrace:local
+    profiles: [demo]
+    command: [python, deploy/demo_load.py, --url, http://gateway:8080, --interval, '2']
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+      orders:
+        condition: service_healthy
+      inventory:
+        condition: service_healthy
+      pricing:
+        condition: service_healthy
+      delivery:
+        condition: service_healthy
+      payment:
+        condition: service_healthy
+      fraud:
+        condition: service_healthy
+      bank-api:
+        condition: service_healthy
+      notifications:
+        condition: service_healthy
+
+volumes:
+  product-data:
+  source-tokens:
+  demo-gateway:
+  demo-orders:
+  demo-inventory:
+  demo-pricing:
+  demo-delivery:
+  demo-payment:
+  demo-fraud:
+  demo-bank-api:
+  demo-notifications:

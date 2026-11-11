@@ -1,18 +1,18 @@
 # API frontend-среза для A/B/C
 
-Это конкретные **view DTO первого frontend**, не утверждение о готовности Python-сервера и не совместимость со старыми Go/Rust handlers. Основа — P7 проектных контрактов. Формы ниже относятся к публичному API фронтенда. Полный Snapshot и внутренние модели аналитики описаны отдельно.
+Это публичные DTO frontend для объединённого Python-сервера A/B/C. Все успешные ответы обёрнуты envelope v1; полные frontend типы находятся в `src/api/types.ts`.
 
 Полные типы: `src/api/types.ts`. Реальные по форме демопримеры: `src/api/fixtures.ts` и `fixtures/frontend-contracts.json`.
 
 ## Целевой срез с двумя режимами
 
-Целевой API добавляет возможности чтения и записи по сервису и полям, применение рекомендации только на стенде и отдельные лабораторные операции. Ниже зафиксирован интерфейс текущего прототипа. Целевые операции описаны в [P6–P7](../docs/plans/CONTRACTS.md#p6-план-и-применение).
+Серверный режим использует тот же origin по умолчанию и позволяет читать конфигурацию, строить и применять планы, просматривать журнал и выполнять лабораторные прогоны. Деморежим сохраняет локальные fixtures. Рекомендации разрешено применять только в `sandbox`.
 
-Лаборатория в этой рабочей копии доступна в демонстрационном режиме. Типизированный fixture в `src/api/labFixture.ts` поддерживает сборку по точной ревизии трассы orders → payment, фиксацию выборок и применение R4 к конфигу стенда. Лабораторные операции выполняются в памяти вкладки. Возможности внешних сервисов на графе тоже подписаны как fixtures. В режиме API клиент использует существующие маршруты мониторинга и предпросмотра плана из таблицы ниже.
+GET services/environments возвращает `{items:[]}`; GET services/{id}/config возвращает конфиг сервиса с `calls` и входящими `routes`. POST change-plans принимает окружение, сервис, ревизию, call_ref или route и typed `set`. Применение передаёт `request_id` и `plan_hash`; одинаковый request_id сохраняется при повторе. Результат доступен через журнал операций.
 
-После подключения серверных операций на первом показе фронт показывает один активный стенд. Кнопка «Остановить» вызывает DELETE /api/v1/lab/stands/{id} и считает стенд остановленным после подтверждения сервера. Во время прогона кнопка и редактирование заблокированы; если запрос всё же дошёл, сервер возвращает 409 run_in_progress. При 409 stale_revision фронт обновляет конфиг или сценарий и ждёт подтверждения пользователя. Форматы и правила описаны в [P11](../docs/plans/CONTRACTS.md#p11-согласованный-рабочий-срез-для-первого-показа).
+Лаборатория читает активный стенд, историю прогонов и обновляет состояние выполняющейся нагрузки. Fault редактируется с `expected_fault_revision`; прогон передаёт scenario/fault/config revisions, request_count, concurrency и необязательный числовой seed. При stale_revision интерфейс перечитывает состояние. Остановка считается завершённой после подтверждения API.
 
-При открытии лаборатории и после конфликта фронт читает GET /api/v1/lab/stands/active. Для одного нажатия «Запустить» используется один request_id, включая повтор после сетевого таймаута. В состоянии stopping доступны просмотр и повтор остановки. Сравнение ждёт фиксации трасс обоих прогонов. Для partial показываются полученное и ожидаемое число трасс.
+История прогонов загружается через GET /api/v1/lab/runs. Сравнение выполняется POST /api/v1/comparisons с baseline_run_id и candidate_run_id после фиксации трасс; метрики показываются из фактических результатов C. Частичная выборка отображает received/expected.
 
 Сборка ограничена шестью секундами на сервере. Если браузер не получил ответ на создание, он перечитывает активный стенд и сравнивает полный source TraceRef с выбранной трассой. Стенд со статусом building ещё нельзя использовать. Повторное создание выполняется по явному действию пользователя после проверки состояния.
 
@@ -59,6 +59,8 @@ TraceSummary: trace_ref, trace_id, operation, service, start_ns, duration_ns, sp
 
 TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},spans,quality_issues}`. Span содержит span_id,parent_span_id|null,service,name,kind(server/client/internal),start_offset_ns,duration_ns,outcome,http_status|null,error_type|null. `start_offset_ns` считается для выбранной шкалы на сервере/adapter; frontend не вычитает timestamps разных clocks. Готовность модели и clock quality остаются у B/C.
 
+У клиентского спана может быть строковое поле `target` с наблюдаемым адресатом вызова, например `payment` из `server.address`. Если серверный спан не найден, граф показывает отдельный узел адресата. Время ответа сервиса рассчитывается по его серверным спанам.
+
 ### Для Амира (C)
 
 AuditResult: result_id,generated_at,findings,rule_evaluations. Finding содержит готовые evidence operands/required/budget; браузер только форматирует ns и показывает текст. Конкретные refs occurrence/recommendation нужны для запроса plan. Для R4 evidence.kind = retry_budget. Для наблюдений без конфига evidence = {kind: trace_observation, source}; карточка отображает объяснение и рекомендацию без расчёта бюджета. exemplars содержит полные TraceRef.
@@ -69,7 +71,7 @@ AuditResult: result_id,generated_at,findings,rule_evaluations. Finding соде�
 
 ### Для Никиты (A)
 
-Capabilities: mode,api_version,source_name,source_state(receiving/idle/unknown),apply_enabled,limits{max_trace_spans}. Даже если сервер сообщает apply_enabled=true, frontend этого среза остаётся readonly и не вызывает apply.
+Capabilities: mode,api_version,source_name,source_state(receiving/idle/unknown),apply_enabled,limits{max_trace_spans}.
 
 Запрос создания плана:
 
@@ -85,16 +87,18 @@ Capabilities: mode,api_version,source_name,source_state(receiving/idle/unknown),
 
 ChangePlan: plan_id,plan_hash,finding_id,target,expected_revision,expires_at,changes[{field,before,after}],warnings:string[],apply_enabled. Здесь changes — **человекочитаемый DTO**: field/before/after строки, например «Таймаут одной попытки»/«1 000 мс»/«800 мс». Исполняемый typed patch остаётся на сервере и не генерируется браузером из этих строк.
 
-Frontend вызывает только создание плана и отображает результат. В этом срезе не существует POST apply; нет имитации applied/journal и автоматического повтора мутации после timeout.
+После явного подтверждения frontend вызывает POST `/api/v1/change-plans/{plan_id}/apply` с request_id и plan_hash. Если ответ потерян, пользователь может повторить применение с тем же request_id. Статусы и actual_changes читаются из журнала.
+
+Лабораторные endpoints: GET/POST `/api/v1/lab/stands/active` и `/api/v1/lab/stands`; PUT/DELETE `/api/v1/lab/stands/{id}/fault`; POST `/api/v1/lab/stands/{id}/runs`; GET `/api/v1/lab/runs/{id}` и `/api/v1/lab/runs`; POST `/api/v1/comparisons`.
 
 При разных origins разрешить CORS для локального frontend, включая Content-Type POST. Auth/production URL/политика доступа согласуются отдельно. Никита не должен принимать произвольные target URLs из этих DTO как адреса управления.
 
 ## Расширение frontend 0.2
 
-Новые экраны используют существующие list/details/audit. Дополнительных HTTP endpoints этот frontend не вызывает.
+Граф и what-if остаются браузерными расчётами по загруженным трассам; редактор конфигурации, применение и лабораторные операции используют endpoints A. Сравнение показывает расчёт C по сохранённым выборкам.
 
 - Граф/тайминги: максимум 100 details с concurrency4; traces с более чем 2000 спанов пропускаются с предупреждением. Граф выводит до 40 сервисов. Один cross-service server span и его client-parent считаются одним наблюдаемым вызовом. Повторы не объединяются в логический запрос; это не коэффициент retry amplification. Неизвестный исход хранится отдельно.
-- Медиана/p95 — nearest-rank. Для связи берётся client-parent interval, при его отсутствии server interval; показатели объединённой выборки не имеют одного гарантированного источника. При переходе к серверным агрегатам нужен явный duration_basis для каждой метрики.
+- Медиана/p95 используют линейную интерполяцию по отсортированным значениям, как в P3. Для связи берётся client-parent interval, при его отсутствии server interval; показатели объединённой выборки не имеют одного гарантированного источника. При переходе к серверным агрегатам нужен явный duration_basis для каждой метрики.
 - Время вне дочерних интервалов — server duration минус clipped union непосредственных children, суммируется по операциям; не CPU и не глобальный wall time.
 - Редактор видит только config_aware findings. Полного списка политик нет. Live backoff не восстанавливается из суммы пауз: пользователь задаёт fixed backoff явно. Демочерновик начинает с 75 мс средней паузы для суммы 150 мс; рекомендация с двумя попытками использует 50 мс.
 - Экспорт черновика: `zerotrace.exploration` 1.0.0, payload kind=policy-draft, mode, applied=false, occurrence_id, target, expected_config_revision, assumptions, draft{timeout,attempts,backoff,budget}, check. Размерности draft в мс. Это локальный документ, не POST payload и не ChangePlan.

@@ -12,39 +12,34 @@ docs/plans/  Спецификация, план команды и контрак
 
 ## Актуальные документы
 
+- `docs/architecture/A_DECISIONS.md` — согласованные изменения первого показа и границы решения; это не отчёт о проверках.
+- `docs/architecture/API_A.md` — операторский запуск, подключение источника и примеры API.
+- `docs/HANDOFF_Nikita.md` — устройство интеграционной ветки и handoff команде.
+- `VERIFICATION.md` — результаты suite/build/runtime проверок и открытые проверки.
 - `docs/plans/PLAN.md` — полная спецификация (v0.4.1-draft)
 - `docs/plans/CONTRACTS.md` — контракты P1–P11
 - `docs/plans/{A_stand,B_core,C_rules,D_product}.md` — зоны ответственности
 - `frontend/FRONTEND_PLAN.md` — состояние фронтенда и задачи по команде
 - `frontend/API.md` — текущие HTTP-маршруты и типы
 
-## Запуск фронтенда
+## Разработка и первый показ
 
 ```sh
-cd frontend
-npm ci
-npm run dev      # http://127.0.0.1:5173
+docker compose up --build
+# UI и API: http://127.0.0.1:8000
+docker compose --profile demo up --build
 ```
 
-Проверки:
+По умолчанию Compose запускает только ZeroTrace. Профиль `demo` включает девять приложений и `demo-load`; лабораторные стенды запускает API управления. Docker — основной путь разработки и первого показа. Нативная переносимость backend/CLI на Windows, macOS и Linux остаётся целевым требованием полной системы и здесь не заявляется как проверенная.
+
+Подробности согласованных решений: [A_DECISIONS.md](docs/architecture/A_DECISIONS.md).
+
+## Сборка образа
 
 ```sh
-npm run build    # строгая TypeScript-проверка + production build
-npm test         # автотесты
-```
-
-## Проверки бэкенда
-
-```sh
-cd backend
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/ruff check contracts fixtures tests
-.venv/bin/ruff format --check contracts fixtures tests
-.venv/bin/mypy
-.venv/bin/pytest tests -q
-python3 fixtures/build_model_fixtures.py   # пересобрать контрактные fixtures
+docker compose build
 ```
 
 ## Статус
 
-Мониторинг поддерживает демоданные и подключение к API. Лаборатория работает на тестовых данных и позволяет сравнить прогоны до и после применения рекомендации R4.
+Python (318 tests и 71 subtests), backend static checks, Docker frontend tests/build, Compose runtime и Chromium QA прошли согласно [VERIFICATION.md](VERIFICATION.md). Генератор из трассы пока линейный; готовый checkout поддерживает ветвления. Native portability остаётся непроверенным целевым требованием полной системы.

@@ -23,6 +23,7 @@ class SpanView:
     outcome: UiOutcome
     http_status: int | None = None
     error_type: str | None = None
+    target: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -36,6 +37,7 @@ class SpanView:
             "outcome": self.outcome,
             "http_status": self.http_status,
             "error_type": self.error_type,
+            **({"target": self.target} if self.target is not None else {}),
         }
 
     @staticmethod
@@ -51,6 +53,7 @@ class SpanView:
             outcome=d["outcome"],
             http_status=d.get("http_status"),
             error_type=d.get("error_type"),
+            target=d.get("target"),
         )
 
 

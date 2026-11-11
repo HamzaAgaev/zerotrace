@@ -1,0 +1,15 @@
+{
+  "scenario_id": "p11_budget",
+  "mode": "config_aware",
+  "required_capabilities": ["runtime_config"],
+  "must_find": [{
+    "rule_id": "R4",
+    "selector": {"edge_id": "orders-payment"},
+    "severity_min": "medium",
+    "operands": [
+      {"path":"evidence.required_ns", "equals":"850000000"},
+      {"path":"evidence.recommended_required_ns", "equals":"550000000"},
+      {"path":"recommendations.0.intents.0.set.max_attempts", "equals":2}
+    ]
+  }]
+}

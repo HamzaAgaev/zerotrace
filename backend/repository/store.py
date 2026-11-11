@@ -58,6 +58,15 @@ CREATE TABLE IF NOT EXISTS run_samples (
     frozen_refs_json TEXT,
     created_at_ns INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS frozen_trace_revisions (
+    environment_id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    meta_json TEXT NOT NULL,
+    spans_json TEXT NOT NULL,
+    PRIMARY KEY (environment_id, trace_id, generation, revision)
+);
 """
 
 
@@ -292,6 +301,9 @@ class SpanStore:
 
     def get_spans(self, ref: TraceRef) -> list[NormalizedSpan] | None:
         with self._lock:
+            frozen = self._frozen_revision(ref)
+            if frozen is not None:
+                return [NormalizedSpan.from_dict(item) for item in json.loads(frozen[1])]
             found = self._find_trace(ref)
             if found is None or found[1] != ref.revision:
                 return None
@@ -305,10 +317,15 @@ class SpanStore:
 
     def get_trace_meta(self, ref: TraceRef) -> TraceMeta | None:
         with self._lock:
+            frozen = self._frozen_meta(ref)
+            if frozen is not None:
+                return frozen
             found = self._find_trace(ref)
             if found is None:
                 return None
             project_id, revision, first_received, last_received, assembly_state, reason = found
+            if revision != ref.revision:
+                return self._frozen_meta(ref)
             span_count = int(
                 self._conn.execute(
                     "SELECT COUNT(*) FROM spans WHERE project_id = ? AND trace_id = ? "
@@ -329,6 +346,57 @@ class SpanStore:
             assembly_state=assembly_state,  # type: ignore[arg-type]
             span_count=span_count,
             forced_reason=reason,
+        )
+
+    def _frozen_revision(self, ref: TraceRef) -> tuple[str, str] | None:
+        row = self._conn.execute(
+            "SELECT meta_json, spans_json FROM frozen_trace_revisions "
+            "WHERE environment_id = ? AND trace_id = ? AND generation = ? AND revision = ?",
+            (ref.environment_id, ref.trace_id, ref.generation, ref.revision),
+        ).fetchone()
+        return (str(row[0]), str(row[1])) if row is not None else None
+
+    def _frozen_meta(self, ref: TraceRef) -> TraceMeta | None:
+        row = self._frozen_revision(ref)
+        if row is None:
+            return None
+        value = json.loads(row[0])
+        return TraceMeta(
+            trace_ref=TraceRef.from_dict(value["trace_ref"]),
+            project_id=str(value["project_id"]),
+            first_received_at_ns=int(value["first_received_at_ns"]),
+            last_received_at_ns=int(value["last_received_at_ns"]),
+            assembly_state=str(value["assembly_state"]),  # type: ignore[arg-type]
+            span_count=int(value["span_count"]),
+            forced_reason=value["forced_reason"],
+        )
+
+    def _archive_frozen_revision(self, ref: TraceRef) -> None:
+        meta = self.get_trace_meta(ref)
+        spans = self.get_spans(ref)
+        if meta is None or spans is None:
+            raise RuntimeError(f"trace revision {ref!r} changed while finalizing collection")
+        meta_json = json.dumps(
+            {
+                "trace_ref": meta.trace_ref.to_dict(),
+                "project_id": meta.project_id,
+                "first_received_at_ns": meta.first_received_at_ns,
+                "last_received_at_ns": meta.last_received_at_ns,
+                "assembly_state": meta.assembly_state,
+                "span_count": meta.span_count,
+                "forced_reason": meta.forced_reason,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        spans_json = json.dumps(
+            [span.to_dict() for span in spans], sort_keys=True, separators=(",", ":")
+        )
+        self._conn.execute(
+            "INSERT OR IGNORE INTO frozen_trace_revisions "
+            "(environment_id, trace_id, generation, revision, meta_json, spans_json) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ref.environment_id, ref.trace_id, ref.generation, ref.revision, meta_json, spans_json),
         )
 
     def resolve_trace(
@@ -355,12 +423,24 @@ class SpanStore:
                     (environment_id, trace_id, generation),
                 ).fetchone()
             if row is None:
+                if generation is not None and revision is not None:
+                    return self._frozen_meta(
+                        TraceRef(environment_id, trace_id, generation, revision)
+                    )
                 return None
             project_id = str(row[0])
             resolved_generation = int(row[1])
             current_revision = int(row[2])
             if revision is not None and revision != current_revision:
-                return None
+                return self._frozen_meta(
+                    TraceRef(environment_id, trace_id, resolved_generation, revision)
+                )
+            if revision is not None:
+                frozen = self._frozen_meta(
+                    TraceRef(environment_id, trace_id, resolved_generation, revision)
+                )
+                if frozen is not None:
+                    return frozen
             ref = TraceRef(
                 environment_id=environment_id,
                 trace_id=trace_id,
@@ -528,39 +608,51 @@ class SpanStore:
 
     def finalize_collection(self, run_id: str, now_ns: int) -> RunSample | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT environment_id, expected_count, deadline_at_ns, status, "
-                "frozen_refs_json FROM run_samples WHERE run_id = ?",
-                (run_id,),
-            ).fetchone()
-            if row is None:
-                return None
-            environment_id, expected_count, deadline_at_ns, _status, frozen = row
-            if frozen is not None:
-                return self._row_to_sample(run_id, row)
-            refs = self._collect_run_refs(str(environment_id), run_id)
-            received = len(refs)
-            resolved_status: Literal["waiting", "ready", "partial"]
-            if received >= int(expected_count):
-                resolved_status = "ready"
-            elif now_ns >= int(deadline_at_ns):
-                resolved_status = "partial"
-            else:
-                resolved_status = "waiting"
-            if resolved_status == "waiting":
-                return RunSample(
-                    run_id=run_id,
-                    environment_id=str(environment_id),
-                    status="waiting",
-                    expected_count=int(expected_count),
-                    received_count=received,
-                    trace_refs=refs,
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT environment_id, expected_count, deadline_at_ns, status, "
+                    "frozen_refs_json FROM run_samples WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
+                if row is None:
+                    self._conn.execute("ROLLBACK")
+                    return None
+                environment_id, expected_count, deadline_at_ns, _status, frozen = row
+                if frozen is not None:
+                    sample = self._row_to_sample(run_id, row)
+                    self._conn.execute("COMMIT")
+                    return sample
+                refs = self._collect_run_refs(str(environment_id), run_id)
+                received = len(refs)
+                resolved_status: Literal["waiting", "ready", "partial"]
+                if received >= int(expected_count):
+                    resolved_status = "ready"
+                elif now_ns >= int(deadline_at_ns):
+                    resolved_status = "partial"
+                else:
+                    resolved_status = "waiting"
+                if resolved_status == "waiting":
+                    self._conn.execute("COMMIT")
+                    return RunSample(
+                        run_id=run_id,
+                        environment_id=str(environment_id),
+                        status="waiting",
+                        expected_count=int(expected_count),
+                        received_count=received,
+                        trace_refs=refs,
+                    )
+                for ref in refs:
+                    self._archive_frozen_revision(ref)
+                frozen_json = json.dumps([r.to_dict() for r in refs])
+                self._conn.execute(
+                    "UPDATE run_samples SET status = ?, frozen_refs_json = ? WHERE run_id = ?",
+                    (resolved_status, frozen_json, run_id),
                 )
-            frozen_json = json.dumps([r.to_dict() for r in refs])
-            self._conn.execute(
-                "UPDATE run_samples SET status = ?, frozen_refs_json = ? WHERE run_id = ?",
-                (resolved_status, frozen_json, run_id),
-            )
+                self._conn.execute("COMMIT")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
         return RunSample(
             run_id=run_id,
             environment_id=str(environment_id),

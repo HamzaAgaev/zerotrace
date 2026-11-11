@@ -66,6 +66,44 @@ class TestRunSamples:
         assert len(ready.trace_refs) == 2
         assert all(isinstance(r, TraceRef) for r in ready.trace_refs)
 
+    def test_frozen_revision_survives_late_spans_and_restart(self, tmp_path: Path):
+        db = tmp_path / "frozen-revisions.db"
+        store = SpanStore(db)
+        trace_id = "ac" * 16
+        run_id = "run-frozen"
+        initial = make_batch(trace_id, run_id)
+        store.start_collection(run_id, "sandbox", expected_count=1, deadline_at_ns=DEADLINE)
+        first_ref = store.ingest(initial, BINDING, T0).trace_refs[0]
+        sample = store.finalize_collection(run_id, T0 + 1)
+        assert sample is not None and sample.status == "ready"
+        assert sample.trace_refs == [first_ref]
+
+        late_span = entry_span(trace_id, "00" * 7 + "02", run_id)
+        late = NormalizedBatch(spans=[late_span], run_ids={trace_id: run_id})
+        current_ref = store.ingest(late, BINDING, T0 + 5_000_000_000).trace_refs[0]
+        assert current_ref.revision == first_ref.revision + 1
+        store.close()
+
+        reopened = SpanStore(db)
+        archived_meta = reopened.get_trace_meta(first_ref)
+        assert archived_meta is not None
+        assert archived_meta.trace_ref == first_ref
+        assert archived_meta.span_count == 1
+        assert archived_meta.last_received_at_ns == T0
+        archived_spans = reopened.get_spans(first_ref)
+        assert archived_spans is not None
+        assert [span.span_id for span in archived_spans] == ["00" * 7 + "01"]
+        resolved = reopened.resolve_trace(
+            "sandbox", trace_id, first_ref.generation, first_ref.revision
+        )
+        assert resolved == archived_meta
+
+        current = reopened.resolve_trace("sandbox", trace_id, current_ref.generation)
+        assert current is not None and current.trace_ref == current_ref
+        listed, _ = reopened.list_traces("sandbox", limit=10)[0]
+        assert listed == current_ref
+        reopened.close()
+
     def test_freeze_is_stable_for_late_traces(self, store: SpanStore):
         store.start_collection("run-2", "sandbox", expected_count=1, deadline_at_ns=DEADLINE)
         store.ingest(make_batch("e1" * 16, "run-2"), BINDING, T0)

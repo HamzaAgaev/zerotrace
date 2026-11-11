@@ -102,6 +102,7 @@ def span_view(span: NormalizedSpan, origin_ns: int) -> SpanView:
         outcome=span_outcome(span),
         http_status=span.http_status,
         error_type=span.error_type,
+        target=span.target if span.kind == "client" else None,
     )
 
 
