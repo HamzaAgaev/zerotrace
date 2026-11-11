@@ -44,7 +44,8 @@
             "triggered_count": 0,
             "excluded_by_reason": {
               "missing_reliable_client_server_pair": 5
-            }
+            },
+            "eligible_call_count": 0
           }
         ]
       },
@@ -66,7 +67,8 @@
             "triggered_count": 0,
             "excluded_by_reason": {
               "missing_ancestry_or_compatible_offset": 5
-            }
+            },
+            "eligible_call_count": 0
           }
         ]
       },

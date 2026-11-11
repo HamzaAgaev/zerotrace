@@ -1,6 +1,8 @@
 """Exercise C through the Flask application used by the product UI."""
 
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -52,6 +54,26 @@ def test_registered_empty_environments_have_an_audit_and_report(app):
         assert report["snapshot"]["trace_refs"] == []
     assert client.get("/api/v1/audit?environment_id=absent").status_code == 404
     assert client.get("/api/v1/audit?view=unrecognized").status_code == 400
+
+
+def test_repeated_state_preserves_snapshot_and_report(app):
+    client = app.test_client()
+    with patch("rules.audit.datetime") as clock:
+        clock.now.return_value = datetime(2026, 10, 25, tzinfo=UTC)
+        first = payload(client.get("/api/v1/state"))
+        query = {"snapshot_id": first["snapshot_id"]}
+        report = payload(client.get("/api/v1/report", query_string=query))
+
+        clock.now.return_value = datetime(2026, 10, 26, tzinfo=UTC)
+        repeated = payload(client.get("/api/v1/state"))
+        assert repeated == first
+        assert payload(client.get("/api/v1/report", query_string=query)) == report
+
+        ingest(app, "1" * 32)
+        updated = payload(client.get("/api/v1/state"))
+        assert updated["snapshot_id"] != first["snapshot_id"]
+        assert updated["generated_at"] == clock.now.return_value.isoformat()
+        assert payload(client.get("/api/v1/report", query_string=query)) == report
 
 
 def test_list_and_detail_include_occurrences_beyond_audit_exemplars(app):

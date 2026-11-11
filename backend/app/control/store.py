@@ -40,9 +40,11 @@ class ControlStore:
         with self.lock:
             self.connection.execute("BEGIN IMMEDIATE")
             try:
+                # A snapshot ID excludes generated_at, so keep the first persisted snapshot.
                 self.connection.executemany(
                     "INSERT INTO control_records(kind,key,payload) VALUES(?,?,?) "
-                    "ON CONFLICT(kind,key) DO UPDATE SET payload=excluded.payload",
+                    "ON CONFLICT(kind,key) DO UPDATE SET payload=excluded.payload "
+                    "WHERE control_records.kind <> 'analytics_snapshot'",
                     rows,
                 )
                 self.connection.execute("COMMIT")

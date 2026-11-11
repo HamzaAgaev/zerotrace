@@ -17,7 +17,15 @@ def span_ref(key, attempt):
 def timing_checks(ctx, edge, limits, reference):
     longer, late = Assessment("R1", edge), Assessment("R2", edge)
     longer_examples, late_examples = [], []
+    # R1/R2 evaluate attempts. Clearing a symptom requires logical calls with
+    # every attempt observable for that rule, including all retries.
+    paired_calls = {
+        (group.key, group.data["call_id"]) for group in ctx.groups[edge] if not group.reason
+    }
+    timed_calls = paired_calls.copy()
     for key, a in ctx.by_edge[edge]:
+        group = ctx.by_id.get((key, a["attempt_id"]))
+        call = (key, group.data["call_id"]) if group else None
         client_ns = integer(a.get("duration_ns"))
         server_ns = integer(a.get("server_duration_ns"))
         error = attempt_error(a)
@@ -25,6 +33,7 @@ def timing_checks(ctx, edge, limits, reference):
                 or not ctx.linked(key, a["attempt_id"], a.get("server_span_id"), "client", "server") or server_ns is None
                 or client_ns is None or error is None):
             longer.reject("missing_reliable_client_server_pair")
+            paired_calls.discard(call)
         else:
             diff = server_ns - client_ns
             hit = error and diff > max(limits.tolerance_ns, client_ns * limits.r1_relative)
@@ -48,12 +57,15 @@ def timing_checks(ctx, edge, limits, reference):
                 or not ctx.linked(key, a.get("caller_server_span_id"), a["attempt_id"], "server", "client")
                 or a.get("clock_compatible") is False or a.get("upstream_attempt_id") == a["attempt_id"]):
             late.reject("missing_ancestry_or_compatible_offset")
+            timed_calls.discard(call)
         else:
             hit = offset > upper_wait + max(limits.tolerance_ns, upper_wait * limits.r2_relative)
             late.consider([key], hit)
             if hit and len(late_examples) < 5:
                 late_examples.append(dict(**span_ref(key, a), upstream_attempt_id=upstream["attempt_id"],
                                           offset_ns=str(offset), upstream_wait_ns=str(upper_wait)))
+    longer.eligible_call_count = len(paired_calls)
+    late.eligible_call_count = len(timed_calls)
     if longer_examples and longer.count >= limits.min_cases:
         longer.report("Серверный спан длиннее ошибочного клиентского", "Сопоставлены длительности связанной клиентской и серверной попыток.",
                       trace_evidence(samples=longer_examples), confidence="medium")

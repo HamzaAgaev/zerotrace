@@ -112,6 +112,7 @@ class Assessment:
         self.affected = set()
         self.excluded = Counter()
         self.count = 0
+        self.eligible_call_count = None
         self.hit_count = 0
         self.applicable = True
         self.finding = None

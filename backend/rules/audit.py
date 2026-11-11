@@ -53,9 +53,12 @@ def evaluation(rule, entries):
     for result in entries:
         counts[result.status()] += 1
         exclude.update(result.excluded)
-        details.append(dict(edge_id=result.edge, status=result.status(), eligible_count=result.count,
-                            eligible_trace_count=len(result.refs), triggered_count=result.hit_count,
-                            excluded_by_reason=dict(sorted(result.excluded.items()))))
+        detail = dict(edge_id=result.edge, status=result.status(), eligible_count=result.count,
+                      eligible_trace_count=len(result.refs), triggered_count=result.hit_count,
+                      excluded_by_reason=dict(sorted(result.excluded.items())))
+        if result.eligible_call_count is not None:
+            detail["eligible_call_count"] = result.eligible_call_count
+        details.append(detail)
     if counts["evaluated"]:
         status = "evaluated"
     elif counts["insufficient_data"] or not counts:
@@ -218,5 +221,8 @@ def verify_symptom(previous_finding, current_result, *, comparable, grace_elapse
         if not expected <= eligible:
             return "insufficient_data"
         return "symptom_absent"
-    return ("symptom_present" if any(f["finding_id"] == previous_finding["finding_id"]
-                                     for f in current_result["findings"]) else "symptom_absent")
+    if any(f["finding_id"] == previous_finding["finding_id"] for f in current_result["findings"]):
+        return "symptom_present"
+    if rule in {"R1", "R2"} and detail.get("eligible_call_count", 0) < minimum_calls:
+        return "insufficient_data"
+    return "symptom_absent"

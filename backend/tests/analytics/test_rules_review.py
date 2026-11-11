@@ -5,7 +5,54 @@ from rules import build_reference, run, verify_symptom
 from tests.analytics.test_rules import EDGE, MS, REF, by_rule, ev, group, model, policy
 
 
+def timing_window(calls, *, symptomatic=False):
+    upstream, parent = group("outer", 1, "outer")
+    attempts, groups = list(upstream), [parent]
+    server_ns, offset_ns = (100 * MS, 60 * MS) if symptomatic else (4 * MS, 0)
+    for index, measurements in enumerate(calls):
+        rows, call = group(f"inner-{index}", len(measurements), parent=upstream[0]["attempt_id"])
+        for row, (paired, offset_known) in zip(rows, measurements, strict=True):
+            row["server_duration_ns"] = server_ns if paired else None
+            row["offset_in_caller_ns"] = offset_ns if offset_known else None
+        attempts.extend(rows)
+        groups.append(call)
+    return run(model(attempts, groups))
+
+
 class AuditReviewTests(unittest.TestCase):
+    def test_timing_verification_counts_calls_fully_observed_by_each_rule(self):
+        known, unknown = (True, True), (False, False)
+        complete = [[known]] * 30
+        previous = timing_window(complete, symptomatic=True)
+        absent, insufficient = "symptom_absent", "insufficient_data"
+        cases = [
+            ("all calls in one trace", complete, absent, absent),
+            ("five paired calls", [[known]] * 5 + [[(False, True)]] * 25, insufficient, absent),
+            ("five offsets", [[known]] * 5 + [[(True, False)]] * 25, absent, insufficient),
+            ("one long retry group", [[known] * 30] + [[unknown]] * 29, insufficient, insufficient),
+            ("partially observed retries", [[known, unknown]] * 30, insufficient, insufficient),
+        ]
+        for name, calls, r1_status, r2_status in cases:
+            after = timing_window(calls)
+            for rule, expected in (("R1", r1_status), ("R2", r2_status)):
+                with self.subTest(case=name, rule=rule):
+                    finding = by_rule(previous, rule)
+                    status = verify_symptom(finding, after, comparable=True, grace_elapsed=True)
+                    self.assertEqual(status, expected)
+
+    def test_legacy_timing_audit_can_confirm_presence_but_cannot_clear_a_finding(self):
+        complete = [[(True, True)]] * 30
+        before = timing_window(complete, symptomatic=True)
+        after = timing_window(complete)
+        for rule in ("R1", "R2"):
+            finding = by_rule(before, rule)
+            for audit, expected in ((before, "symptom_present"), (after, "insufficient_data")):
+                for detail in ev(audit, rule)["by_edge"]:
+                    detail.pop("eligible_call_count", None)
+                with self.subTest(rule=rule, status=expected):
+                    status = verify_symptom(finding, audit, comparable=True, grace_elapsed=True)
+                    self.assertEqual(status, expected)
+
     def test_p4_snapshot_binding_and_field_capabilities(self):
         p = policy()
         snap = {"environment_id": "lab", "service_id": "orders", "revision": "12", "source": "runtime",
