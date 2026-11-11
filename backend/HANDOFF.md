@@ -75,8 +75,13 @@
 
 - Контракты (`contracts/`) заморожены; изменения — через Мишу с ревью
   потребителей.
-- Проверки: `cd backend && .venv/bin/python -m pytest tests -q`
-  (181 зелёный), `.venv/bin/ruff check .`, `.venv/bin/mypy`.
+- Проверки из корня репозитория: `backend/.venv/bin/python -m pytest backend/tests
+  stand/tests -q` (400+ зелёных; в PATH нужен `backend/.venv/bin` для
+  интеграционных тестов), `cd backend && .venv/bin/ruff check contracts core
+  ingest repository app/control app/integrations app/server app/data_api
+  app/otlp_api && .venv/bin/mypy`.
 - Зоны B: `ingest/`, `repository/`, `core/`, `app/data_api/`,
   `app/otlp_api/`, `fixtures/`, `tests/` — правки через Мишу.
 - У каждого пакета есть `README.md` с кратким описанием модуля.
+- Сценарий демо по шагам: `docs/guides/demo-checklist.md` (проверен на
+  compose-стенде 2026-11-11).

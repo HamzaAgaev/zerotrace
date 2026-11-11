@@ -19,8 +19,19 @@ def build_graph(
     limits: IngestLimits,
     *,
     assembly_state: AssemblyState = "open",
+    forced_reason: str | None = None,
 ) -> TraceGraph:
     issues: list[QualityIssue] = []
+
+    if assembly_state == "forced":
+        issues.append(
+            QualityIssue(
+                code="forced_close",
+                scope="trace",
+                span_ids=[],
+                details=f"trace force-closed: {forced_reason or 'reason unavailable'}",
+            )
+        )
 
     deduped, conflicting_span_count = _dedupe_spans(spans)
     if conflicting_span_count:

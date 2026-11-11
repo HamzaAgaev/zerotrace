@@ -206,7 +206,8 @@ class RepositoryView:
         if spans is None:
             return None
         return build_graph(spans, meta.trace_ref, meta.first_received_at_ns, meta.last_received_at_ns,
-                           self.limits, assembly_state=meta.assembly_state)
+                           self.limits, assembly_state=meta.assembly_state,
+                           forced_reason=meta.forced_reason)
 
     def trace_summary(self, ref: TraceRef, *, summary_only=False) -> TraceSummary | None:
         self.current_metas(ref.environment_id)

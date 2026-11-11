@@ -82,6 +82,7 @@ def make_graph_builder(store: SpanStore, limits: IngestLimits | None = None) -> 
             last_received,
             resolved_limits,
             assembly_state=meta.assembly_state if meta is not None else "open",
+            forced_reason=meta.forced_reason if meta is not None else None,
         )
 
     return build

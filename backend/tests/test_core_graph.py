@@ -75,6 +75,23 @@ class TestHappyPath:
         assert graph.first_received_at_ns == 10
         assert graph.last_received_at_ns == 20
         assert graph.assembly_state == "quiet"
+        assert graph.quality.issues == []
+
+    def test_forced_close_emits_quality_issue(self):
+        _, spans = load_fixture_spans("s00_healthy")
+        graph = build_graph(
+            spans, REF, 10, 20, IngestLimits(),
+            assembly_state="forced", forced_reason="span_limit_reached",
+        )
+        assert graph.assembly_state == "forced"
+        (issue,) = [i for i in graph.quality.issues if i.code == "forced_close"]
+        assert issue.scope == "trace"
+        assert "span_limit_reached" in issue.details
+
+    def test_open_state_has_no_forced_issue(self):
+        _, spans = load_fixture_spans("s00_healthy")
+        graph = build_graph(spans, REF, 10, 20, IngestLimits())
+        assert all(i.code != "forced_close" for i in graph.quality.issues)
 
 
 class TestStructure:

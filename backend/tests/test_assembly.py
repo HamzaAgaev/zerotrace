@@ -69,6 +69,17 @@ class TestAssemblyLifecycle:
         ref = TraceRef(environment_id="env", trace_id="ff" * 16, generation=1, revision=1)
         assert store.force_close(ref, "x") is False
 
+    def test_forced_reason_reaches_graph_via_adapter(self, store: SpanStore):
+        from app.data_api.adapter import make_graph_builder
+
+        ref = store.ingest(batch("af" * 16), BINDING, T0).trace_refs[0]
+        store.force_close(ref, "span_limit_reached")
+        build = make_graph_builder(store)
+        graph = build(store.get_spans(ref) or (), ref)
+        assert graph.assembly_state == "forced"
+        (issue,) = [i for i in graph.quality.issues if i.code == "forced_close"]
+        assert "span_limit_reached" in issue.details
+
     def test_quiet_not_reopened_by_late_span(self, store: SpanStore):
         ref = store.ingest(batch("ad" * 16), BINDING, T0).trace_refs[0]
         store.advance_assembly(T0 + 10 * QUIET_AFTER)
