@@ -24,6 +24,17 @@
   цепочка для генератора стенда (стык с A) либо типизированный отказ
   (ambiguous_root, missing_link, parallel_branches, cycle...) с
   конкретными проблемными связями.
+- `model.py` — per-edge модель P3 (этап B04): `build_edge_stats`
+  агрегирует `EdgeStats` из списка `EdgeContribution` (пары graph+calls по
+  датасету трасс): attempts/eligible/ambiguous calls, outcomes, coverage,
+  success p50/p95/p99, gaps_by_index, jitter_cv; ребро без попыток не
+  создаётся (no samples → null, не ноль). `build_edge_policy` поднимает
+  типизированный `EdgePolicy` из плоского снимка конфигурации A:
+  ms → ns, `Sourced`-операнды с freshness/stale/binding_conflict,
+  effective_source = fresh_runtime | declared | cautious_inference.
+  `build_model(contributions, policies, known_edges)` → `ModelView`:
+  статистика + политики по edge_id, idle рёбра из known_edges остаются со
+  stats=None.
 
 Все функции детерминированы: одинаковый вход (та же ревизия) → одинаковый
 выход. `call_id` стабилен только внутри ревизии — устойчивые ссылки

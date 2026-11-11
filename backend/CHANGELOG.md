@@ -7,6 +7,36 @@
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-11 21:13 МСК
+
+B04 (M2): типизированная per-edge модель P3 — статистика и политики.
+
+### Добавлено
+
+- `core/model.py`:
+  - `EdgeContribution` (пара TraceGraph+CallModel одной трассы) и
+    `build_edge_stats(contributions)` → `dict[edge_id, EdgeStats]` по P3:
+    attempts/eligible/ambiguous calls, outcomes (known/unknown/errors),
+    coverage, attempt_error_ratio, success p50/p95/p99 (контрактный
+    перцентиль), gaps_by_index, jitter_cv. Ребро без попыток не создаётся —
+    no samples означает null, не ноль.
+  - `build_edge_policy(flat_config)` → `EdgePolicy`: подъём плоского снимка
+    конфигурации A в типы P3. ms → ns, `Sourced`-операнды с
+    config_revision, stale/binding_conflict понижают доверие,
+    `effective_source` = fresh_runtime | declared | cautious_inference,
+    явный внешний `budget_ns` биндится только как declared.
+  - `build_model(contributions, policies, known_edges)` → `ModelView`:
+    статистика + политики по edge_id, idle рёбра из known_edges остаются
+    на графе со stats=None. `dataset_ref` — дайджест входной идентичности.
+- Экспорты в `core/__init__.py`, описание в `core/README.md`.
+
+### Тесты
+
+- 400 passed (+18): агрегация по s00/s01 fixtures, ambiguous-вызовы не
+  eligible, слияние вкладов по трассам, стабильность dataset_ref, переходы
+  effective_source (fresh/stale/conflict/declared/budget), idle-рёбра,
+  JSON-roundtrip ModelView.
+
 ## [0.5.0] — 2026-11-11 21:05 МСК
 
 Чистка и верификация интегрированного дерева после слияния частей A/C/D.
