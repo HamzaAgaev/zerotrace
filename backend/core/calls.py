@@ -29,7 +29,6 @@ from contracts.p2 import Confidence, Hypothesis, Outcome
 DEFAULT_GROUPING_VERSION = "1.0.0"
 OPERATION_NORMALIZATION_VERSION = "1.0.0"
 DEFAULT_PROJECT_ID = "default"
-DEFAULT_NAMESPACE = "default"
 
 _GRPC_DEADLINE_EXCEEDED = 4
 
@@ -73,10 +72,14 @@ class _Segment:
     gaps_ns: tuple[int, ...]
 
 
-def derive_calls(graph: TraceGraph, grouping_version: str = DEFAULT_GROUPING_VERSION) -> CallModel:
+def derive_calls(
+    graph: TraceGraph,
+    project_id: str = DEFAULT_PROJECT_ID,
+    grouping_version: str = DEFAULT_GROUPING_VERSION,
+) -> CallModel:
     spans_by_id = {s.span_id: s for s in graph.spans}
     drafts = [
-        _build_draft(graph, span, spans_by_id)
+        _build_draft(graph, project_id, span, spans_by_id)
         for span in sorted(graph.spans, key=lambda s: (s.start_ns, s.span_id))
         if span.kind == "client" and not span.async_markers
     ]
@@ -148,13 +151,16 @@ def derive_calls(graph: TraceGraph, grouping_version: str = DEFAULT_GROUPING_VER
 
 
 def _build_draft(
-    graph: TraceGraph, span: NormalizedSpan, spans_by_id: dict[str, NormalizedSpan]
+    graph: TraceGraph,
+    project_id: str,
+    span: NormalizedSpan,
+    spans_by_id: dict[str, NormalizedSpan],
 ) -> _AttemptDraft:
     candidates = _server_candidates(graph, span, spans_by_id)
     server = candidates[0] if len(candidates) == 1 else None
     ambiguous_link = len(candidates) > 1
     caller = _caller_server(span, spans_by_id)
-    edge = _build_edge(graph.trace_ref.environment_id, span, server, caller)
+    edge = _build_edge(project_id, graph.trace_ref.environment_id, span, server, caller)
     outcome, basis, confidence = _classify_outcome(span)
     if ambiguous_link:
         basis = f"{basis};ambiguous_server_link"
@@ -243,12 +249,13 @@ def _upstream_attempt_id(
 
 
 def _build_edge(
+    project_id: str,
     environment_id: str,
     client: NormalizedSpan,
     server: NormalizedSpan | None,
     caller: NormalizedSpan | None,
 ) -> EdgeKey:
-    caller_key = _service_key(environment_id, caller.service if caller else client.service)
+    caller_key = _service_key(project_id, environment_id, caller or client)
     if caller is not None:
         caller_operation = _operation_key(caller, "server_span")
     else:
@@ -261,7 +268,7 @@ def _build_edge(
         )
 
     if server is not None:
-        callee = EndpointKey.service_ep(_service_key(environment_id, server.service))
+        callee = EndpointKey.service_ep(_service_key(project_id, environment_id, server))
         callee_operation = _operation_key(server, "server_span")
     elif client.target:
         callee = EndpointKey.external(client.target)
@@ -278,12 +285,12 @@ def _build_edge(
     )
 
 
-def _service_key(environment_id: str, service_name: str) -> ServiceKey:
+def _service_key(project_id: str, environment_id: str, span: NormalizedSpan) -> ServiceKey:
     return ServiceKey(
-        project_id=DEFAULT_PROJECT_ID,
+        project_id=project_id,
         environment=environment_id,
-        namespace=DEFAULT_NAMESPACE,
-        service_name=service_name,
+        namespace=span.namespace,
+        service_name=span.service,
     )
 
 

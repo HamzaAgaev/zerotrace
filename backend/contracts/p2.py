@@ -54,6 +54,7 @@ class NormalizedSpan:
     diagnostics: list[str]
     instance_id: str | None = None
     service_version: str | None = None
+    namespace: str = "default"
     target: str | None = None
     http_status: int | None = None
     grpc_status: int | None = None
@@ -71,6 +72,7 @@ class NormalizedSpan:
             "service": self.service,
             "instance_id": self.instance_id,
             "service_version": self.service_version,
+            "namespace": self.namespace,
             "name": self.name,
             "kind": self.kind,
             "start_ns": str(self.start_ns),
@@ -100,6 +102,7 @@ class NormalizedSpan:
             service=d["service"],
             instance_id=d.get("instance_id"),
             service_version=d.get("service_version"),
+            namespace=d.get("namespace", "default"),
             name=d["name"],
             kind=d["kind"],
             start_ns=int(d["start_ns"]),

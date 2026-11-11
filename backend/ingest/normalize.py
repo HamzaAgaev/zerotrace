@@ -246,6 +246,7 @@ def _normalize_span(
         service=info.service_name,
         instance_id=info.instance_id,
         service_version=info.version,
+        namespace=info.namespace,
         name=raw.name,
         kind=kind,
         start_ns=raw.start_ns,

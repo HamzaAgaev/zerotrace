@@ -5,6 +5,33 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [0.3.0] — 2026-11-11 03:10 МСК
+
+Стабильность ключей, жизненный цикл трасс, product fixtures для фронтенда.
+
+### Добавлено
+
+- `NormalizedSpan.namespace` (аддитивно; источник истины — resource attrs
+  на этапе normalize, дефолт `"default"`).
+- `derive_calls(graph, project_id=...)` — реальные project/namespace в
+  `ServiceKey`: `edge_id` больше не зависит от дефолтов и совпадает у B и C.
+  Namespace берётся из спана, project передаётся явным параметром.
+- Жизненный цикл `assembly_state`: `SpanStore.advance_assembly(now,
+  quiet_after_ns=5с)` переводит молчащие «open»-трассы в `quiet`
+  (idempotent, bounded-скан); `SpanStore.force_close(ref, reason)` —
+  принудительное закрытие по лимиту с записью причины. Миграция схемы
+  v1/v2 → v3 (`traces.forced_reason`), причина читается через `TraceMeta`.
+- `fixtures/build_product_fixtures.py` + `fixtures/product/`: реальные
+  ответы data API (trace-list и trace-detail для окружений shop и sandbox),
+  собранные сквозным прогоном OTLP → SQLite → handlers с фиксированным
+  `generated_at` — контрактные примеры для фронтенда (B08).
+
+### Тесты
+
+181 passed (+11): обогащение ключей (project/namespace меняют и стабильно
+дают edge_id), жизненный цикл assembly (quiet, forced + reason,
+idempotentность, миграция со старой схемы), парсинг product fixtures.
+
 ## [0.2.0] — 2026-11-11 02:53 МСК
 
 Стыки первого показа: цепочка для стенда, выборки прогонов, приём OTLP.

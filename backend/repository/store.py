@@ -11,7 +11,7 @@ from contracts import NormalizedSpan, QualityIssue, SourceBinding, TraceRef
 from contracts.p2 import AssemblyState
 from ingest.normalize import NormalizedBatch
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS traces (
     first_received_at_ns INTEGER NOT NULL,
     last_received_at_ns INTEGER NOT NULL,
     assembly_state TEXT NOT NULL,
+    forced_reason TEXT,
     PRIMARY KEY (project_id, trace_id, generation)
 );
 CREATE INDEX IF NOT EXISTS idx_traces_env
@@ -74,6 +75,7 @@ class TraceMeta:
     last_received_at_ns: int
     assembly_state: AssemblyState
     span_count: int
+    forced_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -126,10 +128,24 @@ class SpanStore:
                     "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
                     (str(SCHEMA_VERSION),),
                 )
-            elif int(row[0]) > SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"unsupported schema version {row[0]}, expected <= {SCHEMA_VERSION}"
-                )
+                current = SCHEMA_VERSION
+            else:
+                current = int(row[0])
+                if current > SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"unsupported schema version {row[0]}, expected <= {SCHEMA_VERSION}"
+                    )
+            if current < 3:
+                columns = {
+                    str(r[1]) for r in self._conn.execute("PRAGMA table_info(traces)").fetchall()
+                }
+                if "forced_reason" not in columns:
+                    self._conn.execute("ALTER TABLE traces ADD COLUMN forced_reason TEXT")
+                current = 3
+            self._conn.execute(
+                "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+                (str(current),),
+            )
 
     def ingest(
         self, batch: NormalizedBatch, binding: SourceBinding, received_at_ns: int
@@ -256,16 +272,23 @@ class SpanStore:
             ),
         )
 
-    def _find_trace(self, ref: TraceRef) -> tuple[str, int, int, int, str] | None:
+    def _find_trace(self, ref: TraceRef) -> tuple[str, int, int, int, str, str | None] | None:
         row = self._conn.execute(
             "SELECT project_id, revision, first_received_at_ns, last_received_at_ns, "
-            "assembly_state FROM traces "
+            "assembly_state, forced_reason FROM traces "
             "WHERE environment_id = ? AND trace_id = ? AND generation = ?",
             (ref.environment_id, ref.trace_id, ref.generation),
         ).fetchone()
         if row is None:
             return None
-        return (str(row[0]), int(row[1]), int(row[2]), int(row[3]), str(row[4]))
+        return (
+            str(row[0]),
+            int(row[1]),
+            int(row[2]),
+            int(row[3]),
+            str(row[4]),
+            None if row[5] is None else str(row[5]),
+        )
 
     def get_spans(self, ref: TraceRef) -> list[NormalizedSpan] | None:
         with self._lock:
@@ -285,7 +308,7 @@ class SpanStore:
             found = self._find_trace(ref)
             if found is None:
                 return None
-            project_id, revision, first_received, last_received, assembly_state = found
+            project_id, revision, first_received, last_received, assembly_state, reason = found
             span_count = int(
                 self._conn.execute(
                     "SELECT COUNT(*) FROM spans WHERE project_id = ? AND trace_id = ? "
@@ -305,6 +328,7 @@ class SpanStore:
             last_received_at_ns=last_received,
             assembly_state=assembly_state,  # type: ignore[arg-type]
             span_count=span_count,
+            forced_reason=reason,
         )
 
     def resolve_trace(
@@ -318,7 +342,7 @@ class SpanStore:
             if generation is None:
                 row = self._conn.execute(
                     "SELECT project_id, generation, revision, first_received_at_ns, "
-                    "last_received_at_ns, assembly_state FROM traces "
+                    "last_received_at_ns, assembly_state, forced_reason FROM traces "
                     "WHERE environment_id = ? AND trace_id = ? "
                     "ORDER BY generation DESC LIMIT 1",
                     (environment_id, trace_id),
@@ -326,7 +350,7 @@ class SpanStore:
             else:
                 row = self._conn.execute(
                     "SELECT project_id, generation, revision, first_received_at_ns, "
-                    "last_received_at_ns, assembly_state FROM traces "
+                    "last_received_at_ns, assembly_state, forced_reason FROM traces "
                     "WHERE environment_id = ? AND trace_id = ? AND generation = ?",
                     (environment_id, trace_id, generation),
                 ).fetchone()
@@ -357,6 +381,7 @@ class SpanStore:
             last_received_at_ns=int(row[4]),
             assembly_state=str(row[5]),  # type: ignore[arg-type]
             span_count=span_count,
+            forced_reason=None if row[6] is None else str(row[6]),
         )
 
     def list_trace_metas(self, environment_id: str) -> list[TraceMeta]:
@@ -596,3 +621,53 @@ class SpanStore:
             received_count=len(refs),
             trace_refs=refs,
         )
+
+    def advance_assembly(self, now_ns: int, quiet_after_ns: int = 5_000_000_000) -> int:
+        """Close open traces silent for longer than quiet_after_ns -> 'quiet'.
+
+        Returns the number of traces transitioned. Bounded scan; new spans
+        reopen nothing — late spans raise the revision instead (B3 rules).
+        """
+        cutoff = now_ns - quiet_after_ns
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                rows = self._conn.execute(
+                    "SELECT project_id, trace_id, generation FROM traces "
+                    "WHERE assembly_state = 'open' AND last_received_at_ns <= ? LIMIT 1000",
+                    (cutoff,),
+                ).fetchall()
+                self._conn.executemany(
+                    "UPDATE traces SET assembly_state = 'quiet' "
+                    "WHERE project_id = ? AND trace_id = ? AND generation = ?",
+                    rows,
+                )
+                self._conn.execute("COMMIT")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+        return len(rows)
+
+    def force_close(self, ref: TraceRef, reason: str) -> bool:
+        """Force-close a trace (span/trace limits reached); reason is recorded."""
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                row = self._conn.execute(
+                    "SELECT revision FROM traces WHERE environment_id = ? AND trace_id = ? "
+                    "AND generation = ?",
+                    (ref.environment_id, ref.trace_id, ref.generation),
+                ).fetchone()
+                if row is None:
+                    self._conn.execute("ROLLBACK")
+                    return False
+                self._conn.execute(
+                    "UPDATE traces SET assembly_state = 'forced', forced_reason = ? "
+                    "WHERE environment_id = ? AND trace_id = ? AND generation = ?",
+                    (reason, ref.environment_id, ref.trace_id, ref.generation),
+                )
+                self._conn.execute("COMMIT")
+            except BaseException:
+                self._conn.execute("ROLLBACK")
+                raise
+        return True

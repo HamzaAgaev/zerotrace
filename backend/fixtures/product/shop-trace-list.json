@@ -1,0 +1,30 @@
+{
+  "schema": "zerotrace.trace-list",
+  "schema_version": "1.0.0",
+  "generated_at": "2026-11-11T03:00:00Z",
+  "producer_version": "0.1.0",
+  "payload": {
+    "items": [
+      {
+        "trace_ref": {
+          "environment_id": "shop",
+          "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "generation": 1,
+          "revision": 1
+        },
+        "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "operation": "GET /checkout",
+        "service": "orders",
+        "start_ns": "1763000000000000000",
+        "duration_ns": "500000000",
+        "span_count": 2,
+        "service_count": 1,
+        "outcome": "ok",
+        "http_status": 200,
+        "finding_count": 0,
+        "quality_issues": []
+      }
+    ],
+    "total": 1
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "schema": "zerotrace.trace",
+  "schema_version": "1.0.0",
+  "generated_at": "2026-11-11T03:00:00Z",
+  "producer_version": "0.1.0",
+  "payload": {
+    "summary": {
+      "trace_ref": {
+        "environment_id": "sandbox",
+        "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "generation": 1,
+        "revision": 1
+      },
+      "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "operation": "GET /checkout",
+      "service": "orders",
+      "start_ns": "1763000000000000000",
+      "duration_ns": "860000000",
+      "span_count": 4,
+      "service_count": 1,
+      "outcome": "error",
+      "http_status": 503,
+      "finding_count": 0,
+      "quality_issues": []
+    },
+    "trace_ref": {
+      "environment_id": "sandbox",
+      "trace_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "generation": 1,
+      "revision": 1
+    },
+    "spans": [
+      {
+        "span_id": "0000000000000001",
+        "parent_span_id": null,
+        "service": "orders",
+        "name": "GET /checkout",
+        "kind": "server",
+        "start_offset_ns": "0",
+        "duration_ns": "860000000",
+        "outcome": "error",
+        "http_status": 503,
+        "error_type": null
+      },
+      {
+        "span_id": "0000000000000002",
+        "parent_span_id": "0000000000000001",
+        "service": "orders",
+        "name": "POST /pay",
+        "kind": "client",
+        "start_offset_ns": "5000000",
+        "duration_ns": "250000000",
+        "outcome": "error",
+        "http_status": 503,
+        "error_type": "http_5xx"
+      },
+      {
+        "span_id": "0000000000000003",
+        "parent_span_id": "0000000000000001",
+        "service": "orders",
+        "name": "POST /pay",
+        "kind": "client",
+        "start_offset_ns": "305000000",
+        "duration_ns": "250000000",
+        "outcome": "error",
+        "http_status": 503,
+        "error_type": "http_5xx"
+      },
+      {
+        "span_id": "0000000000000004",
+        "parent_span_id": "0000000000000001",
+        "service": "orders",
+        "name": "POST /pay",
+        "kind": "client",
+        "start_offset_ns": "605000000",
+        "duration_ns": "245000000",
+        "outcome": "error",
+        "http_status": 503,
+        "error_type": "http_5xx"
+      }
+    ],
+    "quality_issues": []
+  }
+}
