@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from backend.contracts.base import TraceRef
-from backend.contracts.p1 import IngestLimits
-from backend.contracts.p2 import NormalizedSpan
-from backend.repository.store import SpanReader
+from contracts.base import TraceRef
+from contracts.p1 import IngestLimits
+from contracts.p2 import NormalizedSpan
+from repository.store import SpanStore
 
 from .handlers import GraphBuilder, TraceMeta
 
 
 class SpanStoreAdapter:
-    def __init__(self, store: SpanReader) -> None:
+    def __init__(self, store: SpanStore) -> None:
         self._store = store
 
     def list_traces(self, environment_id: str) -> Sequence[TraceMeta]:
@@ -52,8 +52,8 @@ class SpanStoreAdapter:
         return self._store.get_spans(trace_ref)
 
 
-def make_graph_builder(store: SpanReader, limits: IngestLimits | None = None) -> GraphBuilder:
-    from backend.core.graph import build_graph
+def make_graph_builder(store: SpanStore, limits: IngestLimits | None = None) -> GraphBuilder:
+    from core.graph import build_graph
 
     resolved_limits = limits if limits is not None else IngestLimits()
 

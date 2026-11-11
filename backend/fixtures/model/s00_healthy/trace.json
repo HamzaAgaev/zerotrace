@@ -53,7 +53,7 @@
       "duration_ns": "350000000",
       "clock_domain": "host-1",
       "operation": "POST /pay",
-      "target": null,
+      "target": "payment",
       "otel_status": "unset",
       "http_status": 200,
       "grpc_status": null,

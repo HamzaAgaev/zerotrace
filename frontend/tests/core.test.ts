@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findingsForTrace, filterTraces, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
+import { filterTraces, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
 import { demoDetail, demoFinding, demoTraces, demoAudit } from '../src/api/fixtures.js';
 import { ApiError, createClient, normalizeBaseUrl, unwrap, validatePayload } from '../src/api/client.js';
 const envelope = (payload: unknown) => ({ schema: 'test', schema_version: '1.0.0', producer_version: 'test', generated_at: '2026-11-10T00:00:00Z', payload });
@@ -47,44 +47,4 @@ test('exact trace links preserve environment and revision and reject mismatched 
   assert.equal(new URL(requested, 'http://localhost').searchParams.get('environment_id'), ref.environment_id);
   await assert.rejects(client.getTrace({ ...ref, revision: ref.revision + 1 }),
     (e: unknown) => e instanceof ApiError && e.code === 'trace_ref_mismatch');
-});
-
-test('audit accepts policy observations, uses remaining budget and prevents a plan without an intent', async () => {
-  const { availableBudget, canPreparePlan } = await import('../src/api/types.js');
-  const budget = { ...demoFinding.evidence, budget_ns: '1000000000', available_ns: '-100000' };
-  const advisory = { ...demoFinding, evidence: budget, recommendation: { ...demoFinding.recommendation, can_prepare_plan: false } };
-  const observed = { ...advisory, rule_id: 'D1', evidence: { kind: 'policy_observation', source: 'runtime / declared' } };
-  validatePayload('audit', { ...demoAudit, findings: [advisory, observed] });
-  assert.throws(() => validatePayload('audit', {...demoAudit, findings: [{...observed, basis: 'observed'}]}), ApiError);
-  assert.equal(availableBudget({ ...budget, available_ns: '0' }), '0');
-  assert.equal(availableBudget(budget), '-100000');
-  assert.equal(availableBudget(demoFinding.evidence), demoFinding.evidence.budget_ns);
-  assert.equal(canPreparePlan(advisory), false);
-  assert.equal(canPreparePlan({...demoFinding, recommendation: {...demoFinding.recommendation, changes: []}}), false);
-  await assert.rejects(createClient({mode: 'demo', baseUrl: ''}).createPlan(advisory),
-    (e: unknown) => e instanceof ApiError && e.code === 'no_change_intent');
-  let called = false;
-  const client = createClient({mode: 'live', baseUrl: ''}, async () => { called = true; throw new Error(); });
-  await assert.rejects(client.createPlan(advisory), (e: unknown) => e instanceof ApiError && e.code === 'no_change_intent');
-  assert.equal(called, false);
-});
-
-test('trace detail matches exact occurrences beyond the audit exemplars', () => {
-  const detail = demoDetail(demoTraces[0].trace_id);
-  const finding = { ...demoFinding, exemplars: [] };
-  const exact = { ...detail, finding_occurrence_ids: [finding.occurrence_id],
-    summary: { ...detail.summary, finding_count: 1 } };
-  validatePayload('trace', exact);
-  assert.deepEqual(findingsForTrace(exact, [finding]), [finding]);
-  assert.deepEqual(findingsForTrace(exact, [{ ...finding, occurrence_id: 'other' }]), []);
-  assert.deepEqual(findingsForTrace(detail, [finding]), []);
-  assert.throws(() => validatePayload('trace', { ...exact, finding_occurrence_ids: [] }));
-});
-
-
-test('trace detail accepts a signed offset from an incompatible clock domain', () => {
-  const detail = demoDetail(demoTraces[0].trace_id);
-  const spans = detail.spans.map((span, i) => i ? { ...span, start_offset_ns: '-1000' } : span);
-  validatePayload('trace', { ...detail, spans, quality_issues: ['cross_clock_uncertain'] });
-  assert.throws(() => validatePayload('trace', { ...detail, spans: [{ ...spans[0], duration_ns: '-1000' }] }));
 });

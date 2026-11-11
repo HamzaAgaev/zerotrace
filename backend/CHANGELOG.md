@@ -5,12 +5,71 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 проект придерживается [Semantic Versioning](https://semver.org/lang/ru/).
 
-## Изменения в ветке analytics
+## [0.3.0] — 2026-11-11 03:10 МСК
 
-- Аналитические API и CLI читают один согласованный снимок SQLite. Чтение поддерживает базы схемы 1 и 2. При открытии для записи база версии 1 переходит на версию 2.
-- Схема 2 сохраняет признак конфликта содержимого спана и последнее удалённое поколение для каждой пары окружение/trace ID. Первый конфликт обновляет ревизию. Повторная запись удалённой трассы создаёт новое поколение. Конфликты и удаления, которые прежняя версия уже отбросила, восстановить из старой базы нельзя.
-- Модель группировки 1.1.0 использует проект источника и namespace сервиса для идентичности рёбер. Нормализация сохраняет метки лаборатории `run_id`, `logical_call_id` и `attempt_index`, если они есть в записи OTLP. Для расчёта пауз между попытками нужны сопоставимые часы.
-- В объединённом HTTP API список трасс получает число находок от аналитики. Карточка трассы содержит их `occurrence_id` для выбранной ревизии.
+Стабильность ключей, жизненный цикл трасс, product fixtures для фронтенда.
+
+### Добавлено
+
+- `NormalizedSpan.namespace` (аддитивно; источник истины — resource attrs
+  на этапе normalize, дефолт `"default"`).
+- `derive_calls(graph, project_id=...)` — реальные project/namespace в
+  `ServiceKey`: `edge_id` больше не зависит от дефолтов и совпадает у B и C.
+  Namespace берётся из спана, project передаётся явным параметром.
+- Жизненный цикл `assembly_state`: `SpanStore.advance_assembly(now,
+  quiet_after_ns=5с)` переводит молчащие «open»-трассы в `quiet`
+  (idempotent, bounded-скан); `SpanStore.force_close(ref, reason)` —
+  принудительное закрытие по лимиту с записью причины. Миграция схемы
+  v1/v2 → v3 (`traces.forced_reason`), причина читается через `TraceMeta`.
+- `fixtures/build_product_fixtures.py` + `fixtures/product/`: реальные
+  ответы data API (trace-list и trace-detail для окружений shop и sandbox),
+  собранные сквозным прогоном OTLP → SQLite → handlers с фиксированным
+  `generated_at` — контрактные примеры для фронтенда (B08).
+
+### Тесты
+
+181 passed (+11): обогащение ключей (project/namespace меняют и стабильно
+дают edge_id), жизненный цикл assembly (quiet, forced + reason,
+idempotentность, миграция со старой схемы), парсинг product fixtures.
+
+## [0.2.0] — 2026-11-11 02:53 МСК
+
+Стыки первого показа: цепочка для стенда, выборки прогонов, приём OTLP.
+
+### Добавлено
+
+- `core/chain.py`: `extract_chain(graph, calls)` — проверенная последовательная
+  цепочка для генератора стенда (стык B → A) либо типизированный отказ
+  (empty_trace / ambiguous_root / missing_link / ambiguous_link /
+  parallel_branches / cycle) с конкретными проблемными связями. Внешний
+  адресат без server-спана допустим последним шагом; повторные попытки
+  одного logical call не размножают звенья; признаки неполноты передаются
+  в `incompleteness`.
+- Фиксация выборок прогонов (стык A → B → C): `normalize` извлекает
+  lab-метки `zerotrace.run_id`/`run_id` и `zerotrace.probe`/`lab.probe`;
+  `repository` хранит `trace_runs` и `run_samples`.
+  `start_collection` (идемпотентно), `finalize_collection` /
+  `get_sample` → статус waiting/ready/partial с expected/received counts
+  и замороженными точными TraceRef; повторное чтение после фиксации
+  возвращает тот же набор, поздние трассы выборку не меняют;
+  probe-трассы исключены.
+- `app/otlp_api/`: ручка приёма `POST /v1/traces` — Bearer-токен →
+  SourceBinding (401 на неизвестный), decode → normalize → транзакционная
+  запись; 200 только после commit, сбой записи → 503 без ложного ACK;
+  ответ ExportTraceServiceResponse в формате запроса.
+- Fixtures: `target` на клиентских спанах model-фикстур (согласовано с
+  OTLP-фикстурами, где callee виден через `server.address`).
+
+### Исправлено
+
+- Deadlock в `SpanStore`: вложенные чтения под общим замком (Lock → RLock).
+
+### Тесты
+
+170 passed (+21): цепочка (happy path, отказы, двухзвенная цепочка),
+выборки прогонов (waiting→ready, partial, freeze-стабильность, probe,
+конфликт параметров), OTLP handler (protobuf/JSON приём, 401/413/415/503,
+дубликат без двойного счёта).
 
 ## [0.1.0] — 2026-11-11 01:15 МСК
 

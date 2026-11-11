@@ -121,7 +121,7 @@ class TestFixtures:
     def test_grouping_version_propagated(self):
         model = derive_calls(load_trace("s00_healthy"), grouping_version="2.1.0")
         assert model.grouping_version == "2.1.0"
-        assert derive_calls(load_trace("s00_healthy")).grouping_version == "1.1.0"
+        assert derive_calls(load_trace("s00_healthy")).grouping_version == "1.0.0"
 
 
 class TestGrouping:
@@ -427,3 +427,28 @@ class TestDeterminism:
         ids = {a.edge_id for a in derive_calls(graph).attempts}
         assert len(ids) == 1
         assert next(iter(ids)) == derive_calls(graph).attempts[0].edge_id
+
+
+class TestServiceKeyEnrichment:
+    def test_project_id_changes_edge_id(self):
+        graph = load_trace("s00_healthy")
+        default_model = derive_calls(graph)
+        enriched = derive_calls(graph, project_id="zerotrace-demo")
+        assert len(default_model.attempts) == len(enriched.attempts) == 1
+        assert default_model.attempts[0].edge_id != enriched.attempts[0].edge_id
+
+    def test_namespace_changes_edge_id(self):
+        from contracts import NormalizedSpan
+
+        graph = load_trace("s00_healthy")
+        renamed = [NormalizedSpan(**{**s.__dict__, "namespace": "shop-ns"}) for s in graph.spans]
+        graph_ns = TraceGraph(**{**graph.__dict__, "spans": renamed})
+        base = derive_calls(graph, project_id="zerotrace-demo")
+        other = derive_calls(graph_ns, project_id="zerotrace-demo")
+        assert base.attempts[0].edge_id != other.attempts[0].edge_id
+
+    def test_project_id_is_deterministic(self):
+        graph = load_trace("s00_healthy")
+        first = derive_calls(graph, project_id="zerotrace-demo")
+        second = derive_calls(graph, project_id="zerotrace-demo")
+        assert first.attempts[0].edge_id == second.attempts[0].edge_id

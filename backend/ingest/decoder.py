@@ -8,7 +8,7 @@ import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.contracts.p1 import IngestLimits
+from contracts.p1 import IngestLimits
 
 MEDIA_PROTOBUF = "application/x-protobuf"
 MEDIA_JSON = "application/json"

@@ -1,5 +1,4 @@
-from backend._compat import publish_legacy_package
-from backend.contracts.base import (
+from .base import (
     CANONICALIZATION_VERSION,
     EdgeKey,
     EndpointKey,
@@ -8,7 +7,7 @@ from backend.contracts.base import (
     TraceRef,
     endpoint_label,
 )
-from backend.contracts.p1 import (
+from .p1 import (
     DEFAULT_BODY_LIMIT_BYTES,
     DEFAULT_MAX_DEPTH,
     DEFAULT_MAX_SPANS_PER_BATCH,
@@ -17,7 +16,7 @@ from backend.contracts.p1 import (
     SourceBinding,
     SourceCapabilities,
 )
-from backend.contracts.p2 import (
+from .p2 import (
     QUALITY_CODES,
     Attempt,
     CallModel,
@@ -27,7 +26,7 @@ from backend.contracts.p2 import (
     QualityIssue,
     TraceGraph,
 )
-from backend.contracts.p3 import (
+from .p3 import (
     Backoff,
     EdgePolicy,
     EdgeStats,
@@ -35,8 +34,8 @@ from backend.contracts.p3 import (
     percentile_ns,
     ratio,
 )
-from backend.contracts.p7 import Envelope, SpanView, TraceDetail, TraceSummary
-from backend.contracts.validate import ValidationReport, validate_span, validate_trace_graph
+from .p7 import Envelope, SpanView, TraceDetail, TraceSummary
+from .validate import ValidationReport, validate_span, validate_trace_graph
 
 __all__ = [
     "CANONICALIZATION_VERSION",
@@ -75,5 +74,3 @@ __all__ = [
     "validate_span",
     "validate_trace_graph",
 ]
-
-publish_legacy_package(__name__, ["base", "p1", "p2", "p3", "p7", "validate"])

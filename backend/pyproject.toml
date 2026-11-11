@@ -7,20 +7,19 @@ name = "zerotrace"
 version = "0.1.0"
 description = "ZeroTrace + Retry Auditor: OTLP trace analysis and retry/timeout audit"
 requires-python = ">=3.11"
-dependencies = ["opentelemetry-proto>=1.27"]
+dependencies = ["opentelemetry-proto>=1.27", "Flask>=3.1,<4", "requests>=2.32,<3", "waitress>=3,<4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 
 [tool.setuptools]
-packages = [
-    "backend", "backend.contracts", "backend.ingest", "backend.repository",
-    "backend.core", "backend.app", "backend.app.data_api",
-    "contracts", "ingest", "repository", "core", "app", "app.data_api",
-]
+py-modules = ["analytics_support"]
 
-[tool.setuptools.package-dir]
-backend = "."
+[tool.setuptools.packages.find]
+include = ["app*", "contracts*", "ingest*", "repository*", "core*", "rules*", "comparison*", "projection*", "evalkit*"]
+
+[tool.setuptools.package-data]
+"app.analytics_api" = ["openapi.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -32,8 +31,13 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 
+# Product-facing messages in A are intentionally written in Russian.
+[tool.ruff.lint.per-file-ignores]
+"app/control/*.py" = ["RUF001"]
+"app/integrations/*.py" = ["RUF001"]
+"app/server/*.py" = ["RUF001"]
+
 [tool.mypy]
-mypy_path = ".."
 python_version = "3.11"
-packages = ["backend.contracts"]
+packages = ["contracts"]
 strict = true

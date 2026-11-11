@@ -3,7 +3,9 @@ export const numericMs = (ns: string) => Number(BigInt(ns)) / 1e6;
 export function percentile(values: number[], p: number): number | null {
   if (!values.length) return null;
   const sorted = [...values].sort((a,b) => a-b);
-  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+  const rank = Math.min(1, Math.max(0, p)) * (sorted.length - 1);
+  const lower = Math.floor(rank), upper = Math.ceil(rank);
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (rank - lower);
 }
 export function unionLength(intervals: [number, number][]): number {
   const sorted = intervals.filter(([a,b]) => b > a).sort((a,b) => a[0]-b[0]);
@@ -11,49 +13,62 @@ export function unionLength(intervals: [number, number][]): number {
   for (const [a,b] of sorted) { total += Math.max(0, b-Math.max(a,end)); end = Math.max(end,b); }
   return total;
 }
-export interface ServiceStats { name: string; count: number; errors: number; unknown: number; median: number | null; p95: number | null; own: number | null; traceIds: string[] }
-export interface EdgeStats { id: string; caller: string; callee: string; count: number; errors: number; unknown: number; median: number | null; p95: number | null; traceIds: string[] }
-export function summarize(details: TraceDetail[]): { services: ServiceStats[]; edges: EdgeStats[] } {
-  const services = new Map<string, { spans: Span[]; own: number | null; ids: Set<string> }>();
-  const edges = new Map<string, { caller: string; callee: string; spans: Span[]; ids: Set<string> }>();
+export interface ServiceStats { name: string; count: number; errors: number; unknown: number; median: number | null; p95: number | null; own: number; traceIds: string[] }
+interface Endpoint { id: string; name: string; external: boolean }
+export interface EdgeStats { id: string; caller: string; callee: string; from: Endpoint; to: Endpoint; count: number; errors: number; unknown: number; median: number | null; p95: number | null; traceIds: string[] }
+const endpoint = (name: string, external = false): Endpoint => ({
+  id: JSON.stringify([external ? 'external' : 'service', name]), name, external,
+});
+export function summarize(details: TraceDetail[]): { services: ServiceStats[]; edges: EdgeStats[]; nodes: Endpoint[] } {
+  const services = new Map<string, { spans: Span[]; own: number; ids: Set<string> }>();
+  const edges = new Map<string, { from: Endpoint; to: Endpoint; spans: Span[]; ids: Set<string> }>();
+  const addEdge = (from: Endpoint, to: Endpoint, span: Span, traceId: string) => {
+    const id = JSON.stringify([from.id, to.id]);
+    const group = edges.get(id) ?? { from, to, spans: [], ids: new Set<string>() };
+    group.spans.push(span);
+    group.ids.add(traceId);
+    edges.set(id, group);
+  };
   for (const trace of details) {
     const map = new Map(trace.spans.map(s => [s.span_id,s]));
+    const serverParents = new Set(trace.spans.filter(s => s.kind === 'server').map(s => s.parent_span_id));
+    const traceId = trace.summary.trace_id;
     for (const span of trace.spans) {
       if (span.kind === 'server') {
         const group = services.get(span.service) ?? { spans: [], own: 0, ids: new Set<string>() };
         group.spans.push(span); group.ids.add(trace.summary.trace_id);
-        const children = trace.spans.filter(s => s.parent_span_id === span.span_id);
-        if (children.length && trace.quality_issues.includes('cross_clock_uncertain')) {
-          group.own = null;
-        } else if (group.own !== null) {
-          const start = numericMs(span.start_offset_ns), end = start + numericMs(span.duration_ns);
-          const occupied = unionLength(children.map(s => [Math.max(start,numericMs(s.start_offset_ns)), Math.min(end,numericMs(s.start_offset_ns)+numericMs(s.duration_ns))]));
-          group.own += Math.max(0, end-start-occupied);
-        }
-        services.set(span.service,group);
+        const start = numericMs(span.start_offset_ns), end = start + numericMs(span.duration_ns);
+        const occupied = unionLength(trace.spans.filter(s => s.parent_span_id === span.span_id).map(s => [Math.max(start,numericMs(s.start_offset_ns)), Math.min(end,numericMs(s.start_offset_ns)+numericMs(s.duration_ns))]));
+        group.own += Math.max(0,end-start-occupied); services.set(span.service,group);
       }
       const parent = span.parent_span_id ? map.get(span.parent_span_id) : null;
-      if (span.kind !== 'server' || !parent || parent.service === span.service) continue;
-      const id = JSON.stringify([parent.service,span.service]);
-      const group = edges.get(id) ?? { caller: parent.service, callee: span.service, spans: [], ids: new Set<string>() };
-      // One cross-service server span is one observed invocation, not a deduplicated retry group.
-      group.spans.push(parent.kind === 'client' ? parent : span); group.ids.add(trace.summary.trace_id); edges.set(id,group);
+      if (span.kind === 'server' && parent && parent.service !== span.service) {
+        addEdge(endpoint(parent.service), endpoint(span.service), parent.kind === 'client' ? parent : span, traceId);
+      } else if (span.kind === 'client' && span.target && !serverParents.has(span.span_id)) {
+        addEdge(endpoint(span.service), endpoint(span.target, true), span, traceId);
+      }
     }
   }
   const stats = (spans: Span[]) => ({ count: spans.length, errors: spans.filter(s => s.outcome === 'error').length, unknown: spans.filter(s => s.outcome === 'unknown').length, median: percentile(spans.map(s => numericMs(s.duration_ns)), .5), p95: percentile(spans.map(s => numericMs(s.duration_ns)), .95) });
-  return { services: [...services].map(([name,g]) => ({ name,...stats(g.spans), own:g.own,traceIds:[...g.ids] })).sort((a,b) => b.count-a.count || a.name.localeCompare(b.name)), edges:[...edges].map(([id,g]) => ({ id,caller:g.caller,callee:g.callee,...stats(g.spans),traceIds:[...g.ids] })) };
+  const serviceStats = [...services].map(([name,g]) => ({ name,...stats(g.spans), own:g.own,traceIds:[...g.ids] })).sort((a,b) => b.count-a.count || a.name.localeCompare(b.name));
+  const edgeStats = [...edges].map(([id,g]) => ({
+    id, from:g.from, to:g.to, caller:g.from.name, callee:g.to.name, ...stats(g.spans), traceIds:[...g.ids],
+  }));
+  const nodes = new Map(serviceStats.map(s => {
+    const node = endpoint(s.name);
+    return [node.id, node] as const;
+  }));
+  for (const { from, to } of edgeStats) {
+    nodes.set(from.id, from);
+    nodes.set(to.id, to);
+  }
+  return { services: serviceStats, edges: edgeStats, nodes: [...nodes.values()] };
 }
-export interface BudgetDraft { timeout: number; attempts: number; backoff: number | null; budget: number }
-export function checkBudget(draft: BudgetDraft, configuredPauses?: { attempts: number; total: number }) {
+export interface BudgetDraft { timeout: number; attempts: number; backoff: number; budget: number }
+export function checkBudget(draft: BudgetDraft) {
   const { timeout, attempts, backoff, budget } = draft;
-  // An aggregate does not imply a fixed per-retry delay at a different attempt count.
-  const pauses = backoff === null
-    ? attempts === 1 ? 0 : attempts === configuredPauses?.attempts ? configuredPauses.total : NaN
-    : backoff * (attempts - 1);
-  const valid = [timeout, attempts, budget, pauses].every(Number.isFinite)
-    && timeout > 0 && timeout <= 3_600_000 && Number.isInteger(attempts) && attempts >= 1 && attempts <= 10
-    && budget <= 3_600_000 && pauses >= 0 && (backoff === null || (backoff >= 0 && backoff <= 3_600_000));
-  const required = valid ? timeout * attempts + pauses : null;
+  const valid = [timeout,attempts,backoff,budget].every(Number.isFinite) && timeout > 0 && budget > 0 && Number.isInteger(attempts) && attempts >= 1 && attempts <= 10 && backoff >= 0 && [timeout,backoff,budget].every(v => v <= 3_600_000);
+  const required = valid ? timeout*attempts+backoff*(attempts-1) : null;
   return { valid, required, reserve: required === null ? null : budget-required };
 }
 export function cohortStats(rows: TraceSummary[]) {

@@ -1,0 +1,60 @@
+{
+  "schema": "zerotrace.trace",
+  "schema_version": "1.0.0",
+  "generated_at": "2026-11-11T03:00:00Z",
+  "producer_version": "0.1.0",
+  "payload": {
+    "summary": {
+      "trace_ref": {
+        "environment_id": "shop",
+        "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "generation": 1,
+        "revision": 1
+      },
+      "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "operation": "GET /checkout",
+      "service": "orders",
+      "start_ns": "1763000000000000000",
+      "duration_ns": "500000000",
+      "span_count": 2,
+      "service_count": 1,
+      "outcome": "ok",
+      "http_status": 200,
+      "finding_count": 0,
+      "quality_issues": []
+    },
+    "trace_ref": {
+      "environment_id": "shop",
+      "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "generation": 1,
+      "revision": 1
+    },
+    "spans": [
+      {
+        "span_id": "0000000000000001",
+        "parent_span_id": null,
+        "service": "orders",
+        "name": "GET /checkout",
+        "kind": "server",
+        "start_offset_ns": "0",
+        "duration_ns": "500000000",
+        "outcome": "ok",
+        "http_status": 200,
+        "error_type": null
+      },
+      {
+        "span_id": "0000000000000002",
+        "parent_span_id": "0000000000000001",
+        "service": "orders",
+        "name": "POST /pay",
+        "kind": "client",
+        "start_offset_ns": "10000000",
+        "duration_ns": "350000000",
+        "outcome": "unknown",
+        "http_status": 200,
+        "error_type": null
+      }
+    ],
+    "quality_issues": []
+  }
+}

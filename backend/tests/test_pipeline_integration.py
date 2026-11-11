@@ -69,6 +69,10 @@ class TestPipeline:
         for span in trace["spans"]:
             assert isinstance(span["start_offset_ns"], str)
             assert int(span["start_offset_ns"]) >= 0
+            if span["kind"] == "client":
+                assert span["target"] == "payment"
+            else:
+                assert "target" not in span
 
     def test_detail_requires_version_pair(self, store: SpanStore):
         ingest_fixture(store, "s00_healthy")

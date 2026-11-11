@@ -33,6 +33,10 @@ venv/
 .coverage
 htmlcov/
 
+# Local browser captures and run artifacts
+/artifacts/
+/frontend/screenshots/
+
 # SQLite runtime data (WAL/SHM) and local data
 *.db
 *.db-wal

@@ -1,0 +1,11 @@
+{
+  "gateway": "http://gateway:8080",
+  "orders": "http://orders:8080",
+  "inventory": "http://inventory:8080",
+  "pricing": "http://pricing:8080",
+  "delivery": "http://delivery:8080",
+  "payment": "http://payment:8080",
+  "fraud": "http://fraud:8080",
+  "bank-api": "http://bank-api:8080",
+  "notifications": "http://notifications:8080"
+}

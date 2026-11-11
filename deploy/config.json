@@ -1,0 +1,135 @@
+{
+  "project_id": "zerotrace-demo",
+  "database": "/data/zerotrace.db",
+  "state_directory": "/data",
+  "token_directory": "/tokens",
+  "scenario_path": "/app/stand/scenarios/checkout.json",
+  "frontend_directory": "/app/frontend/dist",
+  "build_timeout_s": 20,
+  "load_timeout_s": 15,
+  "environments": [
+    {
+      "environment_id": "shop",
+      "name": "Магазин",
+      "kind": "external"
+    },
+    {
+      "environment_id": "sandbox",
+      "name": "Лаборатория",
+      "kind": "lab"
+    }
+  ],
+  "sources": [
+    {
+      "source_id": "gateway",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "orders",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "inventory",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "pricing",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "delivery",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "payment",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "fraud",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "bank-api",
+      "environment_id": "shop"
+    },
+    {
+      "source_id": "notifications",
+      "environment_id": "shop"
+    }
+  ],
+  "services": [
+    {
+      "service_id": "gateway",
+      "environment_id": "shop",
+      "display_name": "gateway",
+      "control_url": null,
+      "write_fields": []
+    },
+    {
+      "service_id": "orders",
+      "environment_id": "shop",
+      "display_name": "orders",
+      "control_url": "http://orders:8080",
+      "write_fields": [
+        "timeout_ms",
+        "max_attempts",
+        "backoff_ms",
+        "retry_on"
+      ]
+    },
+    {
+      "service_id": "inventory",
+      "environment_id": "shop",
+      "display_name": "inventory",
+      "control_url": null,
+      "write_fields": []
+    },
+    {
+      "service_id": "pricing",
+      "environment_id": "shop",
+      "display_name": "pricing",
+      "control_url": null,
+      "write_fields": []
+    },
+    {
+      "service_id": "delivery",
+      "environment_id": "shop",
+      "display_name": "delivery",
+      "control_url": null,
+      "write_fields": []
+    },
+    {
+      "service_id": "payment",
+      "environment_id": "shop",
+      "display_name": "payment",
+      "control_url": "http://payment:8080",
+      "write_fields": [
+        "timeout_ms",
+        "max_attempts",
+        "backoff_ms",
+        "retry_on"
+      ]
+    },
+    {
+      "service_id": "fraud",
+      "environment_id": "shop",
+      "display_name": "fraud",
+      "control_url": null,
+      "write_fields": []
+    },
+    {
+      "service_id": "bank-api",
+      "environment_id": "shop",
+      "display_name": "bank-api",
+      "control_url": null,
+      "write_fields": []
+    },
+    {
+      "service_id": "notifications",
+      "environment_id": "shop",
+      "display_name": "notifications",
+      "control_url": null,
+      "write_fields": []
+    }
+  ]
+}

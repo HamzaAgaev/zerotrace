@@ -34,10 +34,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from backend.contracts.base import TraceRef
-from backend.contracts.p2 import NormalizedSpan, TraceGraph
-from backend.contracts.p7 import Envelope
-from backend.contracts.validate import TRACE_ID_RE, ZERO_TRACE_ID
+from contracts.base import TraceRef
+from contracts.p2 import NormalizedSpan, TraceGraph
+from contracts.p7 import Envelope
+from contracts.validate import TRACE_ID_RE, ZERO_TRACE_ID
 
 from .views import trace_detail, trace_summary
 
@@ -90,7 +90,7 @@ class ApiError:
 
 
 def _default_graph_builder() -> GraphBuilder:
-    from backend.core.graph import build_graph
+    from core.graph import build_graph
 
     return build_graph
 

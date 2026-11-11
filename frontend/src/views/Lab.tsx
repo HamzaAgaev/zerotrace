@@ -4,10 +4,11 @@ import {
   comparisonIssue, initialLab, labReducer, loadCount, observedPayment, paymentFault, retryBudget, retryDefaults,
 } from '../api/labFixture';
 import type { Run } from '../api/labFixture';
-import type { TraceRef } from '../api/types';
+import type { Client, TraceRef } from '../api/types';
 import { Badge, Button, EmptyState, Message, Panel } from '../components/ui';
 import { Metrics, PairBars } from '../components/Metrics';
 import { shortId, traceHref } from '../lib';
+import { LiveLab } from './LiveLab';
 
 export function useLabFixture() {
   const [state, dispatch] = useReducer(labReducer, initialLab);
@@ -99,7 +100,8 @@ function ComparisonCharts({ before, after }: { before: Run; after: Run }) {
   </div>;
 }
 
-export function Lab({ lab, demo }: { lab: ReturnType<typeof useLabFixture>; demo: boolean }) {
+export function Lab({ lab, demo, client }: { lab: ReturnType<typeof useLabFixture>; demo: boolean; client: Client }) {
+  if (!demo) return <LiveLab client={client}/>;
   const { state: { stand, runs, message }, dispatch } = lab;
   const [plan, setPlan] = useState<{ standId: string; revision: string } | null>(null);
   const displayedStandId = stand?.id ?? runs.at(-1)?.standId;
