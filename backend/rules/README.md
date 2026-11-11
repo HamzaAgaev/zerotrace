@@ -2,6 +2,14 @@
 
 `run(model, policies, thresholds=None, baselines=None)` обрабатывает одну зафиксированную выборку. Результат содержит `findings`, статусы и исключения каждого правила, наблюдения по рёбрам, версии и ссылки на входы. `get_recommendation(result, occurrence_id, recommendation_id)` извлекает предложение из конкретного результата. Для используемых фронтендом ответов адаптер находится в `app/analytics_api/`.
 
+**Доверие к политике.** Чтение операндов конфигурации (свежесть снимка,
+источник, сверка ревизий) делегировано каноническим примитивам зоны B —
+`core/model.py` (`build_edge_policy`, `trusted_int`, `sourced_value`,
+`is_current_policy`, `pauses_ns`). Здесь семантика определена однажды;
+поведение правил зафиксировано golden-снимками
+`fixtures/analytics/golden/` (тест `tests/analytics/test_migration_golden.py`).
+
+
 **Данные Миши.** В `model` обязательна строка `environment_id`. Передавайте также `dataset_ref`, `model_version`, `sampling`, точные ревизии трасс, `attempts` и `calls`. Каждый Attempt имеет `trace_ref`, `attempt_id` клиентского спана и `edge_id`. У LogicalCall обязательны `trace_ref`, `edge_id`, `call_id`, упорядоченные `attempt_ids`, `hypothesis` и `confidence`. Подходят подтверждённые single и retry. Диагностика качества распространяется по затронутым ссылкам и на весь граф для ошибок без области. Источник может отдать attempts/calls внутри соответствующей трассы. Машинные ключи рёбер и их подписи передаются раздельно.
 
 **Данные Никиты.** `policies` содержит P4 snapshots с `edges` либо уже разрешённые политики одного ребра. Для R4 нужны `execution="serial"`, `source` (runtime или declared), `config_revision`, `max_attempts`, `per_attempt_timeout_ns`, локальный `budget_ns`, `backoff` с видом паузы, длительностью и типом jitter. Снимок P4 передаёт владельца в `service.service_name` и ревизию в `revision`. Внешний таймаут из списка `external_timeouts` подходит при единственном точном совпадении по `call_ref`. Числовые параметры поддерживают `{value, source, config_revision, stale}`. Явно устаревшие и несовместимые по ревизии значения исключаются. Ссылка на целевое поле требует `service_id` и `call_ref`; исполнимое намерение дополнительно требует `model.environment_kind="lab"`, совместимого типа окружения и разрешения на поле в capabilities.

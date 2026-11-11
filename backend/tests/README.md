@@ -20,6 +20,9 @@
 | `test_core_calls.py` | Попытки и группировка: single/retry/ambiguous. |
 | `test_core_timing.py` | Union интервалов, uncovered, перцентили, часы. |
 | `test_core_chain.py` | Извлечение цепочки для стенда: happy path и отказы. |
+| `test_core_model.py` | Per-edge P3 модель: EdgeStats, EdgePolicy, trusted-примитивы. |
+| `test_assembly.py` | Жизненный цикл трасс (quiet/forced) и фоновый AssemblyTicker. |
+| `test_migration_golden.py` | Golden-снимки вывода аудита (миграция C → core/model). |
 | `test_data_api.py` | P7 handlers: envelope, пагинация, 400/404. |
 | `test_otlp_handler.py` | Приём OTLP: protobuf/JSON, 401/413/415/503, дубликаты. |
 | `test_run_samples.py` | Выборки прогонов: waiting/ready/partial, freeze, probe. |

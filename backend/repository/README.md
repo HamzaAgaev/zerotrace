@@ -23,5 +23,9 @@ SQLite и гарантирует целостность конвейера. Зо
 - **Выборки прогонов:** `start_collection` → `finalize_collection` /
   `get_sample`: статус waiting/ready/partial, expected/received counts,
   замороженные точные TraceRef; после фиксации набор не меняется.
+- **Жизненный цикл:** `advance_assembly(now)` (open → quiet после 5 с
+  тишины, идемпотентно) вызывается фоновым `AssemblyTicker` общего сервера;
+  `force_close(ref, reason)` — принудительное закрытие по лимиту с записью
+  причины в `forced_reason` и quality-issue `forced_close` в графе.
 
 Потребление памяти ограничено: читаются только спаны одной трассы.
