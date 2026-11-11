@@ -22,7 +22,7 @@ def test_restart_preserves_history_and_restores_explicitly_started_stand(tmp_pat
                 "database": str(tmp_path / "product.db"),
                 "state_directory": str(tmp_path),
                 "token_directory": str(tmp_path / "tokens"),
-                "scenario_path": "/app/scenarios/checkout.json",
+                "scenario_path": "/app/stand/scenarios/checkout.json",
                 "environments": [
                     {"environment_id": "sandbox", "name": "Lab", "kind": "lab"}
                 ],

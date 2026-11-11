@@ -8,7 +8,7 @@
 
 ## Первый показ
 
-Согласованные изменения объёма и API описаны в [A_DECISIONS.md](../architecture/A_DECISIONS.md). Этот документ содержит целевые требования полной системы; ниже отмеченные решения первого показа уточняют, но не отменяют их.
+Согласованные изменения объёма и API описаны в [configuration-and-lab.md](../architecture/configuration-and-lab.md). Этот документ содержит целевые требования полной системы; ниже отмеченные решения первого показа уточняют, но не отменяют их.
 
 Никита ведёт стенд, API управления и адаптеры для внешних сервисов. Модули данных и аналитики сохраняют свои API. По каждому сервису сервер проверяет доступные операции и поля. Первый лабораторный checkout запускается по готовому `scenario_id`; генерация из выбранной цепочки трассы — следующий этап. Для стенда A реализует внутренние ручки, faults и повторяемые прогоны с реальным OTLP и меткой прогона.
 
@@ -37,7 +37,7 @@
 
 CI: backend/CLI tests на всех трёх ОС, UI build/browser checks совместно с D, schema/format checks, миграции/temp files. Каждый владелец пишет свои tests, A собирает pipelines. Матрица фиксирует actual tested, target, unsupported: обещание поддержки не равно фактической проверке.
 
-Для полной системы остаётся требование native smoke и приёмки на Windows/macOS/Linux; это целевая переносимость, не подтверждение проверки. В разработке и первом показе Docker Compose — основной путь, зависимости первого старта должны запускаться в контейнерах. Согласованная граница записана в [A_DECISIONS.md](../architecture/A_DECISIONS.md).
+Для полной системы остаётся требование native smoke и приёмки на Windows/macOS/Linux; это целевая переносимость, не подтверждение проверки. В разработке и первом показе Docker Compose — основной путь, зависимости первого старта должны запускаться в контейнерах. Согласованная граница записана в [configuration-and-lab.md](../architecture/configuration-and-lab.md).
 
 ## A2. Источники наблюдения
 
@@ -75,7 +75,7 @@ Open-loop load не ждёт предыдущего ответа: inflight cap, 
 - Startup recovery и блок следующей мутации target до выяснения старой.
 - Config applied отдельно от symptom verification; scheduler получает eligibility/statistics C и refs B.
 
-Первый adapter — service-owned конфигурация с операциями GET/PATCH и проверкой результата по request_id; см. [A_DECISIONS.md](../architecture/A_DECISIONS.md). Для чужих приложений подключать поддержанный config/proxy adapter; без него ручной план. Полный multi-target orchestration позже: per-target results/partial, отдельный CAS rollback plan, без ложной distributed atomicity. До/после хранятся, archive не очищается.
+Первый adapter — service-owned конфигурация с операциями GET/PATCH и проверкой результата по request_id; см. [configuration-and-lab.md](../architecture/configuration-and-lab.md). Для чужих приложений подключать поддержанный config/proxy adapter; без него ручной план. Полный multi-target orchestration позже: per-target results/partial, отдельный CAS rollback plan, без ложной distributed atomicity. До/после хранятся, archive не очищается.
 
 ## A5. Независимые сценарии и measured validation
 

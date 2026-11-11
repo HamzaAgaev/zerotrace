@@ -1,12 +1,12 @@
 # Шаблон сервиса стенда
 
-`stand.service` запускает один HTTP-сервис из [checkout](../scenarios/checkout.json).
+`stand.service` запускает один HTTP-сервис из [checkout](scenarios/checkout.json).
 Один и тот же процесс используется дочерними сервисами лаборатории и контейнерами
 внешнего демонстрационного профиля.
 
 ```text
 python -m stand.service \
-  --scenario scenarios/checkout.json \
+  --scenario stand/scenarios/checkout.json \
   --service-id payment \
   --port 18084 \
   --state-dir data/payment \

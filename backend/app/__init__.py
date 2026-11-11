@@ -1,4 +1,1 @@
-"""Application modules assembled from the A, B and C workstreams."""
-from pkgutil import extend_path
-
-__path__ = extend_path(__path__, __name__)
+"""ZeroTrace application layer: HTTP server, data, control and analytics APIs."""

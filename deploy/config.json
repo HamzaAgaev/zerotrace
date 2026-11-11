@@ -3,7 +3,7 @@
   "database": "/data/zerotrace.db",
   "state_directory": "/data",
   "token_directory": "/tokens",
-  "scenario_path": "/app/scenarios/checkout.json",
+  "scenario_path": "/app/stand/scenarios/checkout.json",
   "frontend_directory": "/app/frontend/dist",
   "build_timeout_s": 20,
   "load_timeout_s": 15,

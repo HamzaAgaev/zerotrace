@@ -43,7 +43,7 @@ def live(tmp_path_factory):
             "state_directory": str(directory),
             "token_directory": str(directory / "tokens"),
             "server_port": port,
-            "scenario_path": str(Path("scenarios/checkout.json").resolve()),
+            "scenario_path": str(Path("stand/scenarios/checkout.json").resolve()),
             "build_timeout_s": 20,
             "environments": [
                 {"environment_id": "shop", "kind": "external"},

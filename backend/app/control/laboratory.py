@@ -92,7 +92,7 @@ class Laboratory:
                 if scenario_id != "checkout":
                     raise ProductError(404, "scenario_not_found", "Неизвестный сценарий.")
                 scenario = load_scenario(
-                    self.config.get("scenario_path", "scenarios/checkout.json")
+                    self.config.get("scenario_path", "stand/scenarios/checkout.json")
                 )
                 origins = []
             stand_id = "stand-" + uuid.uuid4().hex

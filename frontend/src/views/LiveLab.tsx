@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Client, LabFault, LabRun, RunComparison, Stand } from '../api/types';
 import { Badge, Button, EmptyState, Message, Panel } from '../components/ui';
 import { Metrics } from '../components/Metrics';
-import { ServiceConfig } from './Services';
+import { ServiceConfig } from '../components/ServiceConfig';
 
 const nsMs = (value: string | number | null) => value === null ? '—' : `${(Number(value) / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} мс`;
 const formatMetric = (value: number | null) => value === null ? '—' : value.toLocaleString('ru-RU', { maximumFractionDigits: 2 });

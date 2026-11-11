@@ -1,10 +1,12 @@
 # tests
 
-**Зачем:** приёмочные проверки модулей бэкенда. Запуск из `backend/`:
+Приёмочные проверки серверных модулей. Команды запуска в Docker — в
+[руководстве по проверкам](../../docs/development/testing.md).
 
-```sh
-.venv/bin/python -m pytest tests -q
-```
+- Корневые `test_*.py` проверяют контракты, ingest, core, repository и data API.
+- `control/` проверяет управление конфигурациями и восстановление.
+- `analytics/` проверяет правила, рекомендации и аналитические адаптеры.
+- `integration/` проверяет общий сервер с реальными HTTP-процессами.
 
 **Карта тестов (по файлам):**
 
@@ -23,5 +25,6 @@
 | `test_run_samples.py` | Выборки прогонов: waiting/ready/partial, freeze, probe. |
 | `test_pipeline_integration.py` | Сквозной путь: декод фикстуры → SQLite → API-ответ. |
 
-`conftest.py` кладёт `backend/` в `sys.path` (пакеты не установлены в venv
-— запуск через `python -m pytest`).
+`backend/conftest.py` добавляет `backend/` в `sys.path`, чтобы pytest мог
+проверять исходники без установки пакета. Docker также задаёт Python path
+для серверных пакетов и отдельного исполнителя `stand`.

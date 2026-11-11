@@ -1,7 +1,7 @@
 import unittest
 
 from rules import run, verify_symptom
-from tests.test_rules import EDGE, MS, by_rule, ev, group, model, policy
+from tests.analytics.test_rules import EDGE, MS, by_rule, ev, group, model, policy
 
 
 SEGMENT = {"caller_version": "orders/v1", "callee_version": "pay/v1", "workload_id": "checkout",

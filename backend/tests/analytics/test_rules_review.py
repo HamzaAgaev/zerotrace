@@ -2,7 +2,7 @@ import unittest
 
 from analytics_support import AnalyticsError
 from rules import build_reference, run, verify_symptom
-from tests.test_rules import EDGE, MS, REF, by_rule, ev, group, model, policy
+from tests.analytics.test_rules import EDGE, MS, REF, by_rule, ev, group, model, policy
 
 
 class AuditReviewTests(unittest.TestCase):

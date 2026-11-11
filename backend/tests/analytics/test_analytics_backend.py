@@ -11,11 +11,11 @@ from app.analytics_api.__main__ import main
 from app.analytics_api.repository_source import RepositorySource
 from app.analytics_api.service import AnalyticsService
 from app.analytics_api.storage import LocalResultStore
-from backend.contracts import IngestLimits, SourceBinding
-from backend.ingest import decode_otlp, normalize, RedactionProfile, SourceProfile
-from backend.repository import SpanStore
+from contracts import IngestLimits, SourceBinding
+from ingest import decode_otlp, normalize, RedactionProfile, SourceProfile
+from repository import SpanStore
 
-FIXTURES = Path(__file__).resolve().parents[1] / "backend" / "fixtures" / "otlp"
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "otlp"
 
 
 class BackendIntegrationTests(unittest.TestCase):

@@ -139,7 +139,7 @@ class AnalyticsApiTest(unittest.TestCase):
     def test_report_persists_and_escapes_recorded_strings(self):
         model = self.data["environments"]["lab"]["model"]
         model["quality"]["example"] = "</pre><script>bad()</script>"
-        projection = json.loads(Path("fixtures/analytics/project.json").read_text())
+        projection = json.loads((Path(__file__).resolve().parents[2] / "fixtures/analytics/project.json").read_text())
         request = {"baseline_run_id":"base", "candidate_run_id":"candidate"}
         with tempfile.TemporaryDirectory() as directory:
             db = Path(directory) / "results.sqlite3"
@@ -168,14 +168,14 @@ class AnalyticsApiTest(unittest.TestCase):
                 store.close()
 
     def test_frontend_examples_are_actual_responses(self):
-        directory = Path(__file__).resolve().parents[1] / "fixtures/analytics"
+        directory = Path(__file__).resolve().parents[2] / "fixtures/analytics"
         for name, response in audit_examples():
             self.assertEqual(json.loads((directory / name).read_text(encoding="utf-8")), response)
 
     def test_openapi_routes_and_references_match(self):
         from app.analytics_api.routes import ENDPOINTS, PREFIX
 
-        spec_path = Path(__file__).resolve().parents[1] / "app/analytics_api/openapi.json"
+        spec_path = Path(__file__).resolve().parents[2] / "app/analytics_api/openapi.json"
         spec = json.loads(spec_path.read_text())
         paths = {PREFIX + route.replace("<report_id>", "{report_id}"): method.lower()
                  for route, method in ENDPOINTS.items()}

@@ -8,7 +8,7 @@ import pytest
 from stand.scenario import ScenarioError, load_scenario, route_boundaries
 from stand.service import ConfigRejected, ServiceRuntime, ServiceState, _request_key, create_app
 
-SCENARIO = Path(__file__).resolve().parents[2] / "scenarios" / "checkout.json"
+SCENARIO = Path(__file__).resolve().parents[1] / "scenarios" / "checkout.json"
 
 
 def make_client(tmp_path: Path, service_id: str = "payment", write_enabled: bool | None = None):

@@ -1,6 +1,6 @@
-# Операторская инструкция A
+# Запуск, подключение и управление
 
-Актуально для текущего объединённого backend. Product API возвращает JSON envelope вида `schema`, `schema_version`, `generated_at`, `producer_version`, `payload`. Списки находятся в `payload.items`; конфигурация, план, стенд и прогон — объектами в `payload`. API телеметрии `/v1/traces` отвечает стандартным OTLP ответом.
+Product API возвращает JSON envelope вида `schema`, `schema_version`, `generated_at`, `producer_version`, `payload`. Списки находятся в `payload.items`; конфигурация, план, стенд и прогон — объектами в `payload`. API телеметрии `/v1/traces` отвечает стандартным OTLP ответом.
 
 ## Запуск
 

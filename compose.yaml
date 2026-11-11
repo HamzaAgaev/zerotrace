@@ -37,55 +37,55 @@ services:
     stop_grace_period: 30s
   gateway:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, gateway, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/gateway, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, gateway, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/gateway, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-gateway:/state
   orders:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, orders, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/orders, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, orders, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/orders, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-orders:/state
   inventory:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, inventory, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/inventory, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, inventory, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/inventory, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-inventory:/state
   pricing:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, pricing, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/pricing, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, pricing, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/pricing, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-pricing:/state
   delivery:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, delivery, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/delivery, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, delivery, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/delivery, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-delivery:/state
   payment:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, payment, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/payment, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, payment, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/payment, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-payment:/state
   fraud:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, fraud, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/fraud, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, fraud, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/fraud, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-fraud:/state
   bank-api:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, bank-api, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/bank-api, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, bank-api, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/bank-api, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-bank-api:/state
   notifications:
     <<: *demo-service
-    command: [python, -m, stand.service, --scenario, /app/scenarios/checkout.json, --service-id, notifications, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/notifications, --endpoint, http://zerotrace:8000/v1/traces]
+    command: [python, -m, stand.service, --scenario, /app/stand/scenarios/checkout.json, --service-id, notifications, --host, 0.0.0.0, --port, '8080', --state-dir, /state, --urls, /app/deploy/demo-urls.json, --token-file, /tokens/shop/notifications, --endpoint, http://zerotrace:8000/v1/traces]
     volumes:
       - source-tokens:/tokens:ro
       - demo-notifications:/state
