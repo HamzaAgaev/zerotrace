@@ -85,3 +85,5 @@
 - У каждого пакета есть `README.md` с кратким описанием модуля.
 - Сценарий демо по шагам: `docs/guides/demo-checklist.md` (проверен на
   compose-стенде 2026-11-11).
+- План миграции аналитики на `core/model.py` (после демо, зона C):
+  `docs/development/analytics-core-model-migration.md`.

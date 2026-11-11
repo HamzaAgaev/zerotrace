@@ -24,7 +24,18 @@ ERROR_OUTCOMES = frozenset(
 )
 UNKNOWN_OUTCOME = "outcome_unknown"
 MS_NS = 1_000_000
+MAX_NS = (1 << 63) - 1
 STALE_FRESHNESS = {"stale", "unavailable", "unknown"}
+
+
+def integer(value: Any) -> int | None:
+    """Parse an integer nanosecond operand, rejecting anything outside int64."""
+    if type(value) is int:
+        return value if 0 <= value <= MAX_NS else None
+    if isinstance(value, str) and value.isascii() and value.isdecimal() and len(value) <= 19:
+        n = int(value)
+        return n if n <= MAX_NS else None
+    return None
 
 
 def _canonical(value: Any) -> str:
@@ -128,6 +139,74 @@ def build_edge_stats(
             jitter_cv=jitter_cv,
         )
     return stats
+
+
+def sourced_value(policy: dict[str, Any], key: str) -> Any | None:
+    """Canonical trust primitive for flat policy records (P3 operand rules).
+
+    An operand is usable only when its source is runtime/declared, it is not
+    marked stale, and its config revision agrees with the snapshot revision.
+    Plain (non-Sourced) values are read when the snapshot source itself is
+    runtime/declared.
+    """
+    operand = policy.get(key)
+    if isinstance(operand, dict) and "value" in operand:
+        if operand.get("source") not in {"runtime", "declared"} or operand.get("stale"):
+            return None
+        if (
+            operand.get("config_revision") is not None
+            and policy.get("config_revision") is not None
+            and operand["config_revision"] != policy["config_revision"]
+        ):
+            return None
+        return operand["value"]
+    if policy.get("source", policy.get("effective_source")) in {"runtime", "declared"}:
+        return operand
+    return None
+
+
+def is_current_policy(policy: Any) -> bool:
+    """A snapshot is current: no binding conflict, not stale, known freshness."""
+    return (
+        bool(policy)
+        and not policy.get("binding_conflict")
+        and not policy.get("stale")
+        and policy.get("freshness") not in STALE_FRESHNESS
+    )
+
+
+def pauses_ns(n: int, backoff: Any) -> int | None:
+    """Total pause before n sequential attempts, integer nanoseconds.
+
+    Supports fixed and exponential backoff with an optional cap; int64
+    overflow without a cap returns None.
+    """
+    if n == 1:
+        return 0
+    if not isinstance(backoff, dict) or backoff.get("jitter") not in ("none", "full"):
+        return None
+    base = integer(backoff.get("base_ns"))
+    cap = integer(backoff.get("cap_ns"))
+    if base is None or ("cap_ns" in backoff and backoff["cap_ns"] is not None and cap is None):
+        return None
+    if cap is not None:
+        base = min(cap, base)
+    if backoff.get("kind") == "fixed":
+        return (n - 1) * base
+    multiplier = integer(backoff.get("multiplier"))
+    if backoff.get("kind") != "exponential" or not multiplier or multiplier < 1:
+        return None
+    if multiplier == 1 or not base:
+        return (n - 1) * base
+    total = 0
+    for i in range(n - 1):
+        if cap is not None and base >= cap:
+            return total + (n - 1 - i) * cap
+        total += base
+        base *= multiplier
+        if base.bit_length() > 64 and cap is None and i < n - 2:
+            return None
+    return total
 
 
 def _operand(

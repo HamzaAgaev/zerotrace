@@ -11,6 +11,10 @@ from .model import (
     build_edge_stats,
     build_model,
     contribution_digest,
+    integer,
+    is_current_policy,
+    pauses_ns,
+    sourced_value,
 )
 from .timing import derive_timings
 
@@ -30,4 +34,8 @@ __all__ = [
     "derive_calls",
     "derive_timings",
     "extract_chain",
+    "integer",
+    "is_current_policy",
+    "pauses_ns",
+    "sourced_value",
 ]

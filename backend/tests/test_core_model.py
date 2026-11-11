@@ -12,6 +12,9 @@ from core.model import (
     build_edge_stats,
     build_model,
     contribution_digest,
+    is_current_policy,
+    pauses_ns,
+    sourced_value,
 )
 from tests.test_core_calls import BASE_NS, MS, load_trace, make_graph, make_span, sid
 
@@ -212,3 +215,51 @@ class TestBuildModel:
         model = build_model([contribution("s00_healthy")])
         assert model.grouping_version == contribution("s00_healthy").calls.grouping_version
         assert model.normalization_version
+
+
+FRESH_POLICY = {
+    "edge_id": "e-1",
+    "call_ref": "charge",
+    "timeout_ms": 700,
+    "max_attempts": 3,
+    "backoff_ms": 50,
+    "config_revision": "2",
+    "source": "runtime",
+    "freshness": "fresh",
+}
+
+
+class TestTrustPrimitives:
+    """Typed EdgePolicy must stay consistent with the flat trust primitives."""
+
+    FRESH = FRESH_POLICY
+
+    def test_pauses_ns_matches_backoff(self):
+        policy = build_edge_policy(self.FRESH)
+        assert policy.backoff.kind == "fixed"
+        assert pauses_ns(3, policy.backoff.to_dict()) == 100 * MS
+        assert pauses_ns(1, policy.backoff.to_dict()) == 0
+        assert pauses_ns(3, {"kind": "unknown"}) is None
+
+    def test_fresh_policy_primitives_agree(self):
+        assert is_current_policy(self.FRESH)
+        assert sourced_value(self.FRESH, "max_attempts") == 3
+        policy = build_edge_policy(self.FRESH)
+        assert policy.effective_source == "fresh_runtime"
+        assert policy.per_attempt_timeout_ns.value == sourced_value(self.FRESH, "timeout_ms") * MS
+
+    def test_stale_snapshot_distrusted_by_policy_but_plain_operand_reads(self):
+        stale = {**self.FRESH, "stale": True}
+        assert not is_current_policy(stale)
+        # Ровно это расхождение зафиксировано: typed-вид понижает доверие,
+        # плоское чтение по runtime/declared источнику сохраняется.
+        assert sourced_value(stale, "max_attempts") == 3
+        assert build_edge_policy(stale).effective_source == "cautious_inference"
+
+    def test_revision_mismatch_hides_sourced_operand(self):
+        conflicted = {
+            **self.FRESH,
+            "max_attempts": {"value": 3, "source": "runtime", "config_revision": "9"},
+        }
+        assert sourced_value(conflicted, "max_attempts") is None
+        assert not is_current_policy({**self.FRESH, "binding_conflict": True})

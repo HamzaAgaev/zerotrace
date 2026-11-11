@@ -7,6 +7,21 @@
 
 ## [Unreleased]
 
+## [Unreleased]
+
+- Golden-харнесс для миграции аналитики на `core/model.py`:
+  `tests/analytics/test_migration_golden.py` фиксирует полный вывод
+  `rules.audit.run()` на неизменном входе (`fixtures/analytics/golden/audit-baseline.json`).
+  Обновление только через `GOLDEN_UPDATE=1` с ревью диффа. План миграции:
+  `docs/development/analytics-core-model-migration.md`.
+- Канонические примитивы доверия и арифметики перенесены из `rules/budget.py`
+  в `core/model.py` (`sourced_value`, `is_current_policy`, `pauses_ns`,
+  `integer` — точные порты, golden побайтово зелёный). `rules/budget.py`
+  делегирует через прежние имена; поведение аудита не изменилось.
+  Тесты `TestTrustPrimitives` фиксируют согласованность типизированного
+  `EdgePolicy` с примитивами и одно сознательно сохранённое расхождение
+  (плоское чтение независимо от свежести vs понижение доверия typed-вида).
+
 ## [0.6.1] — 2026-11-11 21:23 МСК
 
 Причина принудительного закрытия трассы доходит до графа; чеклист демо.

@@ -1,0 +1,787 @@
+{
+ "baseline_refs": [],
+ "config_refs": [
+  {
+   "edge_id": "e-notify",
+   "hash": "987c2bb5a0515595546cf1be07aeff9dbd327613da56573c88d724c905c5865a",
+   "revision": "12"
+  },
+  {
+   "edge_id": "e-payment",
+   "hash": "622c555fdc0b0c91fe47a4fff70357448c94bb24dbb7129421766add919d2280",
+   "revision": "12"
+  },
+  {
+   "edge_id": "e-root",
+   "hash": "4e7387c522621d8919403e592947510bcd1411e5da9e5870982b67f968bf4404",
+   "revision": "12"
+  }
+ ],
+ "dataset_hash": "d3f49cd07d55810f0d8326847b6dad2fda364bc8197adf416297e68cd3fc7526",
+ "dataset_ref": "golden-baseline",
+ "environment_id": "lab",
+ "findings": [
+  {
+   "affected_count": 1,
+   "affected_ratio": 1.0,
+   "basis": "config_aware",
+   "confidence": "high",
+   "denominator_count": 1,
+   "edge": {
+    "callee": "payment",
+    "caller": "orders",
+    "operation": "charge"
+   },
+   "edge_id": "e-payment",
+   "environment_id": "lab",
+   "evidence": {
+    "attempts": 3,
+    "available_ns": "700000000",
+    "backoff_total_ns": "100000000",
+    "budget_ns": "700000000",
+    "config_revision": "12",
+    "elapsed_ns": "0",
+    "formula_code": "serial-attempts-v1",
+    "jitter_bound": "configured",
+    "kind": "retry_budget",
+    "operand_sources": {
+     "backoff": "runtime",
+     "budget_ns": "runtime",
+     "max_attempts": "runtime",
+     "per_attempt_timeout_ns": "runtime"
+    },
+    "recommended_attempts": 2,
+    "recommended_required_ns": "550000000",
+    "required_ns": "850000000",
+    "reserve_ns": "0",
+    "source": "runtime",
+    "timeout_ns": "250000000"
+   },
+   "exemplars": [
+    {
+     "environment_id": "lab",
+     "generation": 1,
+     "revision": 2,
+     "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+   ],
+   "explanation": "По настройкам требуется 850000000 нс при доступных 700000000 нс.",
+   "finding_id": "141a70c23588e80fab8bb4a1ec5e0b5672618c45a792ed0ec37abd828569f573",
+   "occurrence_id": "0f8facdbbfa19c5f0ca99aa754d01652d2435a531e4164f3ad752880e8421e21",
+   "recommendations": [
+    {
+     "changes": [
+      {
+       "after": "2",
+       "before": "3",
+       "field": "max_attempts"
+      }
+     ],
+     "feasibility": "feasible",
+     "intents": [
+      {
+       "expected_config_revision": "12",
+       "reason_ref": "0f8facdbbfa19c5f0ca99aa754d01652d2435a531e4164f3ad752880e8421e21",
+       "set": {
+        "max_attempts": 2
+       },
+       "target": {
+        "call_ref": "charge",
+        "service_id": "orders"
+       }
+      }
+     ],
+     "kind": "primary",
+     "preconditions": [
+      "Ревизия конфигурации и политика вызова актуальны."
+     ],
+     "recommendation_id": "cabcd466f59143d154fe54a5d1fa77e1eb57cb0a7358a93ecff2e48a06aafc9e",
+     "risks": [
+      "Запрос, который восстанавливался на поздней попытке, может завершиться ошибкой."
+     ],
+     "text": "Установить максимум 2 попыток у владельца вызова.",
+     "version": "1.1.1",
+     "why": "Уменьшение лимита сокращает расчётное число последовательных попыток."
+    }
+   ],
+   "rule_id": "R4",
+   "rule_version": "1.1.1",
+   "score": 4.5,
+   "score_reason": "eligible_sample_priority",
+   "severity": "high",
+   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "title": "Превышен локальный бюджет повторов"
+  },
+  {
+   "affected_count": 1,
+   "affected_ratio": 1.0,
+   "basis": "config_aware",
+   "confidence": "high",
+   "denominator_count": 1,
+   "edge": {
+    "callee": "payment",
+    "caller": "orders",
+    "operation": "charge"
+   },
+   "edge_id": "e-notify",
+   "environment_id": "lab",
+   "evidence": {
+    "attempts": 3,
+    "available_ns": "700000000",
+    "backoff_total_ns": "100000000",
+    "budget_ns": "700000000",
+    "config_revision": "12",
+    "elapsed_ns": "0",
+    "formula_code": "serial-attempts-v1",
+    "jitter_bound": "configured",
+    "kind": "retry_budget",
+    "operand_sources": {
+     "backoff": "runtime",
+     "budget_ns": "runtime",
+     "max_attempts": "runtime",
+     "per_attempt_timeout_ns": "runtime"
+    },
+    "recommended_attempts": 2,
+    "recommended_required_ns": "550000000",
+    "required_ns": "850000000",
+    "reserve_ns": "0",
+    "source": "runtime",
+    "timeout_ns": "250000000"
+   },
+   "exemplars": [
+    {
+     "environment_id": "lab",
+     "generation": 1,
+     "revision": 2,
+     "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+   ],
+   "explanation": "По настройкам требуется 850000000 нс при доступных 700000000 нс.",
+   "finding_id": "93573d926c2f8317f4ed42f70dc50d50a2e0c49ae354d8934c648a9e81054daa",
+   "occurrence_id": "bed0af2d716967c33e0d32be23938f1afc6aec7978121bf4c9adeaf123f265b7",
+   "recommendations": [
+    {
+     "changes": [
+      {
+       "after": "2",
+       "before": "3",
+       "field": "max_attempts"
+      }
+     ],
+     "feasibility": "feasible",
+     "intents": [
+      {
+       "expected_config_revision": "12",
+       "reason_ref": "bed0af2d716967c33e0d32be23938f1afc6aec7978121bf4c9adeaf123f265b7",
+       "set": {
+        "max_attempts": 2
+       },
+       "target": {
+        "call_ref": "charge",
+        "service_id": "orders"
+       }
+      }
+     ],
+     "kind": "primary",
+     "preconditions": [
+      "Ревизия конфигурации и политика вызова актуальны."
+     ],
+     "recommendation_id": "20dba30253e22c20fc49569b25d406014477882146537385a1d7409a5ae8b94a",
+     "risks": [
+      "Запрос, который восстанавливался на поздней попытке, может завершиться ошибкой."
+     ],
+     "text": "Установить максимум 2 попыток у владельца вызова.",
+     "version": "1.1.1",
+     "why": "Уменьшение лимита сокращает расчётное число последовательных попыток."
+    }
+   ],
+   "rule_id": "R4",
+   "rule_version": "1.1.1",
+   "score": 4.5,
+   "score_reason": "eligible_sample_priority",
+   "severity": "high",
+   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "title": "Превышен локальный бюджет повторов"
+  },
+  {
+   "affected_count": 1,
+   "affected_ratio": 1.0,
+   "basis": "observed",
+   "confidence": "high",
+   "denominator_count": 1,
+   "edge": {
+    "callee": "payment",
+    "caller": "orders",
+    "operation": "charge"
+   },
+   "edge_id": "e-payment",
+   "environment_id": "lab",
+   "evidence": {
+    "attempts_without_confirmed_group": 0,
+    "edge_id": "e-payment",
+    "eligible_calls": 2,
+    "eligible_traces": 1,
+    "excluded_by_reason": {},
+    "kind": "trace_observation",
+    "observed_attempts": 5,
+    "retry_calls": 2,
+    "retry_ratio": 1.0,
+    "samples": [
+     {
+      "attempt_ids": [
+       "charge-1",
+       "charge-2",
+       "charge-3"
+      ],
+      "trace_ref": {
+       "environment_id": "lab",
+       "generation": 1,
+       "revision": 2,
+       "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     },
+     {
+      "attempt_ids": [
+       "child-1",
+       "child-2"
+      ],
+      "trace_ref": {
+       "environment_id": "lab",
+       "generation": 1,
+       "revision": 2,
+       "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+     }
+    ],
+    "source": "Наблюдения по зафиксированной телеметрии"
+   },
+   "exemplars": [
+    {
+     "environment_id": "lab",
+     "generation": 1,
+     "revision": 2,
+     "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+   ],
+   "explanation": "Подтверждённые повторы в 2 из 2 пригодных логических вызовов.",
+   "finding_id": "1469c6f1d5655efa661e9b27fe42303a8639ea2c8f324e065500c32483fbafcc",
+   "occurrence_id": "ab923893fb288e039b563393b3237500f0a8d557feb3dc5cf85246b58cd34570",
+   "recommendations": [
+    {
+     "changes": [],
+     "feasibility": "unknown",
+     "intents": [],
+     "kind": "primary",
+     "preconditions": [],
+     "recommendation_id": "6ec4976acd4733d56d8ff32bc057af35e89b667a405a7db1121e8d352e91c43a",
+     "risks": [],
+     "text": "Проверьте подтверждённые группы попыток по примерам трасс.",
+     "version": "1.1.1",
+     "why": "Подтверждённые повторы в 2 из 2 пригодных логических вызовов."
+    }
+   ],
+   "rule_id": "OBS_RETRIES",
+   "rule_version": "1.1.1",
+   "score": 1.5,
+   "score_reason": "eligible_sample_priority",
+   "severity": "low",
+   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "title": "Наблюдаются повторные попытки"
+  }
+ ],
+ "generated_at": "2026-11-01T00:00:00Z",
+ "grouping_version": null,
+ "model_version": "p2-v1",
+ "observations": [
+  {
+   "attempts_without_confirmed_group": 0,
+   "edge_id": "e-notify",
+   "eligible_calls": 1,
+   "eligible_traces": 1,
+   "excluded_by_reason": {},
+   "observed_attempts": 1,
+   "policy_evidence": {
+    "configured": {},
+    "differences": [],
+    "evaluated_comparisons": [],
+    "observed_attempts": null,
+    "observed_timeout": null,
+    "segment": null,
+    "selection": "compare_fresh_sources_within_one_epoch_v1"
+   },
+   "retry_calls": 0,
+   "retry_ratio": 0.0
+  },
+  {
+   "attempts_without_confirmed_group": 0,
+   "edge_id": "e-payment",
+   "eligible_calls": 2,
+   "eligible_traces": 1,
+   "excluded_by_reason": {},
+   "observed_attempts": 5,
+   "policy_evidence": {
+    "configured": {},
+    "differences": [],
+    "evaluated_comparisons": [],
+    "observed_attempts": null,
+    "observed_timeout": null,
+    "segment": null,
+    "selection": "compare_fresh_sources_within_one_epoch_v1"
+   },
+   "retry_calls": 2,
+   "retry_ratio": 1.0
+  },
+  {
+   "attempts_without_confirmed_group": 0,
+   "edge_id": "e-root",
+   "eligible_calls": 1,
+   "eligible_traces": 1,
+   "excluded_by_reason": {},
+   "observed_attempts": 1,
+   "policy_evidence": {
+    "configured": {},
+    "differences": [],
+    "evaluated_comparisons": [],
+    "observed_attempts": null,
+    "observed_timeout": null,
+    "segment": null,
+    "selection": "compare_fresh_sources_within_one_epoch_v1"
+   },
+   "retry_calls": 0,
+   "retry_ratio": 0.0
+  }
+ ],
+ "result_id": "99b85c7898bacbc8474b973b14944065cbb5b984fba4183370a3617f89e01aad",
+ "rule_evaluations": [
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 1,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 2,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 2
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 1,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 4,
+   "excluded_by_reason": {},
+   "rule_id": "OBS_RETRIES",
+   "rule_version": "1.1.1",
+   "status": "evaluated",
+   "triggered_count": 2
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_call_count": 1,
+     "eligible_count": 0,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {
+      "too_few_eligible_samples": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_call_count": 2,
+     "eligible_count": 5,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_call_count": 1,
+     "eligible_count": 0,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {
+      "too_few_eligible_samples": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 5,
+   "excluded_by_reason": {
+    "too_few_eligible_samples": 2
+   },
+   "rule_id": "R1",
+   "rule_version": "1.1.1",
+   "status": "evaluated",
+   "triggered_count": 0
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_call_count": 0,
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "missing_ancestry_or_compatible_offset": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_call_count": 0,
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "missing_ancestry_or_compatible_offset": 5
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_call_count": 0,
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "missing_ancestry_or_compatible_offset": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 0,
+   "excluded_by_reason": {
+    "missing_ancestry_or_compatible_offset": 7
+   },
+   "rule_id": "R2",
+   "rule_version": "1.1.1",
+   "status": "insufficient_data",
+   "triggered_count": 0
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "no_confirmed_nested_retry_path": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "missing_first_path": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "no_confirmed_nested_retry_path": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 0,
+   "excluded_by_reason": {
+    "missing_first_path": 1,
+    "no_confirmed_nested_retry_path": 2
+   },
+   "rule_id": "R3",
+   "rule_version": "1.1.1",
+   "status": "insufficient_data",
+   "triggered_count": 0
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 1,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 1
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 1,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 1
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 1,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 3,
+   "excluded_by_reason": {},
+   "rule_id": "R4",
+   "rule_version": "1.1.1",
+   "status": "evaluated",
+   "triggered_count": 2
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "single_attempt": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "cross_clock_uncertain": 3
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "single_attempt": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 0,
+   "excluded_by_reason": {
+    "cross_clock_uncertain": 3,
+    "single_attempt": 2
+   },
+   "rule_id": "R5",
+   "rule_version": "1.1.1",
+   "status": "insufficient_data",
+   "triggered_count": 0
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "single_attempt": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "no_eligible_observations": 1
+     },
+     "status": "not_applicable",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "single_attempt": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 0,
+   "excluded_by_reason": {
+    "no_eligible_observations": 1,
+    "single_attempt": 2
+   },
+   "rule_id": "R6",
+   "rule_version": "1.1.1",
+   "status": "insufficient_data",
+   "triggered_count": 0
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "single_attempt": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 3,
+     "eligible_trace_count": 1,
+     "excluded_by_reason": {},
+     "status": "evaluated",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "single_attempt": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 3,
+   "excluded_by_reason": {
+    "single_attempt": 2
+   },
+   "rule_id": "R7",
+   "rule_version": "1.1.1",
+   "status": "evaluated",
+   "triggered_count": 0
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "unknown_paired_timeouts": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "unknown_paired_timeouts": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "unknown_paired_timeouts": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 0,
+   "excluded_by_reason": {
+    "unknown_paired_timeouts": 3
+   },
+   "rule_id": "R8",
+   "rule_version": "1.1.1",
+   "status": "insufficient_data",
+   "triggered_count": 0
+  },
+  {
+   "by_edge": [
+    {
+     "edge_id": "e-notify",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "unmatched_workload_or_versions": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-payment",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "unmatched_workload_or_versions": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    },
+    {
+     "edge_id": "e-root",
+     "eligible_count": 0,
+     "eligible_trace_count": 0,
+     "excluded_by_reason": {
+      "unmatched_workload_or_versions": 1
+     },
+     "status": "insufficient_data",
+     "triggered_count": 0
+    }
+   ],
+   "eligible_count": 0,
+   "excluded_by_reason": {
+    "unmatched_workload_or_versions": 3
+   },
+   "rule_id": "D1",
+   "rule_version": "1.1.1",
+   "status": "insufficient_data",
+   "triggered_count": 0
+  }
+ ],
+ "ruleset_version": "1.1.1",
+ "sampling": {
+  "mode": "unknown"
+ },
+ "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+ "thresholds_version": "1.1.1",
+ "trace_findings": [
+  {
+   "occurrence_ids": [
+    "0f8facdbbfa19c5f0ca99aa754d01652d2435a531e4164f3ad752880e8421e21",
+    "ab923893fb288e039b563393b3237500f0a8d557feb3dc5cf85246b58cd34570",
+    "bed0af2d716967c33e0d32be23938f1afc6aec7978121bf4c9adeaf123f265b7"
+   ],
+   "trace_ref": {
+    "environment_id": "lab",
+    "generation": 1,
+    "revision": 2,
+    "trace_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+  }
+ ]
+}
