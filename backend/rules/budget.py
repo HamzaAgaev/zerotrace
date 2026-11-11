@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from core.model import is_current_policy, pauses_ns, sourced_value
+from core.model import (
+    build_edge_policy,
+    is_current_policy,
+    pauses_ns,  # re-export: tests consume pauses_ns from rules.budget
+    sourced_value,
+    trusted_int,
+)
 
 from .common import MAX_NS, integer
-
-# Канонические примитивы доверия и арифметики пауз живут в core.model
-# (зона B); C потребляет их через эти имена.
-sourced = sourced_value
-current = is_current_policy
 
 
 def flatten_policies(policies, environment):
@@ -95,7 +96,7 @@ def flatten_policies(policies, environment):
 
 
 def retry_budget(result, policy, refs, limits, *, lab=False):
-    if not current(policy):
+    if not is_current_policy(policy):
         result.reject("missing_or_stale_policy")
         return
     execution = policy.get("execution", policy.get("policy_scope"))
@@ -103,11 +104,11 @@ def retry_budget(result, policy, refs, limits, *, lab=False):
         result.applicable = execution not in {"hedge", "async", "parallel"}
         result.reject("serial_policy_required")
         return
-    n, timeout, budget = [
-        integer(sourced(policy, key))
-        for key in ("max_attempts", "per_attempt_timeout_ns", "budget_ns")
-    ]
-    backoff = sourced(policy, "backoff")
+    typed = build_edge_policy(policy)
+    n = trusted_int(typed.max_attempts)
+    timeout = trusted_int(typed.per_attempt_timeout_ns)
+    budget = integer(sourced_value(policy, "budget_ns"))
+    backoff = sourced_value(policy, "backoff")
     if n is None or n < 1 or not timeout or budget is None or not policy.get("config_revision"):
         result.reject("unknown_budget_operands_or_revision")
         return

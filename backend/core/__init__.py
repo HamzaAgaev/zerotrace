@@ -15,6 +15,8 @@ from .model import (
     is_current_policy,
     pauses_ns,
     sourced_value,
+    trusted_int,
+    trusted_value,
 )
 from .timing import derive_timings
 
@@ -38,4 +40,6 @@ __all__ = [
     "is_current_policy",
     "pauses_ns",
     "sourced_value",
+    "trusted_int",
+    "trusted_value",
 ]

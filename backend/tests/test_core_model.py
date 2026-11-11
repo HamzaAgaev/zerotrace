@@ -15,6 +15,7 @@ from core.model import (
     is_current_policy,
     pauses_ns,
     sourced_value,
+    trusted_int,
 )
 from tests.test_core_calls import BASE_NS, MS, load_trace, make_graph, make_span, sid
 
@@ -101,13 +102,15 @@ class TestEdgePolicy:
                 "backoff_ms": 50,
                 "retry_on": ["503"],
                 "config_revision": "2",
+                "source": "runtime",
                 "freshness": "fresh",
             }
         )
         assert policy.per_attempt_timeout_ns.value == 700 * MS
         assert policy.per_attempt_timeout_ns.source == "runtime"
-        assert policy.per_attempt_timeout_ns.config_revision == "2"
-        assert policy.max_attempts.value == 3
+        assert policy.per_attempt_timeout_ns.config_revision is None  # plain operand
+        assert trusted_int(policy.per_attempt_timeout_ns) == 700 * MS
+        assert trusted_int(policy.max_attempts) == 3
         assert policy.backoff.kind == "fixed"
         assert policy.backoff.base_ns == 50 * MS
         assert policy.retry_on == ["503"]
@@ -116,17 +119,24 @@ class TestEdgePolicy:
 
     def test_stale_runtime_becomes_cautious(self):
         policy = build_edge_policy(
-            {"edge_id": "e-1", "timeout_ms": 700, "max_attempts": 3, "stale": True}
+            {
+                "edge_id": "e-1",
+                "timeout_ms": 700,
+                "max_attempts": 3,
+                "source": "runtime",
+                "stale": True,
+            }
         )
-        assert policy.per_attempt_timeout_ns.stale
-        assert policy.per_attempt_timeout_ns.source == "unknown"
-        assert policy.per_attempt_timeout_ns.value == 700 * MS
+        # sourced() reads plain operands regardless of snapshot freshness.
+        assert not policy.per_attempt_timeout_ns.stale
+        assert policy.per_attempt_timeout_ns.source == "runtime"
+        assert trusted_int(policy.per_attempt_timeout_ns) == 700 * MS
         assert policy.effective_source == "cautious_inference"
 
     def test_binding_conflict_is_not_fresh(self):
         policy = build_edge_policy({"edge_id": "e-1", "timeout_ms": 700, "binding_conflict": True})
         assert policy.effective_source == "cautious_inference"
-        assert policy.per_attempt_timeout_ns.stale
+        assert not policy.per_attempt_timeout_ns.stale
 
     def test_declared_operand_survives_stale_snapshot(self):
         policy = build_edge_policy(
@@ -143,8 +153,11 @@ class TestEdgePolicy:
     def test_external_budget_binds_explicitly(self):
         policy = build_edge_policy({"edge_id": "e-1", "budget_ns": 2_500_000_000, "stale": True})
         assert policy.per_attempt_timeout_ns.value == 2_500_000_000
-        assert policy.per_attempt_timeout_ns.source == "declared"
-        assert policy.effective_source == "declared"
+        # Внешний бюджет читается как плоский операнд; без runtime/declared
+        # источника снимка trusted-чтение скрыто, доверие — cautious.
+        assert policy.per_attempt_timeout_ns.source == "unknown"
+        assert trusted_int(policy.per_attempt_timeout_ns) is None
+        assert policy.effective_source == "cautious_inference"
 
     def test_missing_values_have_no_effective_source(self):
         policy = build_edge_policy({"edge_id": "e-1", "stale": True})
@@ -263,3 +276,51 @@ class TestTrustPrimitives:
         }
         assert sourced_value(conflicted, "max_attempts") is None
         assert not is_current_policy({**self.FRESH, "binding_conflict": True})
+
+
+class TestSourcedValueSemantics:
+    """Точная семантика sourced_value — эталон для typed-вида после миграции."""
+
+    def test_dict_operand_survives_stale_snapshot(self):
+        # sourced() ignores snapshot freshness for Sourced operands:
+        # operand flags and its own revision check decide.
+        stale = {
+            "edge_id": "e-1",
+            "config_revision": "12",
+            "source": "runtime",
+            "stale": True,
+            "max_attempts": {"value": 3, "source": "runtime", "config_revision": "12"},
+        }
+        assert sourced_value(stale, "max_attempts") == 3
+
+    def test_plain_operand_reads_on_stale_runtime_snapshot(self):
+        stale = {"edge_id": "e-1", "source": "runtime", "stale": True, "max_attempts": 3}
+        assert sourced_value(stale, "max_attempts") == 3
+
+    def test_plain_operand_hidden_when_snapshot_source_untrusted(self):
+        policy = {"edge_id": "e-1", "source": "cluster", "max_attempts": 3}
+        assert sourced_value(policy, "max_attempts") is None
+
+    def test_dict_operand_with_operand_revision_only_reads(self):
+        # Revision check runs only when both sides are present.
+        policy = {
+            "edge_id": "e-1",
+            "max_attempts": {"value": 3, "source": "runtime", "config_revision": "9"},
+        }
+        assert sourced_value(policy, "max_attempts") == 3
+
+    def test_dict_operand_with_untrusted_source_hidden(self):
+        policy = {
+            "edge_id": "e-1",
+            "config_revision": "12",
+            "max_attempts": {"value": 3, "source": "observed", "config_revision": "12"},
+        }
+        assert sourced_value(policy, "max_attempts") is None
+
+    def test_dict_operand_stale_flag_hides(self):
+        policy = {
+            "edge_id": "e-1",
+            "config_revision": "12",
+            "max_attempts": {"value": 3, "source": "runtime", "stale": True},
+        }
+        assert sourced_value(policy, "max_attempts") is None

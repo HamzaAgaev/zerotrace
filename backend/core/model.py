@@ -209,41 +209,72 @@ def pauses_ns(n: int, backoff: Any) -> int | None:
     return total
 
 
+def trusted_value(operand: Sourced) -> Any | None:
+    """sourced() semantics over a typed operand: runtime/declared and not stale.
+
+    stale here means "unusable per sourced()": operand flag, revision
+    mismatch, or an untrusted source decided at build time.
+    """
+    if operand.source not in {"runtime", "declared"} or operand.stale:
+        return None
+    return operand.value
+
+
+def trusted_int(operand: Sourced[int]) -> int | None:
+    return integer(trusted_value(operand))
+
+
 def _operand(
     policy: dict[str, Any],
     key: str,
     *,
-    fresh: bool,
     to_ns: bool = False,
 ) -> Sourced[int]:
+    """Typed operand with the exact trust semantics of sourced_value().
+
+    Sourced-dict operands: usable per their own source/stale flags and the
+    revision check against the snapshot; snapshot freshness is irrelevant.
+    Plain operands: readable when the snapshot source is runtime/declared,
+    regardless of freshness. Shape is recorded in reasons ("sourced_operand"
+    marks a Sourced-dict origin).
+    """
     value = policy.get(key)
-    source = "unknown"
-    confidence = None
-    reasons: list[str] = []
     if isinstance(value, dict) and "value" in value:
         raw = value["value"]
         source = value.get("source") or "unknown"
         confidence = value.get("confidence")
-        reasons = list(value.get("reasons") or ())
+        stale = bool(value.get("stale"))
+        reasons = ["sourced_operand", *list(value.get("reasons") or ())]
+        revision = value.get("config_revision")
+        if (
+            revision is not None
+            and policy.get("config_revision") is not None
+            and (revision != policy["config_revision"])
+        ):
+            stale = True
+            reasons.append("revision_mismatch")
+        if source not in {"runtime", "declared"}:
+            stale = True
+            reasons.append("untrusted_source")
     else:
         raw = value
-        if fresh and raw is not None:
-            source = "runtime"
+        snapshot_source = policy.get("source", policy.get("effective_source"))
+        source = snapshot_source if snapshot_source in {"runtime", "declared"} else "unknown"
+        confidence = None
+        stale = False
+        reasons = []
+        revision = None
     if raw is None:
         return Sourced(value=None, source="unknown", reasons=["missing"])
     number = int(raw)
     if to_ns:
         number *= MS_NS
-    stale = not fresh
-    if stale and source == "runtime":
-        source = "unknown"
-        reasons = [*reasons, "stale_runtime"]
     return Sourced(
         value=number,
         source=source,
         confidence=confidence,
-        config_revision=policy.get("config_revision"),
-        stale=stale and source != "declared",
+        config_revision=revision,
+        stale=stale,
         reasons=reasons,
     )
 
@@ -269,7 +300,8 @@ def build_edge_policy(configured: dict[str, Any]) -> EdgePolicy:
 
     effective_source: fresh_runtime is a fresh runtime snapshot; declared keeps
     explicitly declared operands only (declared/annotated); cautious_inference
-    is everything else, C's algorithm must lower confidence there.
+    is everything else, C's algorithm must lower confidence there. Operand
+    trust follows sourced_value() semantics exactly (see _operand).
     """
     edge_id = configured.get("edge_id")
     if not isinstance(edge_id, str) or not edge_id:
@@ -277,15 +309,17 @@ def build_edge_policy(configured: dict[str, Any]) -> EdgePolicy:
     stale = bool(configured.get("stale")) or configured.get("freshness") in STALE_FRESHNESS
     conflicted = bool(configured.get("binding_conflict"))
     fresh = not stale and not conflicted
-    timeout = _operand(configured, "timeout_ms", fresh=fresh, to_ns=True)
+    timeout = _operand(configured, "per_attempt_timeout_ns")
+    if timeout.value is None:
+        timeout = _operand(configured, "timeout_ms", to_ns=True)
     if timeout.value is None and configured.get("budget_ns") is not None:
+        snapshot_source = configured.get("source", configured.get("effective_source"))
         timeout = Sourced(
             value=int(configured["budget_ns"]),
-            source="declared" if not fresh else "runtime",
-            config_revision=configured.get("config_revision"),
-            stale=not fresh,
+            source=snapshot_source if snapshot_source in {"runtime", "declared"} else "unknown",
+            stale=False,
         )
-    max_attempts = _operand(configured, "max_attempts", fresh=fresh)
+    max_attempts = _operand(configured, "max_attempts")
     if fresh:
         effective: str | None = "fresh_runtime"
     elif timeout.source in {"declared", "annotated"} or max_attempts.source in {

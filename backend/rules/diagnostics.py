@@ -5,7 +5,7 @@ from math import sqrt
 from analytics_support import percentile_ns
 from core.timing import same_clock
 
-from .budget import current, sourced
+from core.model import build_edge_policy, is_current_policy, sourced_value, trusted_int
 from .common import Assessment, asref, integer, trace_evidence
 from .context import attempt_error, quality_issue
 
@@ -222,7 +222,7 @@ def retry_checks(ctx, edge, policy, limits):
             if protocol == "http" and not 100 <= code <= 599:
                 status.reject("invalid_client_http_status")
                 continue
-            allowed = sourced(policy, "retry_on") if current(policy) else None
+            allowed = sourced_value(policy, "retry_on") if is_current_policy(policy) else None
             if isinstance(allowed, dict):
                 allowed = allowed.get(protocol)
             if isinstance(allowed, list):
@@ -267,11 +267,12 @@ def retry_checks(ctx, edge, policy, limits):
 
 def check_timeout_order(ctx, edge, policy):
     order = Assessment("R8", edge)
-    if not current(policy):
+    if not is_current_policy(policy):
         order.reject("missing_or_stale_policy")
         return order
-    timeout = integer(sourced(policy, "per_attempt_timeout_ns"))
-    upstream = integer(sourced(policy, "upstream_per_attempt_timeout_ns"))
+    typed = build_edge_policy(policy)
+    timeout = trusted_int(typed.per_attempt_timeout_ns)
+    upstream = integer(sourced_value(policy, "upstream_per_attempt_timeout_ns"))
     if not timeout or not upstream:
         order.reject("unknown_paired_timeouts")
     else:

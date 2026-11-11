@@ -6,7 +6,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 
 from .baselines import reference_for
-from .budget import current, flatten_policies, retry_budget, sourced
+from .budget import flatten_policies, retry_budget
 from .common import (
     RECOMMENDATIONS,
     VERSION,
@@ -17,6 +17,8 @@ from .common import (
     load_thresholds,
     trace_evidence,
 )
+from core.model import build_edge_policy, is_current_policy, trusted_int
+
 from .context import Context
 from .diagnostics import check_timeout_order, retry_checks, retry_paths, timing_checks
 from .drift import compare_policies
@@ -137,11 +139,11 @@ def run(model, policies=(), thresholds=None, baselines=None):
             bound = 1
             for ancestor in r3.finding["evidence"]["path"]:
                 profiles = by_edge[ancestor]
-                if (len(profiles) != 1 or not current(profiles[0])
+                if (len(profiles) != 1 or not is_current_policy(profiles[0])
                         or not ctx.matching_policy(model, ancestor, profiles[0])
                         or profiles[0].get("execution") != "serial"):
                     break
-                cap = integer(sourced(profiles[0], "max_attempts"))
+                cap = trusted_int(build_edge_policy(profiles[0]).max_attempts)
                 if not cap:
                     break
                 bound *= cap
