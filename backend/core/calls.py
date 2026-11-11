@@ -294,7 +294,7 @@ def _service_key(project_id: str, environment_id: str, span: NormalizedSpan) -> 
     )
 
 
-def _parse_operation(operation: str) -> tuple[str | None, str]:
+def parse_operation(operation: str) -> tuple[str | None, str]:
     head, _, rest = operation.partition(" ")
     if rest and head.upper() in _HTTP_METHODS:
         return head.upper(), rest.strip()
@@ -304,14 +304,14 @@ def _parse_operation(operation: str) -> tuple[str | None, str]:
 def _protocol_of(span: NormalizedSpan) -> str:
     if span.grpc_status is not None:
         return "grpc"
-    method, _ = _parse_operation(span.operation)
+    method, _ = parse_operation(span.operation)
     if span.http_status is not None or method is not None:
         return "http"
     return "unknown"
 
 
 def _operation_key(span: NormalizedSpan, source: str) -> OperationKey:
-    method, route = _parse_operation(span.operation)
+    method, route = parse_operation(span.operation)
     return OperationKey(
         protocol=_protocol_of(span),
         method=method,

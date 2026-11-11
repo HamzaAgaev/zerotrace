@@ -1,10 +1,52 @@
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTraces, findingsForTrace, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
+import { compactTimelineSpans, filterTraces, findingsForTrace, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
 import { demoDetail, demoFinding, demoTraces, demoAudit } from '../src/api/fixtures.js';
 import { ApiError, createClient, normalizeBaseUrl, unwrap, validatePayload } from '../src/api/client.js';
 const envelope = (payload: unknown) => ({ schema: 'test', schema_version: '1.0.0', producer_version: 'test', generated_at: '2026-11-10T00:00:00Z', payload });
+
+test('compacting the timeline promotes the server span and keeps the original tree', () => {
+  const sample = demoDetail(demoTraces[0].trace_id).spans[0];
+  const root = { ...sample, span_id: 'root', parent_span_id: null };
+  const client = { ...sample, span_id: 'client', parent_span_id: 'root' };
+  const server = { ...sample, span_id: 'server', parent_span_id: 'client' };
+  const unpaired = { ...sample, span_id: 'unpaired', parent_span_id: 'root' };
+  const spans = [root, client, server, unpaired];
+  assert.deepEqual(compactTimelineSpans(spans, { client: 'server', unpaired: 'server' }), [
+    root, { ...server, parent_span_id: 'root' }, unpaired,
+  ]);
+  assert.equal(spans[2].parent_span_id, 'client');
+});
+
+test('trace card requests spans without kind, including from older servers', async () => {
+  const fixture = demoDetail(demoTraces[0].trace_id);
+  const urls: URL[] = [];
+  const client = createClient({ mode: 'live', baseUrl: 'http://localhost:8000' }, async input => {
+    urls.push(new URL(String(input)));
+    return Response.json(envelope(fixture));
+  });
+  const compact = await client.getTrace(fixture.trace_ref, undefined, { includeSpanKind: false });
+  const full = await client.getTrace(fixture.trace_ref);
+  assert.equal(urls[0].searchParams.get('include_span_kind'), 'false');
+  assert.equal(urls[1].searchParams.get('include_span_kind'), null);
+  assert.ok(compact.spans.every(span => !Object.hasOwn(span, 'kind')));
+  assert.ok(full.spans.every(span => span.kind !== undefined));
+});
+test('audit polls the same job until the server returns a result', async () => {
+  const calls: URL[] = [];
+  const jobId = 'a'.repeat(32);
+  const client = createClient({ mode: 'live', baseUrl: 'http://localhost:8000' }, async input => {
+    calls.push(new URL(String(input)));
+    return calls.length === 1
+      ? Response.json(envelope({ status: 'pending', job_id: jobId }), { status: 202 })
+      : Response.json(envelope(demoAudit));
+  });
+  assert.deepEqual(await client.getAudit(), demoAudit);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].searchParams.get('defer'), 'true');
+  assert.equal(calls[1].searchParams.get('job_id'), jobId);
+});
 test('sorting does not mutate input and query/filter are combined', () => {
  const original = demoTraces.map(t => t.trace_id); const result = filterTraces(demoTraces, 'CHECKOUT', 'gateway', 'error', 'slow');
  assert.equal(result.length,5); assert.equal(result[0].trace_id, demoTraces[4].trace_id); assert.deepEqual(demoTraces.map(t => t.trace_id), original);

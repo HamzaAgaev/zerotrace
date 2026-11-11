@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import contextmanager
 from copy import deepcopy
-from threading import RLock
 
 from analytics_support import AnalyticsError, digest
 
@@ -58,7 +57,6 @@ class AnalyticsFacade:
         self.source = RepositorySource(telemetry_spanstore, control_snapshot=self._snapshot)
         self.results = results or LocalResultStore()
         self.service = AnalyticsService(self.source, self.results)
-        self._lock = RLock()
 
     def _snapshot(self) -> dict:
         snapshot = _records_snapshot(self._control_records)
@@ -70,12 +68,10 @@ class AnalyticsFacade:
 
     @contextmanager
     def configured(self, environment_id=None, configs=None):
-        with self._lock, self.source.pin() as view:
+        with self.source.pin() as view:
             if configs:
-                edges = view.environment(environment_id)["model"]["edges"]
+                view.configure_policies(environment_id, configs, _policies)
                 settings = view.control.setdefault("environments", {}).setdefault(environment_id, {})
-                settings["policies"] = _policies(configs, environment_id, edges)
-                settings["config_snapshots"] = configs
                 settings.setdefault("environment_kind",
                                     "lab" if all(row.get("is_lab") for row in configs.values()) else "external")
             yield self.service
@@ -110,7 +106,7 @@ class AnalyticsFacade:
         # A passes frozen trace refs in these run records. Inject them only for
         # this calculation so comparison can never drift to a live trace set.
         left, right = _comparison_pair(run_left, run_right)
-        with self._lock, self.source.pin() as view:
+        with self.source.pin() as view:
             view.control.setdefault("runs", {}).update({left["run_id"]: left, right["run_id"]: right})
             return self.service.compare({"baseline_run_id": left["run_id"], "candidate_run_id": right["run_id"]})
 

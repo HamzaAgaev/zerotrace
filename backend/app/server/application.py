@@ -11,6 +11,7 @@ from werkzeug.exceptions import HTTPException
 
 from app.analytics_api.backend_routes import BackendApp
 from app.analytics_api.facade import AnalyticsFacade
+from app.analytics_api.jobs import AuditJobs
 from app.control.analytics_results import AnalyticsResults
 from app.control.plans import Plans, timestamp
 from app.control.store import ControlStore
@@ -48,6 +49,7 @@ def create_app(config: dict) -> Flask:
         telemetry, records, results=AnalyticsResults(records), environments=registry.environments
     )
     api = BackendApp(analytics.service)
+    audit_jobs = AuditJobs()
 
     def resolve_plan(environment_id, occurrence_id, recommendation_id):
         return analytics.resolve_recommendation(
@@ -56,7 +58,8 @@ def create_app(config: dict) -> Flask:
 
     plans = Plans(registry, records, mutation_lock, lab.guard_edit, resolve_plan)
     app.extensions.update(
-        telemetry=telemetry, records=records, registry=registry, lab=lab, plans=plans
+        telemetry=telemetry, records=records, registry=registry, lab=lab, plans=plans,
+        audit_jobs=audit_jobs,
     )
     plans.recover()
 
@@ -153,8 +156,7 @@ def create_app(config: dict) -> Flask:
     @app.get("/api/v1/capabilities")
     def capabilities():
         env = environment()
-        metas = telemetry.list_trace_metas(env)
-        last_received = max((item.last_received_at_ns for item in metas), default=0)
+        last_received = telemetry.last_received_at_ns(env)
         receiving = last_received > time.time_ns() - 30_000_000_000
         return jsonify(
             envelope(
@@ -301,6 +303,29 @@ def create_app(config: dict) -> Flask:
     @app.get("/api/v1/reports/<report_id>")
     def analytics_read(trace_id=None, report_id=None):
         env = environment() if report_id is None or "environment_id" in request.args else None
+        if request.path == "/api/v1/audit" and request.args.get("defer") == "true":
+            profile, mode = request.args.get("view", "v1"), request.args.get("mode")
+            if profile not in {"v1", "full"}:
+                raise AnalyticsError("invalid_view", "Expected v1 or full", 400)
+            if mode not in {None, "config_aware", "trace_only"}:
+                raise AnalyticsError("invalid_mode", "Expected trace_only or config_aware", 400)
+            scope = (env, profile, mode)
+
+            def calculate_audit():
+                params = {"environment_id": env, "view": profile}
+                if mode is not None:
+                    params["mode"] = mode
+                configs = snapshots(env) if mode != "trace_only" else None
+                with analytics.configured(env, configs):
+                    return api.dispatch({"REQUEST_METHOD": "GET", "PATH_INFO": "/api/v1/audit",
+                                         "QUERY_STRING": urlencode(params)})
+
+            job_id = request.args.get("job_id") or audit_jobs.start(scope, calculate_audit)
+            result = audit_jobs.result(scope, job_id)
+            if result is not None:
+                return jsonify(result)
+            return jsonify(envelope({"status": "pending", "job_id": job_id}, "audit-job")), 202
+
         environ = dict(request.environ)
         # Flask implements HEAD through the GET handler and omits its body.
         environ["REQUEST_METHOD"] = "GET"
@@ -308,7 +333,10 @@ def create_app(config: dict) -> Flask:
             params = [*request.args.items(multi=True), ("environment_id", env)]
             environ["QUERY_STRING"] = urlencode(params)
         saved_snapshot = request.path == "/api/v1/report" and request.args.get("snapshot_id")
-        configs = snapshots(env) if env and report_id is None and not saved_snapshot else None
+        trace_only = (request.path == "/api/v1/traces" or trace_id is not None) and (
+            request.args.get("include_findings") == "false"
+        )
+        configs = snapshots(env) if env and report_id is None and not saved_snapshot and not trace_only else None
         with analytics.configured(env, configs):
             result = api.dispatch(environ)
         if isinstance(result, str):

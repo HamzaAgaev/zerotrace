@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -32,6 +35,12 @@ CREATE TABLE IF NOT EXISTS traces (
 );
 CREATE INDEX IF NOT EXISTS idx_traces_env
     ON traces (environment_id, first_received_at_ns DESC, trace_id);
+CREATE INDEX IF NOT EXISTS idx_traces_ref
+    ON traces (environment_id, trace_id, generation);
+CREATE INDEX IF NOT EXISTS idx_traces_env_received
+    ON traces (environment_id, last_received_at_ns DESC);
+CREATE INDEX IF NOT EXISTS idx_traces_open_received
+    ON traces (last_received_at_ns) WHERE assembly_state = 'open';
 CREATE TABLE IF NOT EXISTS spans (
     project_id TEXT NOT NULL,
     trace_id TEXT NOT NULL,
@@ -42,6 +51,10 @@ CREATE TABLE IF NOT EXISTS spans (
     received_at_ns INTEGER NOT NULL,
     PRIMARY KEY (project_id, trace_id, generation, span_id)
 );
+CREATE INDEX IF NOT EXISTS idx_spans_id
+    ON spans (span_id, project_id, trace_id, generation);
+CREATE INDEX IF NOT EXISTS idx_spans_service
+    ON spans (json_extract(payload, '$.service'), project_id, trace_id, generation);
 CREATE TABLE IF NOT EXISTS trace_runs (
     project_id TEXT NOT NULL,
     trace_id TEXT NOT NULL,
@@ -116,16 +129,59 @@ def _same_span_payload(stored: str, incoming: str) -> bool:
 class SpanStore:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
+        self._deletion_version = 0
+        self._reader: ContextVar[tuple[sqlite3.Connection, int] | None] = ContextVar(
+            "span_store_reader", default=None
+        )
         if str(self._path) != ":memory:":
             self._path.parent.mkdir(parents=True, exist_ok=True)
         # RLock: collection helpers call resolve_trace and other read methods
         # while already holding the store lock.
-        self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
+        self._writer_lock = threading.RLock()
+        self._writer = sqlite3.connect(str(self._path), check_same_thread=False, isolation_level=None)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=FULL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._migrate()
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        reader = self._reader.get()
+        return reader[0] if reader is not None else self._writer
+
+    @property
+    def _lock(self):
+        # Each snapshot has its own connection and is used synchronously in one request.
+        return nullcontext() if self._reader.get() is not None else self._writer_lock
+
+    @property
+    def trace_deletion_version(self) -> int:
+        reader = self._reader.get()
+        return reader[1] if reader is not None else self._deletion_version
+
+    @contextmanager
+    def read_snapshot(self) -> Iterator[None]:
+        """Pin a WAL snapshot without holding the writer lock during analytics."""
+        if self._reader.get() is not None:
+            yield
+            return
+        if str(self._path) == ":memory:":
+            with self._writer_lock:
+                yield
+            return
+        connection = sqlite3.connect(self._path.resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            with self._writer_lock:
+                connection.execute("BEGIN")
+                connection.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+                version = self._deletion_version
+            token = self._reader.set((connection, version))
+            try:
+                yield
+            finally:
+                self._reader.reset(token)
+        finally:
+            connection.close()
 
     def close(self) -> None:
         with self._lock:
@@ -476,19 +532,44 @@ class SpanStore:
             forced_reason=None if row[6] is None else str(row[6]),
         )
 
+    def has_ambiguous_service_namespace(self, environment_id: str, service: str) -> bool:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT DISTINCT CASE WHEN json_type(s.payload, '$.namespace') IS NULL
+                    THEN 'default' ELSE json_extract(s.payload, '$.namespace') END
+                FROM spans AS s JOIN traces AS t USING (project_id, trace_id, generation)
+                WHERE json_extract(s.payload, '$.service') = ? AND t.environment_id = ?
+                LIMIT 2
+                """,
+                (service, environment_id),
+            ).fetchall()
+        return len(rows) > 1
+
+    def trace_refs_for_span(self, environment_id: str, span_id: str) -> set[TraceRef]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT t.trace_id, t.generation, t.revision
+                FROM spans AS s JOIN traces AS t USING (project_id, trace_id, generation)
+                WHERE s.span_id = ? AND t.environment_id = ?
+                """,
+                (span_id, environment_id),
+            ).fetchall()
+        return {TraceRef(environment_id, trace_id, generation, revision)
+                for trace_id, generation, revision in rows}
+
     def list_trace_metas(self, environment_id: str) -> list[TraceMeta]:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT project_id, trace_id, generation, revision, first_received_at_ns, "
-                "last_received_at_ns, assembly_state FROM traces WHERE environment_id = ? "
+                "last_received_at_ns, assembly_state, "
+                "(SELECT COUNT(*) FROM spans s WHERE s.project_id = t.project_id "
+                "AND s.trace_id = t.trace_id AND s.generation = t.generation) "
+                "FROM traces t WHERE environment_id = ? "
                 "ORDER BY first_received_at_ns DESC, trace_id",
                 (environment_id,),
             ).fetchall()
-            counts = self._conn.execute(
-                "SELECT project_id, trace_id, generation, COUNT(*) FROM spans "
-                "GROUP BY project_id, trace_id, generation"
-            ).fetchall()
-        span_counts = {(p, t, g): int(c) for p, t, g, c in counts}
         metas: list[TraceMeta] = []
         for (
             project_id,
@@ -498,6 +579,7 @@ class SpanStore:
             first_received,
             last_received,
             state,
+            span_count,
         ) in rows:
             metas.append(
                 TraceMeta(
@@ -511,12 +593,18 @@ class SpanStore:
                     first_received_at_ns=int(first_received),
                     last_received_at_ns=int(last_received),
                     assembly_state=str(state),  # type: ignore[arg-type]
-                    span_count=span_counts.get(
-                        (str(project_id), str(trace_id), int(generation)), 0
-                    ),
+                    span_count=int(span_count),
                 )
             )
         return metas
+
+    def last_received_at_ns(self, environment_id: str) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(last_received_at_ns) FROM traces WHERE environment_id = ?",
+                (environment_id,),
+            ).fetchone()
+        return int(row[0] or 0)
 
     def list_traces(
         self, environment_id: str, limit: int, offset: int = 0
@@ -563,6 +651,7 @@ class SpanStore:
                     (project_id, ref.trace_id, expected_generation),
                 )
                 self._conn.execute("COMMIT")
+                self._deletion_version += 1
             except BaseException:
                 self._conn.execute("ROLLBACK")
                 raise

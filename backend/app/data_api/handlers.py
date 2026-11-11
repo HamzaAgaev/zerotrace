@@ -36,10 +36,10 @@ from typing import Any, Protocol
 
 from contracts.base import TraceRef
 from contracts.p2 import NormalizedSpan, TraceGraph
-from contracts.p7 import Envelope
-from contracts.validate import TRACE_ID_RE, ZERO_TRACE_ID
+from contracts.p7 import Envelope, TraceSummary
+from contracts.validate import SPAN_ID_RE, TRACE_ID_RE, ZERO_SPAN_ID, ZERO_TRACE_ID
 
-from .views import trace_detail, trace_summary
+from .views import HTTP_METHOD_TOKEN, trace_detail, trace_summary
 
 SCHEMA_TRACE_LIST = "zerotrace.trace-list"
 SCHEMA_TRACE = "zerotrace.trace"
@@ -57,6 +57,8 @@ class TraceMeta:
 
 class TraceStore(Protocol):
     def list_traces(self, environment_id: str) -> Sequence[TraceMeta]: ...
+
+    def trace_refs_for_span(self, environment_id: str, span_id: str) -> set[TraceRef]: ...
 
     def get_trace_meta(
         self,
@@ -117,6 +119,15 @@ def list_traces(
     offset: int = 0,
     *,
     graph_builder: GraphBuilder | None = None,
+    read_summary: Callable[[TraceRef], TraceSummary | None] | None = None,
+    query: str = "",
+    service: str = "",
+    status: str = "",
+    method: str = "",
+    span_id: str | None = None,
+    start_from_ns: int | None = None,
+    start_to_ns: int | None = None,
+    sort: str | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any] | ApiError:
     if limit < 1 or limit > MAX_LIMIT:
@@ -128,16 +139,65 @@ def list_traces(
         store.list_traces(environment_id),
         key=lambda m: (-m.first_received_at_ns, m.trace_ref.trace_id),
     )
-    items: list[dict[str, Any]] = []
-    for meta in metas[offset : offset + limit]:
-        spans = store.get_spans(meta.trace_ref)
-        if spans is None:
-            # Revision expired between list and read; offset pagination is
-            # not snapshot-consistent, a documented first-slice limitation.
+    if status and status not in {"ok", "error", "unknown"}:
+        return ApiError(400, "invalid_status", "status must be ok, error or unknown")
+    if sort is not None and sort not in {"recent", "slow"}:
+        return ApiError(400, "invalid_sort", "sort must be recent or slow")
+
+    if method and not HTTP_METHOD_TOKEN.fullmatch(method):
+        return ApiError(400, "invalid_method", "method must be an HTTP method token")
+
+    if span_id is not None and (not SPAN_ID_RE.fullmatch(span_id) or span_id == ZERO_SPAN_ID):
+        return ApiError(400, "invalid_span_id", "span_id must be 16 lowercase hex characters and nonzero")
+    if start_from_ns is not None and start_to_ns is not None and start_from_ns >= start_to_ns:
+        return ApiError(400, "invalid_time_range", "start_from_ns must be less than start_to_ns")
+
+    selected_method = method.upper()
+    has_period = start_from_ns is not None or start_to_ns is not None
+    expanded = bool(query or service or status or method or sort is not None or span_id or has_period)
+    span_matches = store.trace_refs_for_span(environment_id, span_id) if span_id is not None else None
+    items: list[TraceSummary] = []
+    services: set[str] = set()
+    methods: set[str] = set()
+    outcomes = {"ok": 0, "error": 0, "unknown": 0}
+    search = query.strip().casefold()
+    for meta in metas if expanded else metas[offset : offset + limit]:
+        if read_summary is None:
+            spans = store.get_spans(meta.trace_ref)
+            summary = trace_summary(build(spans, meta.trace_ref)) if spans is not None else None
+        else:
+            summary = read_summary(meta.trace_ref)
+        if summary is None:
             continue
-        graph = build(spans, meta.trace_ref)
-        items.append(trace_summary(graph).to_dict())
-    payload = {"items": items, "total": len(metas)}
+        if expanded:
+            services.add(summary.service)
+            if summary.http_method is not None:
+                methods.add(summary.http_method)
+            if span_matches is not None and meta.trace_ref not in span_matches:
+                continue
+            if has_period and (
+                summary.start_ns == 0
+                or (start_from_ns is not None and summary.start_ns < start_from_ns)
+                or (start_to_ns is not None and summary.start_ns >= start_to_ns)
+            ):
+                continue
+            if selected_method and summary.http_method != selected_method:
+                continue
+            searchable = f"{summary.operation} {summary.service} {summary.trace_id}".casefold()
+            if search not in searchable or (service and summary.service != service):
+                continue
+            if status and summary.outcome != status:
+                continue
+            outcomes[summary.outcome] += 1
+        items.append(summary)
+
+    if sort == "slow":
+        items.sort(key=lambda item: (-item.duration_ns, item.trace_ref.trace_id))
+    page = items[offset : offset + limit] if expanded else items
+    payload: dict[str, Any] = {"items": [item.to_dict() for item in page], "total": len(metas)}
+    if expanded:
+        payload.update(total=len(items),
+                       services=sorted(services), methods=sorted(methods), outcomes=outcomes)
     return _envelope(SCHEMA_TRACE_LIST, payload, generated_at)
 
 
@@ -149,6 +209,7 @@ def get_trace(
     generation: int | None = None,
     revision: int | None = None,
     *,
+    include_span_kind: bool = True,
     generated_at: str | None = None,
 ) -> dict[str, Any] | ApiError:
     if (generation is None) != (revision is None):
@@ -174,4 +235,6 @@ def get_trace(
             f"trace {trace_id} revision is unavailable in environment {environment_id!r}",
         )
     graph = graph_builder(spans, meta.trace_ref)
-    return _envelope(SCHEMA_TRACE, trace_detail(graph).to_dict(), generated_at)
+    return _envelope(
+        SCHEMA_TRACE, trace_detail(graph).to_dict(include_span_kind=include_span_kind), generated_at
+    )

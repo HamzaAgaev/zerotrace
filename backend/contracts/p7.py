@@ -17,7 +17,7 @@ class SpanView:
     parent_span_id: str | None
     service: str
     name: str
-    kind: UiSpanKind
+    kind: UiSpanKind | None
     start_offset_ns: int
     duration_ns: int
     outcome: UiOutcome
@@ -25,13 +25,13 @@ class SpanView:
     error_type: str | None = None
     target: str | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_kind: bool = True) -> dict[str, Any]:
         return {
             "span_id": self.span_id,
             "parent_span_id": self.parent_span_id,
             "service": self.service,
             "name": self.name,
-            "kind": self.kind,
+            **({"kind": self.kind} if include_kind and self.kind is not None else {}),
             "start_offset_ns": str(self.start_offset_ns),
             "duration_ns": str(self.duration_ns),
             "outcome": self.outcome,
@@ -47,7 +47,7 @@ class SpanView:
             parent_span_id=d.get("parent_span_id"),
             service=d["service"],
             name=d["name"],
-            kind=d["kind"],
+            kind=d.get("kind"),
             start_offset_ns=int(d["start_offset_ns"]),
             duration_ns=int(d["duration_ns"]),
             outcome=d["outcome"],
@@ -70,6 +70,8 @@ class TraceSummary:
     finding_count: int
     quality_issues: list[str]
     http_status: int | None = None
+    http_method: str | None = None
+    endpoint: str | None = None
 
     @property
     def trace_id(self) -> str:
@@ -87,6 +89,8 @@ class TraceSummary:
             "service_count": self.service_count,
             "outcome": self.outcome,
             "http_status": self.http_status,
+            "http_method": self.http_method,
+            "endpoint": self.endpoint,
             "finding_count": self.finding_count,
             "quality_issues": list(self.quality_issues),
         }
@@ -103,6 +107,8 @@ class TraceSummary:
             service_count=int(d["service_count"]),
             outcome=d["outcome"],
             http_status=d.get("http_status"),
+            http_method=d.get("http_method"),
+            endpoint=d.get("endpoint"),
             finding_count=int(d["finding_count"]),
             quality_issues=list(d["quality_issues"]),
         )
@@ -113,17 +119,20 @@ class TraceDetail:
     summary: TraceSummary
     spans: list[SpanView]
     quality_issues: list[str]
+    compactable_client_spans: dict[str, str] | None = None
 
     @property
     def trace_ref(self) -> TraceRef:
         return self.summary.trace_ref
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_span_kind: bool = True) -> dict[str, Any]:
         return {
             "summary": self.summary.to_dict(),
             "trace_ref": self.summary.trace_ref.to_dict(),
-            "spans": [s.to_dict() for s in self.spans],
+            "spans": [s.to_dict(include_kind=include_span_kind) for s in self.spans],
             "quality_issues": list(self.quality_issues),
+            **({"compactable_client_spans": self.compactable_client_spans}
+               if self.compactable_client_spans else {}),
         }
 
     @staticmethod
@@ -132,6 +141,7 @@ class TraceDetail:
             summary=TraceSummary.from_dict(d["summary"]),
             spans=[SpanView.from_dict(s) for s in d["spans"]],
             quality_issues=list(d["quality_issues"]),
+            compactable_client_spans=d.get("compactable_client_spans"),
         )
 
 

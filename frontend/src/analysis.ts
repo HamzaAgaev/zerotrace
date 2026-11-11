@@ -76,7 +76,7 @@ export function cohortStats(rows: TraceSummary[]) {
   return { count: rows.length, median:percentile(values,.5), p95:percentile(values,.95), errors:rows.filter(t => t.outcome === 'error').length, unknown:rows.filter(t => t.outcome === 'unknown').length };
 }
 export function compareCohorts(a: TraceSummary[], b: TraceSummary[]): string | null {
-  if (!a.length || !b.length) return 'Выберите хотя бы одну трассу в каждой группе.';
+  if (!a.length || !b.length) return 'Выберите хотя бы один трейс в каждой группе.';
   const ids = new Set(a.map(t => t.trace_id));
   if (b.some(t => ids.has(t.trace_id))) return 'Группы не должны пересекаться.';
   if (new Set([...a,...b].map(t => JSON.stringify([t.service,t.operation]))).size !== 1) return 'Сравнивать можно только одну входную операцию одного сервиса.';
@@ -86,7 +86,7 @@ export function compareCohorts(a: TraceSummary[], b: TraceSummary[]): string | n
 export function projectIntervals(trace: TraceDetail, reductions: Record<string, number>) {
   const spans = trace.spans, map = new Map(spans.map(s => [s.span_id,s]));
   if (spans.length > 2000 || !spans.length || map.size !== spans.length) throw new Error('Модель требует от 1 до 2000 уникальных спанов.');
-  if (trace.quality_issues.length) throw new Error('Для этой трассы есть замечания к качеству данных. Выберите полную трассу без ошибок границ.');
+  if (trace.quality_issues.length) throw new Error('Для этого трейса есть замечания к качеству данных. Выберите полный трейс без ошибок границ.');
   if (Object.entries(reductions).some(([id,p]) => !map.has(id) || !Number.isFinite(p) || p < 0 || p > 100)) throw new Error('Некорректная ветка или процент ускорения.');
   const roots = spans.filter(s => !s.parent_span_id);
   if (roots.length !== 1 || spans.some(s => s.parent_span_id && !map.has(s.parent_span_id))) throw new Error('Требуется дерево с одним корнем и известными родителями.');
@@ -100,7 +100,7 @@ export function projectIntervals(trace: TraceDetail, reductions: Record<string, 
     const groups: { start:number; end:number; members:{span:Span; projected:number}[] }[] = [];
     for (const child of [...(children.get(s.span_id) ?? [])].sort((a,b) => numericMs(a.start_offset_ns)-numericMs(b.start_offset_ns))) {
       const cs = numericMs(child.start_offset_ns), ce = cs+numericMs(child.duration_ns);
-      if (cs < start || ce > start+length) throw new Error('Дочерний спан выходит за границы родителя. Такая трасса не подходит для этой модели.');
+      if (cs < start || ce > start+length) throw new Error('Дочерний спан выходит за границы родителя. Этот трейс не подходит для этой модели.');
       const member = { span:child,projected:walk(child,depth+1) };
       const last = groups.at(-1);
       if (!last || cs >= last.end) groups.push({ start:cs,end:ce,members:[member] });
@@ -119,7 +119,14 @@ export function projectIntervals(trace: TraceDetail, reductions: Record<string, 
   const baseline = numericMs(roots[0].duration_ns);
   return { baseline, projected, gain:Math.max(0,baseline-projected) };
 }
-export function downloadJson(name: string, payload: unknown) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify({ schema:'zerotrace.exploration',schema_version:'1.0.0',generated_at:new Date().toISOString(),payload },null,2)],{type:'application/json'}));
+export function downloadJson(name: string, payload: unknown, metadata: { schema?: string; producerVersion?: string } = {}) {
+  const content = {
+    schema: metadata.schema ?? 'zerotrace.exploration',
+    schema_version: '1.0.0',
+    generated_at: new Date().toISOString(),
+    ...(metadata.producerVersion ? { producer_version: metadata.producerVersion } : {}),
+    payload,
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
   const link = document.createElement('a'); link.href=url; link.download=name; link.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
 }

@@ -35,6 +35,7 @@ class Context:
         if not isinstance(self.environment, str) or not self.environment:
             raise ValueError("environment_id required")
         self.revisions = {}
+        self._ref_keys = {}
         self.traces = {}
         self.spans = {}
         attempts = list(model.get("attempts", ()))
@@ -134,12 +135,16 @@ class Context:
         return False
 
     def ref(self, ref):
+        cached = self._ref_keys.get(id(ref))
+        if cached is not None:
+            return cached[1]
         key = refkey(ref)
         if key[0] != self.environment:
             raise ValueError("trace belongs to another environment")
         if self.revisions.setdefault(key[:3], key[3]) != key[3]:
             raise AnalyticsError("conflicting_trace_revisions",
                                  "An audit snapshot contains multiple revisions of the same trace", 409)
+        self._ref_keys[id(ref)] = (ref, key)
         return key
 
     def linked(self, key, ancestor_id, descendant_id, ancestor_kind, descendant_kind):

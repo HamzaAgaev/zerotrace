@@ -35,21 +35,38 @@ class BackendApp(AnalyticsApp):
             raise AnalyticsError("missing_environment", "Select an environment", 400)
 
         trace_id = match[1]
+        include_findings = query.get("include_findings", "true")
+        if include_findings not in {"true", "false"}:
+            raise AnalyticsError("invalid_include_findings", "include_findings must be true or false", 400)
         with self.service.source.read() as view:
-            store = SpanStoreAdapter(view.span_store)
+            store = SpanStoreAdapter(view.span_store, view.current_metas)
             build = make_graph_builder(view.span_store, view.limits)
             if trace_id:
-                response = get_trace(store, build, environment, trace_id,
-                                     _integer(query, "generation"), _integer(query, "revision"))
+                include_span_kind = query.get("include_span_kind", "true")
+                if include_span_kind not in {"true", "false"}:
+                    raise AnalyticsError("invalid_include_span_kind", "include_span_kind must be true or false", 400)
+                response = get_trace(
+                    store, build, environment, trace_id,
+                    _integer(query, "generation"), _integer(query, "revision"),
+                    include_span_kind=include_span_kind == "true",
+                )
             else:
-                response = list_traces(store, environment, _integer(query, "limit", MAX_LIMIT),
-                                       _integer(query, "offset", 0), graph_builder=build)
+                response = list_traces(
+                    store, environment, _integer(query, "limit", MAX_LIMIT),
+                    _integer(query, "offset", 0),
+                    read_summary=lambda ref: view.trace_summary(ref, summary_only=include_findings == "false"),
+                    query=query.get("query", ""), service=query.get("service", ""),
+                    status=query.get("status", ""), method=query.get("method", ""), sort=query.get("sort"),
+                    span_id=query.get("span_id"),
+                    start_from_ns=_integer(query, "start_from_ns"),
+                    start_to_ns=_integer(query, "start_to_ns"),
+                )
             if isinstance(response, ApiError):
                 raise AnalyticsError(response.code, response.message, response.status)
 
             payload = response["payload"]
             summaries = [payload["summary"]] if trace_id else payload["items"]
-            if summaries:
+            if summaries and include_findings == "true":
                 findings = self.service.findings_by_trace(view, environment)
                 for summary in summaries:
                     ids = findings.get(ref_key(summary["trace_ref"]), ())

@@ -35,6 +35,7 @@ def main():
     def shutdown():
         stopping.set()
         maintenance.join(timeout=2)
+        app.extensions["audit_jobs"].close()
         app.extensions["lab"].shutdown()
         app.extensions["records"].close()
         app.extensions["telemetry"].close()

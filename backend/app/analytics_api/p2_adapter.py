@@ -24,9 +24,12 @@ def merge_edge_labels(edges, observed):
 def analytics_trace(graph: TraceGraph, calls: CallModel, *, project_id: str = DEFAULT_PROJECT_ID) -> dict:
     trace = graph.to_dict()
     model = calls.to_dict()
-    key = ref_key(trace["trace_ref"])
-    if (ref_key(model["trace_ref"]) != key
-            or any(ref_key(row["trace_ref"]) != key for row in model["attempts"] + model["calls"])):
+    trace_ref = trace["trace_ref"]
+    key = ref_key(trace_ref)
+    if (ref_key(model["trace_ref"]) != key or any(
+        row["trace_ref"] != trace_ref and ref_key(row["trace_ref"]) != key
+        for row in model["attempts"] + model["calls"]
+    )):
         raise AnalyticsError("trace_ref_mismatch", "Graph and call evidence use different trace revisions", 409)
 
     spans = {s["span_id"]: s for s in trace["spans"]}

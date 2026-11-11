@@ -1,3 +1,5 @@
+import { HttpOperation, HttpStatus } from '../components/HttpText';
+import { RunComparisonControls } from '../components/RunComparisonControls';
 import { useEffect, useReducer, useState } from 'react';
 import { labSourceTrace } from '../api/fixtures';
 import {
@@ -5,7 +7,7 @@ import {
 } from '../api/labFixture';
 import type { Run } from '../api/labFixture';
 import type { Client, TraceRef } from '../api/types';
-import { Badge, Button, EmptyState, Message, Panel } from '../components/ui';
+import { Badge, Button, EmptyState, Message, Panel, PageHeader } from '../components/ui';
 import { Metrics, PairBars } from '../components/Metrics';
 import { shortId, traceHref } from '../lib';
 import { LiveLab } from './LiveLab';
@@ -50,22 +52,17 @@ function RunComparison({ runs }: { runs: Run[] }) {
   const issue = before && after ? comparisonIssue(before, after) : 'Выполните прогоны до и после применения рекомендации.';
   return <Panel title="Сравнение прогонов">
     <div className="lab-body">
-      <div className="lab-actions">
-        <label>До изменения <select value={before?.id ?? ''} onChange={e => setBaseline(e.target.value)}>
-          <option value="" disabled>Выберите прогон</option>
-          {runs.map((run, i) => <option key={run.id} value={run.id}>Прогон {i + 1} ({run.maxAttempts} попытки)</option>)}
-        </select></label>
-        <label>После изменения <select value={after?.id ?? ''} onChange={e => setCandidate(e.target.value)}>
-          <option value="" disabled>Выберите прогон</option>
-          {runs.map((run, i) => <option key={run.id} value={run.id}>Прогон {i + 1} ({run.maxAttempts} попытки)</option>)}
-        </select></label>
-      </div>
+      <RunComparisonControls
+        options={runs.map((run, index) => ({ id: run.id, label: `Прогон ${index + 1} (${run.maxAttempts} попытки)` }))}
+        baseline={before?.id ?? ''} candidate={after?.id ?? ''}
+        onBaselineChange={setBaseline} onCandidateChange={setCandidate}
+      />
       {issue && <p className="muted" role="status">{issue}</p>}
       {!issue && before && after && <>
         <ComparisonCharts before={before} after={after}/>
         <div className="comparison-samples">
           {[before, after].map((run, index) => <Badge key={run.id} tone={run.collection === 'partial' ? 'warning' : 'neutral'}>
-            {index === 0 ? 'До' : 'После'}: {run.samples.length}/{run.expected} трасс
+            {index === 0 ? 'До' : 'После'}: {run.samples.length}/{run.expected} трейсов
             {run.collection === 'partial' && ' (неполная выборка)'}
           </Badge>)}
         </div>
@@ -92,11 +89,11 @@ function ComparisonCharts({ before, after }: { before: Run; after: Run }) {
   const b = summarizeRun(after);
   return <div className="comparison-charts">
     <PairBars label="Среднее число попыток" values={[a.attempts, b.attempts]}
-      info="Учитывается первый вызов payment и все повторы. Среднее считается по зафиксированным трассам."/>
+      info="Учитывается первый вызов payment и все повторы. Среднее считается по зафиксированным трейсам."/>
     <PairBars label="Диапазон длительностей" values={[a.duration, b.duration]}
-      info="Диапазон длительностей входных запросов в тестовых трассах. Длина полосы показывает максимум."/>
-    <PairBars label="Доля ответов HTTP 503" values={[a.errors, b.errors]}
-      scale={1} info="Доля входных запросов с итоговым ответом 503 среди зафиксированных трасс."/>
+      info="Диапазон длительностей входных запросов в тестовых трейсах. Длина полосы показывает максимум."/>
+    <PairBars label="Доля ответов HTTP 503" labelContent={<>Доля ответов HTTP <HttpStatus code={503}/></>} values={[a.errors, b.errors]}
+      scale={1} info="Доля входных запросов с итоговым ответом 503 среди зафиксированных трейсов."/>
   </div>;
 }
 
@@ -113,14 +110,12 @@ export function Lab({ lab, demo, client }: { lab: ReturnType<typeof useLabFixtur
   const hasBaseline = standRuns.some(run => run.maxAttempts === 3 && run.samples.length > 0);
 
   return <>
-    <div className="page-title"><div>
-      <h1>Лаборатория</h1>
-    </div>{demo && <Badge tone="warning" dot>Тестовые данные</Badge>}</div>
+    <PageHeader title="Лаборатория" actions={<>{demo && <Badge tone="warning" dot>Тестовые данные</Badge>}</>}/>
     {!demo ? <Message>Лабораторный API пока не подключён. Сценарий доступен в <a href="#/sources">демонстрационном режиме</a>.</Message> : <>
       <Message tone="warning">Результаты демо хранятся до перезагрузки вкладки.</Message>
       {message && <Message>{message}</Message>}
-      {!stand ? <EmptyState icon="traces" title="Нет активного стенда" description="Откройте трассу вызова payment из orders и выберите «Собрать стенд»."
-        action={<a className="button button--primary" href={traceHref(labSourceTrace.trace_ref)}>Открыть трассу вызова payment из orders</a>}/> :
+      {!stand ? <EmptyState icon="traces" title="Нет активного стенда" description="Откройте трейс вызова payment из orders и выберите «Собрать стенд»."
+        action={<a className="button button--primary" href={traceHref(labSourceTrace.trace_ref)}>Открыть трейс вызова payment из orders</a>}/> :
         <div className="lab-grid lab-controls">
           <Panel title="Стенд для вызова payment из orders" meta={<Badge tone={stand.status === 'ready' ? 'success' : 'warning'}>{
             { building: 'Сборка', ready: 'Готов', stopping: 'Остановка' }[stand.status]
@@ -137,24 +132,24 @@ export function Lab({ lab, demo, client }: { lab: ReturnType<typeof useLabFixtur
                 <p><a className="mono" href={traceHref(stand.source)}>{shortId(stand.source.trace_id)}</a>
                   {', '}{stand.source.environment_id}, поколение {stand.source.generation}, ревизия {stand.source.revision}</p>
                 {stand.status === 'ready' && <>
-                  <p>POST /charge. В исходной трассе HTTP {observedPayment.httpStatus}, {observedPayment.durationMs} мс. Параметры повторов заданы демостендом.</p>
+                  <p><HttpOperation operation="POST /charge"/>. В исходном трейсе HTTP <HttpStatus code={observedPayment.httpStatus}/>, {observedPayment.durationMs} мс. Параметры повторов заданы демостендом.</p>
                   <p>Ревизии: сценарий {stand.scenarioRevision}, сбой {stand.faultRevision}, конфиг {stand.configRevision}</p>
                 </>}
               </details>
               <Button disabled={!editable || collecting} onClick={() => dispatch({ type: 'stop' })}>Остановить</Button>
-              {collecting && !running && <p className="muted">Остановка доступна после фиксации трасс.</p>}
+              {collecting && !running && <p className="muted">Остановка доступна после фиксации трейсов.</p>}
             </div>
           </Panel>
           <Panel title="Сбой и нагрузка">
             <div className="lab-body">
               <Metrics items={[
-                { label: 'Сбой payment', value: stand.fault ? `HTTP ${stand.fault.httpStatus}` : 'Выключен', tone: stand.fault ? 'danger' : 'neutral' },
+                { label: 'Сбой payment', value: stand.fault ? <>HTTP <HttpStatus code={stand.fault.httpStatus}/></> : 'Выключен' },
                 { label: 'Запросов подряд', value: loadCount },
                 { label: 'Задержка сбоя', value: stand.fault ? `${stand.fault.delayMs} мс` : '—' },
               ]}/>
               <div className="lab-actions">
                 <Button disabled={!editable} onClick={() => dispatch({ type: 'fault', enabled: !stand.fault })}>
-                  {stand.fault ? 'Сбросить сбой' : `Задать HTTP ${paymentFault.httpStatus}`}
+                  {stand.fault ? 'Сбросить сбой' : <>Задать HTTP <HttpStatus code={paymentFault.httpStatus}/></>}
                 </Button>
                 <Button variant="primary" disabled={!editable || !stand.fault} onClick={() => dispatch({
                   type: 'run', id: crypto.randomUUID(),
@@ -163,10 +158,10 @@ export function Lab({ lab, demo, client }: { lab: ReturnType<typeof useLabFixtur
               </div>
             </div>
           </Panel>
-          {hasBaseline && <Panel title="Рекомендация R4" className="lab-wide">
+          {hasBaseline && <Panel title="Сокращение повторных запросов" className="lab-wide">
             <div className="lab-body">
               <div className="comparison-charts">
-                <PairBars label="Расчётный бюджет R4"
+                <PairBars label="Время на попытки и паузы"
                   info="Число попыток × таймаут + паузы между попытками. Это расчёт по конфигу. Длительность запросов показана в сравнении прогонов." values={[
                   { amount: retryBudget(3) ?? 0, text: `${retryBudget(3)} мс` },
                   { amount: retryBudget(2) ?? 0, text: `${retryBudget(2)} мс` },
@@ -180,7 +175,7 @@ export function Lab({ lab, demo, client }: { lab: ReturnType<typeof useLabFixtur
                     { label: 'Ревизия конфига', value: currentPlan.revision },
                   ]}/>
                   <details className="compact-details"><summary>Что изменится</summary>
-                    <p>Поле <code>max_attempts</code> для POST /charge. При временном отказе будет на одну попытку меньше.</p>
+                    <p>Поле <code>max_attempts</code> для <HttpOperation operation="POST /charge"/>. При временном отказе будет на одну попытку меньше.</p>
                   </details>
                   <div className="lab-actions">
                     <Button variant="primary" disabled={!editable} onClick={() => {
@@ -197,8 +192,8 @@ export function Lab({ lab, demo, client }: { lab: ReturnType<typeof useLabFixtur
         <Panel title="Прогоны"><ul className="lab-runs" aria-live="polite">{standRuns.map((run, i) => <li key={run.id}>
           <strong>Прогон {i + 1} (конфиг {run.configRevision})</strong>
           <span>{run.status === 'running' ? 'Выполняются запросы' : run.status === 'failed' ? 'Прогон завершился с ошибкой' :
-            run.collection === 'waiting' ? `Запросы ${run.completed}/${run.expected}, ждём трассы` :
-              `Зафиксировано трасс: ${run.samples.length}/${run.expected}`}</span>
+            run.collection === 'waiting' ? `Запросы ${run.completed}/${run.expected}, ждём трейсы` :
+              `Зафиксировано трейсов: ${run.samples.length}/${run.expected}`}</span>
         </li>)}</ul></Panel>
         <RunComparison key={displayedStandId} runs={standRuns}/>
       </div>}

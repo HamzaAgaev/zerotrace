@@ -6,16 +6,17 @@ export interface TraceRef { environment_id: string; trace_id: string; generation
 export interface TraceSummary {
   trace_ref: TraceRef;
   trace_id: string; operation: string; service: string; start_ns: string; duration_ns: string;
+  http_method?: string | null; endpoint?: string | null;
   span_count: number; service_count: number; outcome: Outcome; http_status: number | null;
   finding_count: number; quality_issues: string[];
 }
 export interface Span {
   span_id: string; parent_span_id: string | null; service: string; name: string;
-  kind: 'server' | 'client' | 'internal'; start_offset_ns: string; duration_ns: string;
+  kind?: 'server' | 'client' | 'internal'; start_offset_ns: string; duration_ns: string;
   outcome: Outcome; http_status: number | null; error_type: string | null;
   target?: string;
 }
-export interface TraceDetail { finding_occurrence_ids?: string[]; summary: TraceSummary; trace_ref: TraceRef; spans: Span[]; quality_issues: string[] }
+export interface TraceDetail { finding_occurrence_ids?: string[]; summary: TraceSummary; trace_ref: TraceRef; spans: Span[]; quality_issues: string[]; compactable_client_spans?: Record<string, string> }
 export interface Finding {
   finding_id: string; occurrence_id: string; recommendation_id: string; rule_id: string; rule_version: string;
   title: string; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium' | 'low';
@@ -38,7 +39,10 @@ export interface AuditResult { result_id: string; generated_at: string; findings
 export interface ChangePlan { plan_id: string; plan_hash: string; finding_id: string; target: string; expected_revision: string; environment_id?: string; expires_at: string; changes: { field: string; before: string; after: string }[]; warnings: string[]; apply_enabled: boolean }
 export interface JournalEntry { operation_id: string; target: string; requested_at: string; status: 'planned' | 'applying' | 'applied' | 'no_op' | 'rejected' | 'unknown' | 'failed'; verification: 'checking' | 'insufficient_data' | 'symptom_absent' | 'symptom_present' | 'inconclusive' | null; actual_changes: { field: string; before: string; after: string }[] }
 export interface Capabilities { mode: string; api_version: string; source_name: string; source_state: 'receiving' | 'idle' | 'unknown'; apply_enabled: boolean; limits: { max_trace_spans: number } }
-export interface ListPayload { items: TraceSummary[]; total: number }
+export interface TraceQuery { query?: string; service?: string; status?: string; method?: string; sort?: string; limit?: number; offset?: number; includeFindings?: boolean;
+  span_id?: string; start_from_ns?: string; start_to_ns?: string;
+}
+export interface ListPayload { items: TraceSummary[]; total: number; services?: string[]; methods?: string[]; outcomes?: Record<Outcome, number> }
 export interface Envelope<T> { schema: string; schema_version: string; generated_at: string; producer_version: string; payload: T }
 export interface Connection { mode: SourceMode; baseUrl: string; environmentId?: string }
 export interface Environment { environment_id: string; name: string; kind: 'external' | 'lab' }
@@ -117,8 +121,8 @@ export interface RunComparison {
   input_hash: string; warnings: string[];
 }
 export interface Client {
-  listTraces(signal?: AbortSignal): Promise<ListPayload>;
-  getTrace(id: string | TraceRef, signal?: AbortSignal): Promise<TraceDetail>;
+  listTraces(signal?: AbortSignal, query?: TraceQuery): Promise<ListPayload>;
+  getTrace(id: string | TraceRef, signal?: AbortSignal, options?: { includeFindings?: boolean; includeSpanKind?: boolean }): Promise<TraceDetail>;
   getAudit(signal?: AbortSignal): Promise<AuditResult>;
   getCapabilities(signal?: AbortSignal): Promise<Capabilities>;
   getJournal(signal?: AbortSignal): Promise<JournalEntry[]>;

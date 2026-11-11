@@ -9,6 +9,8 @@
         {
           "trace_id": "0000000000000000000000004bf92000",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319440000000000",
           "duration_ns": "2015000000",
@@ -28,6 +30,8 @@
         {
           "trace_id": "0000000000000000000000004bf92001",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319425300000000",
           "duration_ns": "2023000000",
@@ -47,6 +51,8 @@
         {
           "trace_id": "0000000000000000000000004bf92002",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319410600000000",
           "duration_ns": "2031000000",
@@ -66,6 +72,8 @@
         {
           "trace_id": "0000000000000000000000004bf92003",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319395900000000",
           "duration_ns": "2039000000",
@@ -85,6 +93,8 @@
         {
           "trace_id": "0000000000000000000000004bf92004",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319381200000000",
           "duration_ns": "2047000000",
@@ -104,6 +114,8 @@
         {
           "trace_id": "0000000000000000000000004bf92005",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319366500000000",
           "duration_ns": "340000000",
@@ -123,6 +135,8 @@
         {
           "trace_id": "0000000000000000000000004bf92006",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319351800000000",
           "duration_ns": "359000000",
@@ -142,6 +156,8 @@
         {
           "trace_id": "0000000000000000000000004bf92007",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319337100000000",
           "duration_ns": "378000000",
@@ -161,6 +177,8 @@
         {
           "trace_id": "0000000000000000000000004bf92008",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319322400000000",
           "duration_ns": "397000000",
@@ -182,6 +200,8 @@
         {
           "trace_id": "0000000000000000000000004bf92009",
           "operation": "GET /catalog",
+          "http_method": "GET",
+          "endpoint": "/catalog",
           "service": "catalog-api",
           "start_ns": "1794319307700000000",
           "duration_ns": "135000000",
@@ -201,6 +221,8 @@
         {
           "trace_id": "0000000000000000000000004bf9200a",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319293000000000",
           "duration_ns": "435000000",
@@ -220,6 +242,8 @@
         {
           "trace_id": "0000000000000000000000004bf9200b",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319278300000000",
           "duration_ns": "454000000",
@@ -239,6 +263,8 @@
         {
           "trace_id": "0000000000000000000000004bf9200c",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319263600000000",
           "duration_ns": "473000000",
@@ -258,6 +284,8 @@
         {
           "trace_id": "0000000000000000000000004bf9200d",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319248900000000",
           "duration_ns": "492000000",
@@ -277,6 +305,8 @@
         {
           "trace_id": "0000000000000000000000004bf9200e",
           "operation": "GET /catalog",
+          "http_method": "GET",
+          "endpoint": "/catalog",
           "service": "catalog-api",
           "start_ns": "1794319234200000000",
           "duration_ns": "140000000",
@@ -296,6 +326,8 @@
         {
           "trace_id": "0000000000000000000000004bf9200f",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319219500000000",
           "duration_ns": "530000000",
@@ -315,6 +347,8 @@
         {
           "trace_id": "0000000000000000000000004bf92010",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319204800000000",
           "duration_ns": "549000000",
@@ -334,6 +368,8 @@
         {
           "trace_id": "0000000000000000000000004bf92011",
           "operation": "POST /checkout",
+          "http_method": "POST",
+          "endpoint": "/checkout",
           "service": "gateway",
           "start_ns": "1794319190100000000",
           "duration_ns": "568000000",
@@ -363,6 +399,8 @@
       "summary": {
         "trace_id": "0000000000000000000000004bf92000",
         "operation": "POST /checkout",
+        "http_method": "POST",
+        "endpoint": "/checkout",
         "service": "gateway",
         "start_ns": "1794319440000000000",
         "duration_ns": "2015000000",
@@ -521,6 +559,8 @@
       "summary": {
         "trace_id": "0000000000000000000000004bf92005",
         "operation": "POST /checkout",
+        "http_method": "POST",
+        "endpoint": "/checkout",
         "service": "gateway",
         "start_ns": "1794319366500000000",
         "duration_ns": "340000000",

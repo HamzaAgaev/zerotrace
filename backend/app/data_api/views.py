@@ -14,9 +14,14 @@ Derivation rules:
 
 from __future__ import annotations
 
+import re
+
 from contracts.p2 import CallModel, NormalizedSpan, TraceGraph
 from contracts.p7 import SpanView, TraceDetail, TraceSummary, UiOutcome, UiSpanKind
 
+from core.calls import parse_operation
+
+HTTP_METHOD_TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 HTTP_SERVER_ERROR_MIN = 500
 FINDING_HYPOTHESES = frozenset({"retry", "hedge"})
 
@@ -123,9 +128,20 @@ def trace_summary(graph: TraceGraph, call_model: CallModel | None = None) -> Tra
         start_ns = 0
         duration_ns = 0
     service_count = len({s.service for s in graph.spans if s.service})
+    operation = (root.operation or "unknown") if root is not None else "unknown"
+    method, endpoint = parse_operation(operation)
+    if method is None and root is not None:
+        prefix, _, path = operation.partition(" ")
+        # Recognize extension methods on observed HTTP routes.
+        if HTTP_METHOD_TOKEN.fullmatch(prefix) and path.startswith("/") and (
+            root.http_status is not None or root.field_coverage.get("operation")
+        ):
+            method, endpoint = prefix.upper(), path.strip()
     return TraceSummary(
         trace_ref=graph.trace_ref,
-        operation=(root.operation or "unknown") if root is not None else "unknown",
+        operation=operation,
+        http_method=method,
+        endpoint=endpoint,
         service=(root.service or "unknown") if root is not None else "unknown",
         start_ns=start_ns,
         duration_ns=duration_ns,
@@ -143,8 +159,22 @@ def trace_detail(graph: TraceGraph, call_model: CallModel | None = None) -> Trac
     origin = trace_origin_ns(graph)
     ordered = sorted(graph.spans, key=lambda s: (s.start_ns, s.end_ns, s.span_id))
     spans = [span_view(s, origin) for s in ordered] if origin is not None else []
+    by_id = {span.span_id: span for span in graph.spans}
+    compactable = {}
+    for client in graph.spans:
+        children = graph.children_index.get(client.span_id, [])
+        if (client.kind != "client" or client.async_markers or len(children) != 1
+                or client.http_status is None or not 200 <= client.http_status < 400
+                or client.otel_status == "error" or client.error_type is not None):
+            continue
+        server = by_id.get(children[0])
+        if (server is not None and server.kind == "server" and server.service != client.service
+                and server.http_status == client.http_status and server.otel_status != "error"
+                and server.error_type is None):
+            compactable[client.span_id] = server.span_id
     return TraceDetail(
         summary=summary,
         spans=spans,
         quality_issues=quality_issue_codes(graph),
+        compactable_client_spans=compactable or None,
     )

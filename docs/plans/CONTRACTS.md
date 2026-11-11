@@ -178,9 +178,9 @@ Product backend сохраняет pending journal **до отправки apply
 
 ```text
 GET  /api/v1/capabilities?environment_id=
-GET  /api/v1/traces?environment_id=&limit=&offset=
-GET  /api/v1/traces/{id}?environment_id=&generation=&revision=
-GET  /api/v1/audit?environment_id=
+GET  /api/v1/traces?environment_id=&query=&service=&status=&method=&span_id=&start_from_ns=&start_to_ns=&sort=&limit=&offset=&include_findings=
+GET  /api/v1/traces/{id}?environment_id=&generation=&revision=&include_findings=&include_span_kind=
+GET  /api/v1/audit?environment_id=&view=&defer=&job_id=
 POST /api/v1/change-plans
 POST /api/v1/change-plans/{id}/apply
 GET  /api/v1/journal?environment_id=
@@ -192,6 +192,28 @@ GET  /healthz
 Для текущего фронтенда эти маршруты возвращают UI DTO в envelope P7. Маршрут /state зарезервирован для полного Snapshot. /audit отображает одну основную рекомендацию в полях recommendation и recommendation_id из списка P5. Evidence имеет kind=retry_budget для R4 с известным конфигом или kind=trace_observation для выводов по трассам. Для trace_observation требуется source, поля бюджета и ревизии отсутствуют. Ссылки на примеры аудита и элементы списка трасс содержат полный TraceRef. Детали с generation и revision возвращают ровно запрошенную ревизию или 404. Если обе версии опущены, возвращается текущая ревизия в указанном окружении. Передача только одной версии возвращает 400.
 
 В деталях трассы `spans[].target` — необязательная строка для клиентского спана, например `payment` из OTLP-атрибута `server.address`. Если парный серверный спан отсутствует, фронт показывает адресат отдельным узлом зависимости и использует длительность клиентского спана на ребре. При наличии парного серверного спана используется идентичность сервиса из него. Время работы сервиса рассчитывается по его серверным спанам. Поле `target` не используется для привязки управляющего API.
+
+`include_findings=true` по умолчанию добавляет результаты аудита для точных TraceRef. При `include_findings=false` списки и детали читают телеметрию без запроса управляющих конфигураций и выполнения правил. Поле `finding_count` сохраняет форму ответа и равно 0, но в этом режиме не отражает результат аудита. Детали не содержат `finding_occurrence_ids`. Фильтры, пагинация и требования к точной ревизии действуют в обоих режимах. Иные значения возвращают `400 invalid_include_findings`.
+
+Карточка трейса запрашивает детали с `include_span_kind=false`. В этом ответе ключ `spans[].kind` отсутствует. По умолчанию API передаёт `kind` для клиентов, которым он нужен для анализа зависимостей. Иные значения возвращают `400 invalid_include_span_kind`.
+
+Детали могут содержать `compactable_client_spans`, словарь из Span ID исходящего спана в Span ID его единственного дочернего серверного спана другого сервиса. В словарь входят синхронные HTTP-вызовы с одинаковым кодом 2xx или 3xx и без ошибок на обеих сторонах. Полный список `spans` доступен в том же ответе.
+
+`GET /api/v1/audit?defer=true` запускает расчёт или присоединяется к уже выполняющемуся для того же окружения, представления и режима. До готовности API возвращает `202` с envelope `zerotrace.audit-job` и payload `{status: "pending", job_id}`. Клиент опрашивает тот же маршрут с `job_id`. Готовый результат — обычный `200 zerotrace.audit`. Чужой или вытесненный идентификатор возвращает `404 audit_job_unavailable`, заполненная очередь — `503 audit_busy`. Синхронный контракт сохраняется при отсутствии `defer=true`.
+
+`GET /api/v1/traces` принимает необязательный `method` с точным совпадением по HTTP-методу входной операции без учёта регистра. Например, `query=/checkout&method=POST` выбирает POST среди совпадений поиска по `/checkout`. Некорректный HTTP-токен возвращает `400 invalid_method`. Метод и остальные фильтры применяются до сортировки и пагинации. `total` и `outcomes` учитывают совпавшие строки. Ответ с фильтрами или сортировкой содержит `methods` с уникальными наблюдаемыми методами выбранного окружения в верхнем регистре и в алфавитном порядке, независимо от фильтров и страницы.
+
+`TraceSummary.http_method` содержит метод в верхнем регистре или `null`, если он неизвестен. `endpoint` содержит путь без метода или имя операции, когда HTTP-метод неизвестен. `operation` сохраняет исходное нормализованное представление для существующих клиентов.
+
+Дополнительные параметры поиска `GET /api/v1/traces`:
+
+| Параметр | Семантика |
+|---|---|
+| `span_id` | Точное совпадение с любым спаном текущей ревизии в выбранном окружении. Формат: 16 шестнадцатеричных символов в нижнем регистре, хотя бы один ненулевой. Если ID встретился в нескольких Traces, список возвращает все совпадения, по одной строке на Trace. |
+| `start_from_ns` | Включительная нижняя граница времени начала Trace (`TraceSummary.start_ns`), неотрицательные десятичные наносекунды от Unix epoch в UTC в диапазоне int64. |
+| `start_to_ns` | Исключительная верхняя граница того же времени. |
+
+Любая граница периода может быть опущена. При двух границах `start_from_ns < start_to_ns`. Некорректный ID даёт `400 invalid_span_id`, некорректная граница — `400 invalid_start_from_ns` или `400 invalid_start_to_ns`. Обратный или пустой интервал даёт `400 invalid_time_range`. При заданном периоде Traces с неизвестным временем начала исключаются из выборки. Фильтры по спану, периоду, окружению и существующим параметрам объединяются через AND. Фильтры применяются ко всей выборке до сортировки и пагинации. `total` и `outcomes` считаются по совпадениям. Без новых параметров действует существующая семантика списка.
 
 List limit≤100, сортировка по first_received_at DESC и trace_id; offset-pagination не гарантирует snapshot-consistency при новых данных — это явно допустимое ограничение первого UI. Сложные cursor snapshots позже. Trace-view и результаты содержат revision, старая конфигурация/selection на apply получает409.
 
@@ -337,7 +359,8 @@ GET  /api/v1/reports/{id}
 POST /api/v1/lab/capture                # один явный запрос при lab capability
 ```
 
-Полный поиск: time range,service,operation,duration,status включая internal errors,trace ID,profile/workload при наличии. Сортировка до пагинации, tie поID. Полный cursor содержит query+repository snapshot; cursor expired→409. Выбор cohorts сохраняется между страницами; stale refs проверяются при анализе.
+Полный поиск охватывает период, входной сервис, эндпоинт, HTTP-метод, длительность, результат запроса, Trace ID и Span ID. Профиль и workload доступны при наличии данных. Сортировка до пагинации, tie поID. Полный cursor содержит query+repository snapshot; cursor expired→409. Выбор cohorts сохраняется между страницами; stale refs проверяются при анализе.
+
 
 `ReportBundle`: schema/producer/normalization/model/rules/projection/comparison/threshold versions, input refs+hashes, snapshot, selected graph, audit/projection/comparison results, journal refs, sampling, quality, assumptions/limitations. Offline HTML вшивает локальные JS/CSS и JSON с безопасным экранированием; никаких CDN/мутаций. Текст span не вставляется как HTML. JSON и HTML несут одинаковую семантику.
 

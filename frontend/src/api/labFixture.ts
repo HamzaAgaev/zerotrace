@@ -61,8 +61,8 @@ export function labReducer(state: LabState, action: Action): LabState {
   const reject = (message: string) => ({ ...state, message });
   if (action.type === 'build') {
     if (stand) return reject(sameTraceRef(stand.source, action.source) ? '' :
-      'Уже есть стенд для другой трассы. Остановите его перед новой сборкой.');
-    if (!supportsLabSource(action.source)) return reject('Для этой ревизии трассы нет примера сборки. Выберите трассу вызова payment из orders.');
+      'Уже есть стенд для другого трейса. Остановите его перед новой сборкой.');
+    if (!supportsLabSource(action.source)) return reject('Для этой ревизии трейса нет примера сборки. Выберите трейс вызова payment из orders.');
     return { ...state, message: '', stand: {
       id: action.id, source: action.source, status: 'building', scenarioRevision: 1,
       faultRevision: 0, configRevision: '12', fault: null, maxAttempts: retryDefaults.maxAttempts,
@@ -99,7 +99,7 @@ export function labReducer(state: LabState, action: Action): LabState {
   }
   if (action.type === 'stop') {
     if (runs.some(run => run.standId === stand.id && run.collection === 'waiting')) {
-      return reject('Дождитесь фиксации трасс перед остановкой стенда.');
+      return reject('Дождитесь фиксации трейсов перед остановкой стенда.');
     }
     return { ...state, message: '', stand: { ...stand, status: 'stopping' } };
   }
@@ -134,7 +134,7 @@ export function labReducer(state: LabState, action: Action): LabState {
 
 export function comparisonIssue(before: Run, after: Run): string {
   if (before.status === 'failed' || after.status === 'failed') return 'Один из прогонов завершился с ошибкой.';
-  if (before.collection === 'waiting' || after.collection === 'waiting') return 'Дождитесь фиксации трасс обоих прогонов.';
+  if (before.collection === 'waiting' || after.collection === 'waiting') return 'Дождитесь фиксации трейсов обоих прогонов.';
   if (!before.samples.length || !after.samples.length) return 'Для сравнения нужны две непустые выборки.';
   if (before.id === after.id || before.standId !== after.standId ||
       before.scenarioRevision !== after.scenarioRevision || before.faultRevision !== after.faultRevision ||

@@ -1,24 +1,265 @@
-import { useMemo, useState } from 'react';
+import { HttpMethod, HttpStatus, SpanOperation, httpCodeLabel } from '../components/HttpText';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { AuditResult, Finding, TraceDetail as TraceDetailData } from '../api/types';
-import { Badge, Button, Icon, Message, Panel } from '../components/ui';
-import { duration, findingsForTrace, ms, serviceColors, shortId, timelineRows } from '../lib';
-import { MetricInfo } from '../components/Metrics';
+import { MetricInfo, Metrics } from '../components/Metrics';
+import { Tabs } from '../components/Tabs';
+import { Button, Icon, LoadingState, Message, Panel, PageHeader, RetryButton } from '../components/ui';
 import { WhatIf } from '../components/WhatIf';
+import { compactTimelineSpans, duration, findingsForTrace, ms, outcomeLabels, timelineRows, traceRequest, traceServiceColors } from '../lib';
 import { FindingCard } from './Audit';
-export function TraceDetail({ trace, audit, onPlan, pending, onExport, onBuild }: { trace: TraceDetailData; audit: AuditResult | null; onPlan: (f: Finding) => void; pending: boolean; onExport: () => void; onBuild?: () => void }) {
-  const [tab, setTab] = useState('timeline'); const [selected, setSelected] = useState(trace.spans[0]?.span_id); const [collapsed, setCollapsed] = useState<Set<string>>(new Set()); const [copied, setCopied] = useState(false);
+
+const axisNumber = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+const maxTimelineZoom = 8;
+
+export function BackToTraces() {
+  return <a href="#/traces" className="button button--primary trace-header-back">
+    <Icon name="arrow" size={16} className="rotate"/>К списку трейсов
+  </a>;
+}
+
+function CopyId({ label, value }: { label: 'Trace ID' | 'Span ID'; value: string }) {
+  const [copiedAt, setCopiedAt] = useState<number>();
+  const copied = copiedAt !== undefined;
+
+  useEffect(() => {
+    if (copiedAt === undefined) return;
+    const timer = window.setTimeout(() => setCopiedAt(undefined), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copiedAt]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedAt(Date.now());
+    } catch {
+      setCopiedAt(undefined);
+    }
+  }
+
+  return <span className="trace-copy-id">
+    <code className="mono">{value}</code>
+    <Button type="button" className="trace-copy-button" icon={copied ? 'check' : 'copy'}
+      aria-label={`Скопировать ${label}`} title={copied ? 'Скопировано' : `Скопировать ${label}`}
+      onClick={() => void copy()}/>
+    <span className="sr-only" role="status">{copied ? `${label} скопирован` : ''}</span>
+  </span>;
+}
+
+export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAudit, demo, onPlan, pending, onExport, onBuild }: {
+  trace: TraceDetailData;
+  audit: AuditResult | null;
+  auditLoading: boolean;
+  auditError: string;
+  onRetryAudit: () => void;
+  demo: boolean;
+  onPlan: (finding: Finding) => void;
+  pending: boolean;
+  onExport: () => void;
+  onBuild?: () => void;
+}) {
+  const [tab, setTab] = useState('timeline');
+  const [selected, setSelected] = useState<string>();
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [zoom, setZoom] = useState(1);
+  const [showAllSpans, setShowAllSpans] = useState(false);
+  const [baseRulerWidth, setBaseRulerWidth] = useState(0);
+  const timelineScroll = useRef<HTMLDivElement>(null);
+  const timelineRuler = useRef<HTMLDivElement>(null);
+  const zoomAnchor = useRef<number | null>(null);
+  const { summary, spans } = trace;
+  const { method, endpoint } = traceRequest(summary);
   const findings = findingsForTrace(trace, audit?.findings ?? []);
-  const selectedSpan = trace.spans.find(s => s.span_id === selected);
-  const rows = useMemo(() => { const all = timelineRows(trace.spans); const hidden = new Set<string>(); return all.filter(({ span }) => { if (span.parent_span_id && (collapsed.has(span.parent_span_id) || hidden.has(span.parent_span_id))) { hidden.add(span.span_id); return false; } return true; }); }, [trace.spans, collapsed]);
-  const total = Math.max(1, ...trace.spans.map(s => (ms(s.start_offset_ns) ?? 0) + (ms(s.duration_ns) ?? 0)));
-  const toggle = (id: string) => { setCollapsed(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; }); };
-  async function copy() { try { await navigator.clipboard.writeText(trace.summary.trace_id); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch { setCopied(false); } }
+  const services = useMemo(() => [...new Set(spans.map(span => span.service))], [spans]);
+  const colors = useMemo(() => traceServiceColors(services), [services]);
+  const compactSpans = useMemo(() => compactTimelineSpans(spans, trace.compactable_client_spans), [spans, trace.compactable_client_spans]);
+  const timelineSpans = showAllSpans ? spans : compactSpans;
+  const tree = useMemo(() => timelineRows(timelineSpans), [timelineSpans]);
+  const parents = useMemo(() => new Set(timelineSpans.map(span => span.parent_span_id)), [timelineSpans]);
+  const rows = useMemo(() => {
+    const hidden = new Set<string>();
+    return tree.filter(({ span }) => {
+      const parent = span.parent_span_id;
+      if (!parent || (!collapsed.has(parent) && !hidden.has(parent))) return true;
+      hidden.add(span.span_id);
+      return false;
+    });
+  }, [tree, collapsed]);
+  const selectedSpan = rows.find(({ span }) => span.span_id === selected)?.span ?? rows[0]?.span;
+  const total = spans.reduce((max, span) => Math.max(max,
+    (ms(span.start_offset_ns) ?? 0) + (ms(span.duration_ns) ?? 0)), 0);
+  const scale = total || 1;
+  const axisInMicroseconds = total > 0 && total < 1;
+  const tickCount = zoom * 4;
+  const zoomExtraWidth = baseRulerWidth * (zoom - 1);
+  const axisTicks = total ? Array.from({ length: tickCount + 1 }, (_, index) => index / tickCount) : [0];
+
+  useLayoutEffect(() => {
+    if (tab !== 'timeline') return;
+    const ruler = timelineRuler.current;
+    if (!ruler) return;
+    function measureBaseWidth() {
+      if (ruler) setBaseRulerWidth(Math.round(ruler.getBoundingClientRect().width - zoomExtraWidth));
+    }
+    measureBaseWidth();
+    const observer = new ResizeObserver(measureBaseWidth);
+    observer.observe(ruler);
+    return () => observer.disconnect();
+  }, [tab, rows.length, zoomExtraWidth]);
+
+  useLayoutEffect(() => {
+    const anchor = zoomAnchor.current;
+    const scroller = timelineScroll.current;
+    const ruler = timelineRuler.current;
+    zoomAnchor.current = null;
+    if (anchor !== null && scroller && ruler) scroller.scrollLeft = anchor * ruler.clientWidth;
+  }, [zoom]);
+
+  function changeZoom(next: number) {
+    const scroller = timelineScroll.current;
+    const ruler = timelineRuler.current;
+    if (next === zoom || !scroller || !ruler?.clientWidth) return;
+    zoomAnchor.current = scroller.scrollLeft / ruler.clientWidth;
+    setZoom(next);
+  }
+
+  function toggle(id: string) {
+    setCollapsed(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    if (!collapsed.has(id)) setSelected(id);
+  }
+
   return <>
-    <div className="page-title"><div><div className="eyebrow"><a href="#/traces">Трассы</a><Icon name="chevron" size={12}/><span>{trace.summary.service}</span></div><h1 className="trace-title"><span className="method">{trace.summary.operation.split(' ')[0]}</span>{trace.summary.operation.split(' ').slice(1).join(' ')}</h1><button className="copy-id" onClick={copy} title="Скопировать Trace ID"><span className="mono">{shortId(trace.summary.trace_id)}</span><Icon name={copied ? 'check' : 'copy'} size={13}/>{copied && <span>Скопировано</span>}</button></div><div className="lab-actions"><Button icon="download" onClick={onExport}>JSON-отчёт</Button>{onBuild && <Button variant="primary" onClick={onBuild}>Собрать стенд</Button>}</div></div>
-    <div className="trace-summary"><div><span>Входной запрос</span><Badge tone={trace.summary.outcome === 'error' ? 'danger' : trace.summary.outcome === 'ok' ? 'success' : 'neutral'} dot>{trace.summary.http_status ?? 'Неизвестно'}</Badge></div><div><span>Длительность входа</span><strong>{duration(trace.summary.duration_ns)}</strong></div><div><span>Спанов</span><strong>{trace.spans.length}</strong></div><div><span>Сервисов</span><strong>{new Set(trace.spans.map(s => s.service)).size}</strong></div></div>
+    <PageHeader titleClassName="trace-title"
+      title={<>{method && <HttpMethod method={method}/>}<span>{endpoint}</span></>}
+      context={<BackToTraces/>}
+      detail={<div className="trace-header-meta">
+        <div><span>Сервис</span><strong>{summary.service}</strong></div>
+        <div>
+          <span>Trace ID</span>
+          <CopyId key={summary.trace_id} label="Trace ID" value={summary.trace_id}/>
+        </div>
+      </div>}
+      actions={<><Button icon="download" onClick={onExport}>JSON-отчёт</Button>
+        {onBuild && <Button variant="primary" onClick={onBuild}>Собрать стенд</Button>}</>}/>
+    <Metrics items={[
+      { label: summary.http_status === null ? 'Результат' : httpCodeLabel,
+        value: summary.http_status === null ? outcomeLabels[summary.outcome] : <HttpStatus code={summary.http_status}/>,
+        tone: summary.http_status !== null ? 'neutral' : summary.outcome === 'error' ? 'danger' : summary.outcome === 'ok' ? 'success' : 'neutral' },
+      { label: 'Длительность', value: duration(summary.duration_ns),
+        info: 'Время выполнения входного запроса, включая ожидание дочерних вызовов.' },
+      { label: 'Спаны', value: spans.length, info: 'Спан описывает отдельную операцию внутри трейса.' },
+      { label: 'Сервисы', value: services.length },
+    ]}/>
+
     {trace.quality_issues.map(issue => <Message tone="warning" key={issue}>{issue}</Message>)}
-    <div className="tabs" role="tablist" aria-label="Раздел трассы"><button role="tab" id="timeline-tab" aria-controls="timeline-panel" aria-selected={tab === 'timeline'} onClick={() => setTab('timeline')}>Выполнение</button><button role="tab" id="audit-tab" aria-controls="audit-panel" aria-selected={tab === 'audit'} onClick={() => setTab('audit')}>Аудит {findings.length > 0 && <span>{findings.length}</span>}</button><button role="tab" id="whatif-tab" aria-controls="whatif-panel" aria-selected={tab === 'whatif'} onClick={() => setTab('whatif')}>Что если</button></div>
-    {tab === 'whatif' ? <div role="tabpanel" id="whatif-panel" aria-labelledby="whatif-tab"><WhatIf trace={trace}/></div> : tab === 'timeline' ? <div id="timeline-panel" role="tabpanel" aria-labelledby="timeline-tab"><div className="timeline-layout"><Panel className="waterfall" title="Цепочка вызовов" meta={<div className="lab-actions"><Button variant="ghost" onClick={() => setCollapsed(new Set())}>Развернуть всё</Button>
-      <MetricInfo label="Как читать шкалу трассы">Спан — интервал отдельной операции. Полоса показывает его длительность, включая ожидание. Длительности спанов могут перекрываться.</MetricInfo></div>}><div className="timeline-scroll"><div className="timeline-canvas"><div className="timeline-head"><span>Сервис / операция</span><div className="timeline-ruler">{[0, .25, .5, .75, 1].map((v, i) => <span key={v} style={{ left: `${v * 100}%`, transform: i === 0 ? 'none' : i === 4 ? 'translateX(-100%)' : 'translateX(-50%)' }}>{Math.round(total * v).toLocaleString('ru-RU')} мс</span>)}</div><span>Время</span></div>{rows.map(({ span: s, depth }) => <div className={`span-row ${selected === s.span_id ? 'is-selected' : ''}`} key={s.span_id}><div className="span-label" style={{ paddingLeft: `${12 + depth * 13}px` }}>{trace.spans.some(ch => ch.parent_span_id === s.span_id) ? <button className={`collapse-button ${collapsed.has(s.span_id) ? '' : 'is-open'}`} aria-label={`${collapsed.has(s.span_id) ? 'Развернуть' : 'Свернуть'} ${s.name}`} onClick={() => toggle(s.span_id)}><Icon name="chevron" size={12}/></button> : <span className="collapse-space"/>}<i style={{ background: serviceColors[s.service] ?? '#96a2ff' }}/><button className="span-select" onClick={() => setSelected(s.span_id)}><strong>{s.service}</strong><span title={s.name}>{s.name}</span></button></div><button className="span-track" aria-label={`Выбрать ${s.service} ${s.name}`} onClick={() => setSelected(s.span_id)}><span className={`span-bar ${s.outcome === 'error' ? 'is-error' : ''}`} style={{ left: `${(ms(s.start_offset_ns) ?? 0) / total * 100}%`, width: `${Math.max(.4, (ms(s.duration_ns) ?? 0) / total * 100)}%`, backgroundColor: serviceColors[s.service] ?? '#96a2ff' }}>{s.outcome === 'error' && <span/>}</span></button><span className="span-duration">{duration(s.duration_ns)}</span></div>)}</div></div><div className="timeline-footer">{[...new Set(trace.spans.map(s => s.service))].map(s => <span key={s}><i style={{ background: serviceColors[s] ?? '#96a2ff' }}/>{s}</span>)}<span className="timeline-note">Наблюдаемые интервалы</span></div></Panel><div className="trace-side"><Panel title="Выбранный спан">{selectedSpan && <div className="inspector"><span className="service-name"><i style={{ background: serviceColors[selectedSpan.service] }}/>{selectedSpan.service}</span><h3>{selectedSpan.name}</h3><dl><div><dt>Длительность</dt><dd>{duration(selectedSpan.duration_ns)}</dd></div><div><dt>Начало от trace</dt><dd>{duration(selectedSpan.start_offset_ns)}</dd></div><div><dt>Тип операции</dt><dd>{selectedSpan.kind.toUpperCase()}</dd></div><div><dt>HTTP-статус</dt><dd>{selectedSpan.http_status ?? 'Не наблюдался'}</dd></div><div><dt>Тип ошибки</dt><dd className={selectedSpan.error_type ? 'text-danger' : ''}>{selectedSpan.error_type ?? 'Не наблюдалась'}</dd></div><div><dt>Span ID</dt><dd className="mono">{shortId(selectedSpan.span_id)}</dd></div></dl></div>}</Panel>{findings.length > 0 && <Panel className="attention-panel"><div className="attention-icon"><Icon name="audit" size={18}/></div><h3>Бюджет не сходится</h3><p>Повторные вызовы из orders в payment могут занять больше времени, чем готов ждать gateway.</p><Button variant="ghost" onClick={() => setTab('audit')}>Посмотреть находку <Icon name="arrow" size={14}/></Button></Panel>}</div></div></div> : <div id="audit-panel" role="tabpanel" aria-labelledby="audit-tab">{findings.length ? findings.map(f => <FindingCard key={f.finding_id} finding={f} onPlan={onPlan} pending={pending}/>) : <Panel><div className="inline-empty"><Icon name="audit"/><h2>В этой трассе нет находок R4</h2><p>Другие правила пока не реализованы. Это не подтверждение исправности всех настроек.</p><a href="#/audit">Посмотреть покрытие правил</a></div></Panel>}</div>}
+    <Tabs label="Разделы трейса" value={tab} onChange={setTab} fullWidth items={[
+      { value: 'timeline', label: 'Выполнение', panelId: 'timeline-panel' },
+      { value: 'audit', label: <>Аудит {findings.length > 0 && <span>{findings.length}</span>}</>, panelId: 'audit-panel' },
+      { value: 'whatif', label: 'Что если', panelId: 'whatif-panel' },
+    ]}/>
+
+    {tab === 'timeline' && <div id="timeline-panel" role="tabpanel" aria-labelledby="timeline-panel-tab">
+      {rows.length ? <div className="timeline-layout">
+        <Panel className="waterfall" title="Цепочка вызовов" meta={<div className="page-actions">
+          {compactSpans.length < spans.length && <Button type="button" variant="ghost" onClick={() => {
+            if (showAllSpans && selected) setSelected(trace.compactable_client_spans?.[selected] ?? selected);
+            setShowAllSpans(!showAllSpans);
+          }}>{showAllSpans ? 'Свернуть пары спанов' : 'Показать все спаны'}</Button>}
+          {collapsed.size > 0 && <Button variant="ghost" onClick={() => setCollapsed(new Set())}>Развернуть всё</Button>}
+          {total > 0 && <div className="timeline-zoom" role="group" aria-label="Масштаб шкалы">
+            <Button type="button" aria-label="Уменьшить масштаб" disabled={zoom === 1}
+              onClick={() => changeZoom(zoom / 2)}>−</Button>
+            <Button type="button" aria-label={`Масштаб ${zoom * 100}%. Сбросить масштаб`} title="Сбросить масштаб"
+              disabled={zoom === 1} onClick={() => changeZoom(1)}>{zoom * 100}%</Button>
+            <Button type="button" aria-label="Увеличить масштаб" disabled={zoom === maxTimelineZoom}
+              onClick={() => changeZoom(zoom * 2)}>+</Button>
+          </div>}
+          <MetricInfo label="Как читать шкалу вызовов">
+            Левый край полосы показывает, когда началась операция относительно начала трейса.
+            Длина полосы показывает, сколько операция длилась.
+            Если полосы перекрываются по времени, операции выполнялись одновременно.
+            {compactSpans.length < spans.length && !showAllSpans && ' Для успешных вызовов с парой спанов показано время обработки на стороне получателя.'}
+          </MetricInfo>
+        </div>}>
+          <div ref={timelineScroll} className="timeline-scroll" tabIndex={0} role="region" aria-label="Шкала вызовов">
+            <div className="timeline-canvas" style={{ '--timeline-zoom-extra': `${zoomExtraWidth}px`, '--timeline-tick-step': `${100 / tickCount}%` } as CSSProperties}>
+              <div className="timeline-head">
+                <span>Сервис / операция</span>
+                <div ref={timelineRuler} className="timeline-ruler">
+                  {axisTicks.map((tick, index) => <span key={tick}
+                    style={{ left: `${tick * 100}%`, transform: index === 0 ? 'none' : tick === 1 ? 'translateX(-100%)' : 'translateX(-50%)' }}>
+                    {axisNumber.format(total * tick * (axisInMicroseconds ? 1000 : 1))} {axisInMicroseconds ? 'мкс' : 'мс'}
+                  </span>)}
+                </div>
+                <span>Длительность</span>
+              </div>
+              {rows.map(({ span, depth }) => {
+                const active = selectedSpan?.span_id === span.span_id;
+                const isOpen = !collapsed.has(span.span_id);
+                const color = colors.get(span.service);
+                return <div className={`span-row${active ? ' is-selected' : ''}`} key={span.span_id}>
+                  <div className="span-label" style={{ paddingInlineStart: `min(${12 + depth * 13}px, 35%)` }}>
+                    {parents.has(span.span_id) ? <button type="button" className={`collapse-button${isOpen ? ' is-open' : ''}`}
+                      aria-expanded={isOpen} aria-label={`${isOpen ? 'Свернуть' : 'Развернуть'} ${span.name}`}
+                      onClick={() => toggle(span.span_id)}><Icon name="chevron" size={12}/></button> : <span className="collapse-space"/>}
+                    <i style={{ background: color }}/>
+                    <button type="button" className="span-select" aria-pressed={active} onClick={() => setSelected(span.span_id)}>
+                      <strong>{span.service}</strong><span title={span.name}><SpanOperation span={span}/></span>
+                    </button>
+                  </div>
+                  <button type="button" className="span-track" tabIndex={-1}
+                    aria-label={`Выбрать ${span.service} ${span.name}`} onClick={() => setSelected(span.span_id)}>
+                    <span className={`span-bar${span.outcome === 'error' ? ' is-error' : ''}`} style={{
+                      left: `${(ms(span.start_offset_ns) ?? 0) / scale * 100}%`,
+                      width: `${Math.max(.4, (ms(span.duration_ns) ?? 0) / scale * 100)}%`,
+                      backgroundColor: color,
+                    }}>{span.outcome === 'error' && <span/>}</span>
+                  </button>
+                  <span className="span-duration">{duration(span.duration_ns)}</span>
+                </div>;
+              })}
+            </div>
+          </div>
+          <div className="timeline-footer">
+            {services.map(service => <span key={service}><i style={{ background: colors.get(service) }}/>{service}</span>)}
+          </div>
+        </Panel>
+        <Panel className="trace-inspector" title="Выбранный спан">
+          {selectedSpan && <div className="inspector">
+            <span className="service-name"><i style={{ background: colors.get(selectedSpan.service) }}/>{selectedSpan.service}</span>
+            <h3><SpanOperation span={selectedSpan}/></h3>
+            <dl>
+              <div><dt>Длительность</dt><dd>{duration(selectedSpan.duration_ns)}</dd></div>
+              <div><dt>Начало от трейса</dt><dd>{duration(selectedSpan.start_offset_ns)}</dd></div>
+              <div><dt>{httpCodeLabel}</dt><dd>{selectedSpan.http_status === null ? 'Не наблюдался' : <HttpStatus code={selectedSpan.http_status}/>}</dd></div>
+              {selectedSpan.error_type && <div><dt>Тип ошибки</dt><dd className="text-danger">{selectedSpan.error_type}</dd></div>}
+              <div><dt>Span ID</dt><dd><CopyId key={selectedSpan.span_id} label="Span ID" value={selectedSpan.span_id}/></dd></div>
+            </dl>
+          </div>}
+        </Panel>
+      </div> : <Message>В этом трейсе нет доступных спанов.</Message>}
+    </div>}
+
+    {tab === 'audit' && <div id="audit-panel" role="tabpanel" aria-labelledby="audit-panel-tab">
+      {auditLoading ? <LoadingState>Загружаем аудит…</LoadingState>
+        : auditError ? <Message tone="danger" action={<RetryButton onClick={onRetryAudit}/>}>{auditError}</Message>
+        : findings.length ? findings.map(finding => <FindingCard key={finding.occurrence_id} finding={finding} onPlan={onPlan} pending={pending}/>)
+        : <Panel><div className="inline-empty">
+          <Icon name="audit"/>
+          <h2>{audit && (demo || trace.finding_occurrence_ids?.length === 0)
+            ? 'Аудит не обнаружил нарушений для этого трейса'
+            : 'Результаты аудита для этой ревизии недоступны'}</h2>
+          <a href="#/audit">Посмотреть покрытие проверок</a>
+        </div></Panel>}
+    </div>}
+
+    {tab === 'whatif' && <div id="whatif-panel" role="tabpanel" aria-labelledby="whatif-panel-tab">
+      <WhatIf trace={trace}/>
+    </div>}
   </>;
 }

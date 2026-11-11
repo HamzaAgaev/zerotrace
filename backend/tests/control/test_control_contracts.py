@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,6 +9,9 @@ from app.control.plans import Plans, ProductError, select_target, validate_chang
 from app.control.store import ControlStore
 from app.integrations import http_config
 from app.integrations.registry import Registry
+from contracts import SourceBinding
+from repository import NormalizedBatch, SpanStore
+from tests.test_repository import make_span
 
 
 def test_source_token_files_are_scoped_by_environment(tmp_path):
@@ -26,34 +30,30 @@ def test_source_token_files_are_scoped_by_environment(tmp_path):
 
 
 def test_ambiguous_service_namespace_disables_control(tmp_path):
-    from types import SimpleNamespace
-
-    class Telemetry:
-        def list_trace_metas(self, _environment):
-            return [SimpleNamespace(trace_ref="example")]
-
-        def get_spans(self, _ref):
-            return [
-                SimpleNamespace(service="orders", namespace=name)
-                for name in ("first", "second")
-            ]
-
-    registry = Registry(
-        {
-            "token_directory": str(tmp_path),
-            "services": [
-                {
+    with SpanStore(tmp_path / "traces.db") as telemetry:
+        registry = Registry(
+            {
+                "token_directory": str(tmp_path),
+                "services": [{
                     "environment_id": "shop",
                     "service_id": "orders",
                     "control_url": "http://orders",
-                }
-            ],
-        },
-        Telemetry(),
-    )
-    with pytest.raises(ProductError) as caught:
-        registry.service("shop", "orders")
-    assert caught.value.code == "ambiguous_service_identity"
+                }],
+            },
+            telemetry,
+        )
+        shop = SourceBinding("src", "project-shop", "shop")
+        sandbox = SourceBinding("src", "project-sandbox", "sandbox")
+        span = make_span("1" * 32, "1" * 16)
+        telemetry.ingest(NormalizedBatch([span]), shop, 1)
+        telemetry.ingest(NormalizedBatch([replace(span, namespace="other")]), sandbox, 2)
+        assert registry.service("shop", "orders")["service_id"] == "orders"
+
+        late = replace(span, span_id="2" * 16, namespace="other")
+        telemetry.ingest(NormalizedBatch([late]), shop, 3)
+        with pytest.raises(ProductError) as caught:
+            registry.service("shop", "orders")
+        assert caught.value.code == "ambiguous_service_identity"
 
 
 def error_code(call, code: str) -> None:

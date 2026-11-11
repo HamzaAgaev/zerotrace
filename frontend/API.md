@@ -44,20 +44,26 @@ HTTP409 не становится demo fallback. На CORS/network/schema error 
 
 | Метод/путь | Владелец | payload |
 |---|---|---|
-| GET /api/v1/traces?environment_id=&limit=100&offset=0 | B | `{items:TraceSummary[],total:number}` |
+| GET /api/v1/traces?environment_id=&method=&span_id=&start_from_ns=&start_to_ns=&limit=100&offset=0 | B | `{items:TraceSummary[],total:number}` |
 | GET /api/v1/traces/{id}?environment_id=&generation=&revision= | B | `TraceDetail` |
 | GET /api/v1/audit?environment_id=&view=full | C | `AuditResult` |
 | GET /api/v1/capabilities?environment_id= | A | `Capabilities` |
 | GET /api/v1/journal?environment_id= | A | `JournalEntry[]` |
 | POST /api/v1/change-plans | A | `ChangePlan` |
 
-JournalEntry использует requested_at и actual_changes, статусы из P6 и verification из P7 либо null до проверки. Коллекция journal необходима экрану истории; клиент отслеживает операции через `GET /api/v1/journal/{id}`. Список первого среза загружает первые100 и фильтрует/пагинирует локально. Если total>100, интерфейс сообщает, что загружена часть. Полный server search/cursor — следующий этап.
+Фронтенд ждёт каждый запрос до 5 секунд. Первое чтение списка, карточки и выборки графа использует `include_findings=false`. Телеметрия доступна до получения аудита. Список и карточка догружают данные аудита отдельно и применяют их по точному TraceRef. В ответе без аудита `finding_count: 0` — значение для совместимости схемы. На его основании не показывается отсутствие проблем.
+
+Аудит запрашивается с `defer=true`. На `202` фронтенд читает `job_id` и опрашивает тот же маршрут примерно раз в 750 мс до получения `200` с AuditResult. Лимит ожидания 5 секунд применяется к отдельному запросу, весь цикл может занять до 45 секунд. Переход отменяет опрос по AbortSignal.
+
+JournalEntry использует requested_at и actual_changes, статусы из P6 и verification из P7 либо null до проверки. Коллекция journal необходима экрану истории; клиент отслеживает операции через `GET /api/v1/journal/{id}`. Главный список передаёт в API `query`, `service`, `status`, `method`, `span_id`, `start_from_ns`, `start_to_ns`, `sort` (recent или slow), `limit` и `offset`. API фильтрует и сортирует до пагинации. Запрос с сортировкой или фильтрами также возвращает `services`, `methods` и счётчики `outcomes` по найденной выборке. Граф и сравнение групп используют выборку до 100 трасс.
 
 ### Для Михаила (B)
 
-TraceSummary: trace_ref, trace_id, operation, service, start_ns, duration_ns, span_count, service_count, outcome(ok/error/unknown), http_status:number|null, finding_count, quality_issues:string[].
+Фильтр `method` сопоставляет HTTP-метод входного запроса без учёта регистра и применяется вместе с текстовым поиском. Список показывает метод и эндпоинт в отдельных колонках. `span_id` ищет точный Span ID в текущей ревизии, а `start_from_ns` и `start_to_ns` ограничивают время начала Trace полуоткрытым интервалом в наносекундах UTC.
 
-TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},spans,quality_issues,finding_occurrence_ids}`. Карточка выбирает находки по полному списку `finding_occurrence_ids` выбранной ревизии. Span содержит span_id,parent_span_id|null,service,name,kind(server/client/internal),start_offset_ns,duration_ns,outcome,http_status|null,error_type|null. `start_offset_ns` считается для выбранной шкалы на сервере/adapter; frontend не вычитает timestamps разных clocks. Готовность модели и clock quality остаются у B/C.
+TraceSummary: trace_ref, trace_id, operation, http_method (строка или null), endpoint, service, start_ns, duration_ns, span_count, service_count, outcome(ok/error/unknown), http_status:number|null, finding_count, quality_issues:string[].
+
+TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},spans,quality_issues,finding_occurrence_ids}`. Карточка выбирает находки по полному списку `finding_occurrence_ids` выбранной ревизии. Span содержит span_id,parent_span_id|null,service,name,start_offset_ns,duration_ns,outcome,http_status|null,error_type|null. По умолчанию ответ включает `kind` (server/client/internal) для анализа зависимостей. Карточка запрашивает `include_span_kind=false` и исключает `kind` из JSON-отчёта. `start_offset_ns` считается для выбранной шкалы на сервере/adapter; frontend не вычитает timestamps разных clocks. Готовность модели и clock quality остаются у B/C.
 
 У клиентского спана может быть строковое поле `target` с наблюдаемым адресатом вызова, например `payment` из `server.address`. Если серверный спан не найден, граф показывает отдельный узел адресата. Время ответа сервиса рассчитывается по его серверным спанам.
 

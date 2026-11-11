@@ -11,6 +11,7 @@ from app.data_api import (
     get_trace,
     list_traces,
 )
+from app.data_api.views import trace_detail
 from contracts import TraceRef, TraceSummary
 from contracts.p2 import NormalizedSpan, Quality, TraceGraph
 from contracts.p7 import SpanView, TraceDetail
@@ -75,6 +76,10 @@ class StubStore:
             if key not in latest or ref.revision > latest[key].trace_ref.revision:
                 latest[key] = graph
         return [self._meta(g) for g in latest.values()]
+
+    def trace_refs_for_span(self, environment_id: str, span_id: str) -> set[TraceRef]:
+        return {meta.trace_ref for meta in self.list_traces(environment_id)
+                if any(span.span_id == span_id for span in self._graphs[meta.trace_ref].spans)}
 
     def get_trace_meta(
         self,
@@ -283,6 +288,23 @@ def test_get_trace_detail_spans_and_offsets() -> None:
         assert SpanView.from_dict(raw_span).span_id
 
 
+def test_only_successful_client_with_one_server_child_can_be_hidden() -> None:
+    source = make_store().get_spans(TraceRef("shop", "a" * 32, 1, 1))
+    assert source is not None
+    root, original_client = source
+    client = dataclasses.replace(original_client, http_status=200, otel_status="unset")
+    server = dataclasses.replace(
+        root, span_id="f" * 16, parent_span_id=client.span_id, service="payment",
+    )
+    ref = TraceRef("shop", "a" * 32, 1, 1)
+    detail = trace_detail(stub_build_graph([root, client, server], ref))
+    assert detail.compactable_client_spans == {client.span_id: server.span_id}
+    assert len(detail.spans) == 3
+    failed = dataclasses.replace(client, otel_status="error")
+    assert trace_detail(stub_build_graph([root, failed, server], ref)).compactable_client_spans is None
+    assert trace_detail(stub_build_graph([root, client], ref)).compactable_client_spans is None
+
+
 def test_get_trace_error_outcome_from_root_server_span() -> None:
     store = make_store()
     result = get_trace(
@@ -398,3 +420,21 @@ def test_quality_issue_codes_multiple_roots_and_cross_clock() -> None:
     (item,) = result["payload"]["items"]
     assert "multiple_roots" in item["quality_issues"]
     assert "cross_clock_uncertain" in item["quality_issues"]
+
+
+def test_list_search_filters_before_pagination() -> None:
+    base = load_graph("s00_healthy")
+    other = rekey_graph(base, "cccccccccccccccccccccccccccccccc", shift_ns=-1_000_000)
+    store = StubStore([base, other])
+
+    page = list_traces(
+        store, "shop", limit=1, query=other.trace_ref.trace_id.upper(),
+        sort="recent", graph_builder=stub_build_graph,
+    )
+
+    assert not isinstance(page, ApiError)
+    payload = page["payload"]
+    assert [item["trace_id"] for item in payload["items"]] == [other.trace_ref.trace_id]
+    assert payload["total"] == 1
+    assert sum(payload["outcomes"].values()) == 1
+    assert payload["items"][0]["service"] in payload["services"]

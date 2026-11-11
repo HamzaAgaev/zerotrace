@@ -21,7 +21,46 @@ const paths: Record<IconName, ReactNode> = {
 };
 export function Icon({ name, size = 18, className = '' }: { name: IconName; size?: number; className?: string }) { return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>; }
 export function Button({ children, variant = 'secondary', icon, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost'; icon?: IconName }) { return <button className={`button button--${variant} ${className}`} {...props}>{icon && <Icon name={icon} size={16}/>} {children}</button>; }
+export function RetryButton({ onClick }: Pick<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>) {
+  return <Button type="button" className="button--retry" icon="refresh" onClick={onClick}>Повторить</Button>;
+}
 export function Badge({ children, tone = 'neutral', dot = false }: { children: ReactNode; tone?: Tone; dot?: boolean }) { return <span className={`badge badge--${tone}`}>{dot && <i/>}{children}</span>; }
 export function Panel({ title, meta, children, className = '' }: { title?: ReactNode; meta?: ReactNode; children: ReactNode; className?: string }) { return <section className={`panel ${className}`}>{title && <div className="panel-heading"><h2>{title}</h2>{meta}</div>}{children}</section>; }
 export function EmptyState({ title, description, action, icon = 'search' }: { title: string; description: string; action?: ReactNode; icon?: IconName }) { return <div className="empty-state"><div className="empty-icon"><Icon name={icon} size={24}/></div><h2>{title}</h2><p>{description}</p>{action}</div>; }
-export function Message({ children, tone = 'neutral', action }: { children: ReactNode; tone?: 'neutral' | 'warning' | 'danger'; action?: ReactNode }) { return <div className={`message message--${tone}`} role={tone === 'danger' ? 'alert' : 'status'}><Icon name="info" size={17}/><div>{children}</div>{action}</div>; }
+export function Message({ children, tone = 'neutral', action }: { children: ReactNode; tone?: 'neutral' | 'warning' | 'danger'; action?: ReactNode }) {
+  return <div className={`message message--${tone}`} role={tone === 'danger' ? 'alert' : 'status'}>
+    <Icon name="info" size={17}/>
+    <div className="message-body">{children}</div>
+    {action && <div className="message-actions">{action}</div>}
+  </div>;
+}
+
+
+export function PageHeader({ title, actions, context, detail, titleClassName }: {
+  title: ReactNode;
+  actions?: ReactNode;
+  context?: ReactNode;
+  detail?: ReactNode;
+  titleClassName?: string;
+}) {
+  return <header className="page-title">
+    <div>
+      {context && <div className="eyebrow">{context}</div>}
+      <h1 className={titleClassName}>{title}</h1>
+      {detail}
+    </div>
+    {actions && <div className="page-actions">{actions}</div>}
+  </header>;
+}
+
+export function TableScroll({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`table-scroll ${className}`}>{children}</div>;
+}
+
+export function LoadingState({ children }: { children: ReactNode }) {
+  return <div className="loading-state" role="status"><span className="spinner" aria-hidden="true"/>{children}</div>;
+}
+
+export function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return <label><span>{label}</span>{children}</label>;
+}

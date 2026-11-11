@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from concurrent.futures import Future
 from threading import Lock
 
 import comparison
@@ -36,6 +37,9 @@ class AnalyticsService:
         self.results = results
         self._findings_cache = OrderedDict()
         self._findings_lock = Lock()
+        self._audit_cache = OrderedDict()
+        self._audit_pending = {}
+        self._audit_lock = Lock()
 
     def findings_by_trace(self, view, environment_id):
         """Index occurrences by exact revision, including traces beyond the exemplar limit."""
@@ -46,7 +50,7 @@ class AnalyticsService:
                 if index is not None:
                     self._findings_cache.move_to_end(cache_key)
                     return index
-        _, audit = self._audit(view, environment_id)
+        audit = self._audit_result(view, environment_id, cache_key=cache_key)
         index = {ref_key(row["trace_ref"]): tuple(row["occurrence_ids"]) for row in audit["trace_findings"]}
         if cache_key is not None:
             with self._findings_lock:
@@ -83,7 +87,38 @@ class AnalyticsService:
 
     def audit(self, environment_id, mode=None):
         with self.source.read() as view:
+            key = view.audit_cache_key(environment_id) if hasattr(view, "audit_cache_key") else None
+            return self._audit_result(view, environment_id, mode, cache_key=key)
+
+    def _audit_result(self, view, environment_id, mode=None, *, cache_key):
+        if cache_key is None:
             return self._audit(view, environment_id, mode)[1]
+        key = (cache_key, mode)
+        with self._audit_lock:
+            if key in self._audit_cache:
+                self._audit_cache.move_to_end(key)
+                return self._audit_cache[key]
+            pending = self._audit_pending.get(key)
+            owner = pending is None
+            if owner:
+                pending = self._audit_pending[key] = Future()
+        if not owner:
+            return pending.result()
+        try:
+            result = self._audit(view, environment_id, mode)[1]
+        except BaseException as exc:
+            pending.set_exception(exc)
+            raise
+        else:
+            with self._audit_lock:
+                self._audit_cache[key] = result
+                if len(self._audit_cache) > 4:
+                    self._audit_cache.popitem(last=False)
+            pending.set_result(result)
+            return result
+        finally:
+            with self._audit_lock:
+                self._audit_pending.pop(key, None)
 
     def recommendation(self, environment_id, occurrence_id, recommendation_id):
         return self.results.get("recommendation", digest([environment_id, occurrence_id, recommendation_id]))

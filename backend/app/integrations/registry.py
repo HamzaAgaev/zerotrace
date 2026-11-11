@@ -75,20 +75,18 @@ class Registry:
         with self.lock:
             value = self.services.get((environment, service_id))
             result = dict(value) if value else None
-        if result and result.get("control_url") and self.telemetry is not None:
-            namespaces = {
-                span.namespace
-                for meta in self.telemetry.list_trace_metas(environment)
-                for span in self.telemetry.get_spans(meta.trace_ref) or []
-                if span.service == service_id
-            }
-            if len(namespaces) > 1:
-                raise ProductError(
-                    409,
-                    "ambiguous_service_identity",
-                    "В окружении несколько namespaces с этим именем сервиса. "
-                    "Управление неоднозначно.",
-                )
+        if (
+            result
+            and result.get("control_url")
+            and self.telemetry is not None
+            and self.telemetry.has_ambiguous_service_namespace(environment, service_id)
+        ):
+            raise ProductError(
+                409,
+                "ambiguous_service_identity",
+                "В окружении несколько namespaces с этим именем сервиса. "
+                "Управление неоднозначно.",
+            )
         return result
 
     @staticmethod

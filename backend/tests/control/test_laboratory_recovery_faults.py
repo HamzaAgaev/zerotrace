@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import subprocess
 import threading
 from types import SimpleNamespace
 
@@ -221,3 +222,50 @@ def test_startup_finalizes_waiting_samples_after_verified_shutdown(
     recovered = records.get("run", "run-old")
     assert recovered["trace_collection"]["status"] == "partial"
     assert events[-1] == ("finalize", "run-old")
+
+
+def test_stop_retries_after_unconfirmed_process_exit():
+    lab = ready_laboratory({}, [])
+    del lab.guard_edit
+    removed = []
+    lab.registry = SimpleNamespace(remove_lab=lambda: removed.append(True))
+
+    class Process:
+        can_exit = False
+        exit_code = None
+
+        def poll(self):
+            return self.exit_code
+
+        def wait(self, timeout):
+            if not self.can_exit:
+                raise subprocess.TimeoutExpired("stand-service", timeout)
+            self.exit_code = 0
+            return self.exit_code
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+    process = Process()
+    lab.processes = {"payment": process}
+    with pytest.raises(ProductError) as first_stop:
+        lab.stop("stand-test")
+    assert (first_stop.value.status, first_stop.value.code) == (503, "stand_stop_unconfirmed")
+    assert lab.active()["status"] == "stopping"
+    assert lab.records.get("lab", "active")["status"] == "stopping"
+    assert not removed
+    with pytest.raises(ProductError) as edit:
+        lab.guard_edit()
+    assert (edit.value.status, edit.value.code) == (409, "stand_stopping")
+    with pytest.raises(ProductError) as wrong_id:
+        lab.stop("other-stand")
+    assert wrong_id.value.status == 404
+
+    process.can_exit = True
+    stopped = lab.stop("stand-test")
+    assert stopped["status"] == "stopped"
+    assert lab.stop("stand-test") == stopped
+    assert lab.active() is None and removed == [True]

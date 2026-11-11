@@ -58,9 +58,13 @@ class Laboratory:
     def _save(self):
         self.records.put("lab", "active", self.stand)
 
-    def _require(self, stand_id=None):
+    def _require(self, stand_id=None, *, allow_stopping=False):
         if not self.stand or (stand_id and self.stand["stand_id"] != stand_id):
             raise ProductError(404, "stand_not_found", "Стенд не запущен.")
+        if self.stand["status"] == "stopping":
+            if allow_stopping:
+                return
+            raise ProductError(409, "stand_stopping", "Стенд останавливается.")
         if self.stand["status"] != "ready":
             raise ProductError(409, "stand_not_ready", "Стенд ещё не готов.")
 
@@ -757,16 +761,19 @@ class Laboratory:
                     and previous["status"] == "stopped"
                 ):
                     return self._stopped_view(previous)
-            self._require(stand_id)
-            self.guard_edit()
-            for run in self.records.items("run"):
-                if (
-                    run["stand_id"] == stand_id
-                    and self.get_run(run["run_id"])["trace_collection"]["status"] == "waiting"
-                ):
-                    raise ProductError(409, "traces_pending", "Ожидаем телеметрию прогона.")
-            with suppress(ProductError):
-                self.stand["config_snapshots"] = self._snapshots()
+            self._require(stand_id, allow_stopping=True)
+            if self.stand["status"] == "ready":
+                self.guard_edit()
+                for run in self.records.items("run"):
+                    if run["stand_id"] != stand_id:
+                        continue
+                    if self.get_run(run["run_id"])["trace_collection"]["status"] == "waiting":
+                        raise ProductError(
+                            409, "traces_pending", "Ожидаем телеметрию прогона.",
+                            {"run_id": run["run_id"]},
+                        )
+                with suppress(ProductError):
+                    self.stand["config_snapshots"] = self._snapshots()
             stopped = copy.deepcopy(self.stand)
             self._cleanup()
             return self._stopped_view(stopped)
@@ -788,6 +795,8 @@ class Laboratory:
 
         def finish(item):
             name, process = item
+            if process.poll() is not None:
+                return
             service = services.get(name)
             if service:
                 with suppress(ProductError):
@@ -803,8 +812,14 @@ class Laboratory:
                     process.wait(timeout=1)
 
         if self.processes:
-            with ThreadPoolExecutor(max_workers=min(32, len(self.processes))) as pool:
-                list(pool.map(finish, list(self.processes.items())))
+            try:
+                with ThreadPoolExecutor(max_workers=min(32, len(self.processes))) as pool:
+                    list(pool.map(finish, self.processes.items()))
+            except (subprocess.TimeoutExpired, OSError) as error:
+                raise ProductError(
+                    503, "stand_stop_unconfirmed",
+                    "Не удалось подтвердить остановку стенда. Повторите остановку.",
+                ) from error
         self.processes.clear()
         if self.stand:
             self.stand["status"] = "stopped"
