@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filterTraces, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
+import { filterTraces, findingsForTrace, ms, duration, readRoute, timelineRows, traceHref } from '../src/lib.js';
 import { demoDetail, demoFinding, demoTraces, demoAudit } from '../src/api/fixtures.js';
 import { ApiError, createClient, normalizeBaseUrl, unwrap, validatePayload } from '../src/api/client.js';
 const envelope = (payload: unknown) => ({ schema: 'test', schema_version: '1.0.0', producer_version: 'test', generated_at: '2026-11-10T00:00:00Z', payload });
@@ -47,4 +47,21 @@ test('exact trace links preserve environment and revision and reject mismatched 
   assert.equal(new URL(requested, 'http://localhost').searchParams.get('environment_id'), ref.environment_id);
   await assert.rejects(client.getTrace({ ...ref, revision: ref.revision + 1 }),
     (e: unknown) => e instanceof ApiError && e.code === 'trace_ref_mismatch');
+});
+
+test('trace membership uses exact occurrence IDs even outside the exemplars', () => {
+  const trace = demoDetail(demoTraces[0].trace_id);
+  const finding = { ...demoFinding, exemplars: [] };
+  assert.deepEqual(findingsForTrace({ ...trace, finding_occurrence_ids: [finding.occurrence_id] }, [finding]), [finding]);
+  assert.deepEqual(findingsForTrace({ ...trace, finding_occurrence_ids: [] }, [demoFinding]), []);
+  assert.throws(() => validatePayload('trace', { ...trace, finding_occurrence_ids: [42] }), ApiError);
+});
+
+test('the live client requests and accepts full config-aware policy observations', async () => {
+  const audit = { ...demoAudit, findings: [{ ...demoFinding, evidence: { kind: 'policy_observation', source: 'runtime' } }] };
+  const client = createClient({ mode: 'live', baseUrl: '' }, async input => {
+    assert.equal(new URL(String(input), 'http://localhost').searchParams.get('view'), 'full');
+    return new Response(JSON.stringify(envelope(audit)));
+  });
+  assert.deepEqual(await client.getAudit(), audit);
 });

@@ -8,7 +8,7 @@ from math import isfinite
 from analytics_support import digest  # noqa: F401 -- public helper re-exports
 from analytics_support import ref_key as refkey  # noqa: F401 -- public helper re-export
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 MAX_NS = (1 << 63) - 1
 
 

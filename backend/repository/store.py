@@ -101,6 +101,18 @@ def _canonical_payload(span: NormalizedSpan) -> str:
     return json.dumps(span.to_dict(), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _same_span_payload(stored: str, incoming: str) -> bool:
+    if stored == incoming:
+        return True
+    original: dict[str, Any] = json.loads(stored)
+    # Pre-P11 rows could not record laboratory labels. Compare all fields the
+    # older serializer retained, without modifying the live or frozen payload.
+    lab_fields = {"run_id", "probe", "call_ref", "logical_call_id", "attempt_index"}
+    if lab_fields.isdisjoint(original):
+        return original == {k: v for k, v in json.loads(incoming).items() if k not in lab_fields}
+    return False
+
+
 class SpanStore:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
@@ -226,7 +238,7 @@ class SpanStore:
             if existing is None:
                 self._insert_span(binding, trace_id, generation, span, payload, received_at_ns)
                 inserted += 1
-            elif existing[0] != payload:
+            elif not _same_span_payload(existing[0], payload):
                 diagnostics.append(
                     QualityIssue(
                         code="conflicting_span",

@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import type { AuditResult, Finding, TraceDetail as TraceDetailData } from '../api/types';
 import { Badge, Button, Icon, Message, Panel } from '../components/ui';
-import { duration, ms, serviceColors, shortId, timelineRows } from '../lib';
+import { duration, findingsForTrace, ms, serviceColors, shortId, timelineRows } from '../lib';
 import { MetricInfo } from '../components/Metrics';
 import { WhatIf } from '../components/WhatIf';
 import { FindingCard } from './Audit';
 export function TraceDetail({ trace, audit, onPlan, pending, onExport, onBuild }: { trace: TraceDetailData; audit: AuditResult | null; onPlan: (f: Finding) => void; pending: boolean; onExport: () => void; onBuild?: () => void }) {
   const [tab, setTab] = useState('timeline'); const [selected, setSelected] = useState(trace.spans[0]?.span_id); const [collapsed, setCollapsed] = useState<Set<string>>(new Set()); const [copied, setCopied] = useState(false);
-  const findings = audit?.findings.filter(f => f.exemplars.some(ref => ref.trace_id === trace.trace_ref.trace_id && ref.environment_id === trace.trace_ref.environment_id && ref.generation === trace.trace_ref.generation && ref.revision === trace.trace_ref.revision)) ?? [];
+  const findings = findingsForTrace(trace, audit?.findings ?? []);
   const selectedSpan = trace.spans.find(s => s.span_id === selected);
   const rows = useMemo(() => { const all = timelineRows(trace.spans); const hidden = new Set<string>(); return all.filter(({ span }) => { if (span.parent_span_id && (collapsed.has(span.parent_span_id) || hidden.has(span.parent_span_id))) { hidden.add(span.span_id); return false; } return true; }); }, [trace.spans, collapsed]);
   const total = Math.max(1, ...trace.spans.map(s => (ms(s.start_offset_ns) ?? 0) + (ms(s.duration_ns) ?? 0)));

@@ -202,6 +202,8 @@ def test_real_trace_and_atomic_plan(live):
 
 def test_fault_runs_and_measured_comparison(live):
     base, _, stand_id = live
+    # Isolate retries at orders → payment, even when this test runs on a fresh stand.
+    change(base, "gateway", "orders-create", max_attempts=1)
     stand = value(requests.get(base + "/api/v1/lab/stands/active"))
     fault = {
         "service_id": "payment",

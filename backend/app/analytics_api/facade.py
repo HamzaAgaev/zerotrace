@@ -6,7 +6,8 @@ configuration revisions.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
+from contextlib import contextmanager
 from copy import deepcopy
 from threading import RLock
 
@@ -40,143 +41,121 @@ def _records_snapshot(records: object) -> dict:
                     result[row["environment_id"]] = row
             return result
         environments, runs = rows("environment"), rows("run")
+        for operation in items("operation"):
+            environment = environments.setdefault(operation["environment_id"], {})
+            summary = environment.setdefault("journal_summary", [])
+            summary.append({key: operation.get(key) for key in
+                            ("operation_id", "status", "requested_at", "verification")})
         return {"environments": environments, "runs": runs}
     return {"environments": {}, "runs": {}}
 
 
 class AnalyticsFacade:
     def __init__(self, telemetry_spanstore, control_records: object,
-                 *, results: ResultStore | None = None):
+                 *, results: ResultStore | None = None, environments=()):
         self._control_records = control_records
+        self._environments = {row["environment_id"]: row.get("kind") for row in environments}
         self.source = RepositorySource(telemetry_spanstore, control_snapshot=self._snapshot)
         self.results = results or LocalResultStore()
         self.service = AnalyticsService(self.source, self.results)
         self._lock = RLock()
 
     def _snapshot(self) -> dict:
-        return _records_snapshot(self._control_records)
-
-    def _with_configs(self, environment_id: str, configs: Mapping | None, edges=None) -> Callable[[], dict]:
-        supplied = deepcopy(dict(configs or {}))
-        def snapshot():
-            control = self._snapshot()
-            environments = control.setdefault("environments", {})
-            env = environments.setdefault(environment_id, {})
-            if supplied:
-                # Rules consume normalised policies.  Keep raw product configs as
-                # evidence too; A remains the authority for revisions.
-                env["policies"] = _policies(supplied, environment_id, edges or {})
-                env["config_snapshots"] = supplied
-                env["environment_kind"] = "lab" if all(config.get("is_lab") for config in supplied.values()) else "external"
-            return control
+        snapshot = _records_snapshot(self._control_records)
+        for environment_id, kind in self._environments.items():
+            settings = snapshot.setdefault("environments", {}).setdefault(environment_id, {})
+            if kind is not None:
+                settings["environment_kind"] = kind
         return snapshot
 
+    @contextmanager
+    def configured(self, environment_id=None, configs=None):
+        with self._lock, self.source.pin() as view:
+            if configs:
+                edges = view.environment(environment_id)["model"]["edges"]
+                settings = view.control.setdefault("environments", {}).setdefault(environment_id, {})
+                settings["policies"] = _policies(configs, environment_id, edges)
+                settings["config_snapshots"] = configs
+                settings.setdefault("environment_kind",
+                                    "lab" if all(row.get("is_lab") for row in configs.values()) else "external")
+            yield self.service
+
     def audit(self, environment_id: str, configs_dict: Mapping | None = None):
-        with self._lock:
-            with self.source.read() as view:
-                edges = view.environment(environment_id)["model"].get("edges", {})
-            old = self.source.control_snapshot
-            self.source.control_snapshot = self._with_configs(environment_id, configs_dict, edges)
-            try:
-                return self.service.audit(environment_id)
-            finally:
-                self.source.control_snapshot = old
+        with self.configured(environment_id, configs_dict) as service:
+            return service.audit(environment_id)
 
     def resolve_recommendation(self, environment_id: str, occurrence_id: str,
                                recommendation_id: str, configs_dict: Mapping | None = None):
-        self.audit(environment_id, configs_dict)
+        current = self.audit(environment_id, configs_dict)
         record = self.service.recommendation(environment_id, occurrence_id, recommendation_id)
         recommendation = record["recommendation"]
         intents = recommendation.get("intents", [])
         if len(intents) != 1 or not isinstance(intents[0], dict):
             raise AnalyticsError("invalid_recommendation", "Recommendation has no trusted apply intent", 409)
-        return intents[0]
+        # More telemetry can change occurrence IDs without changing the policy or the action.
+        intent = {k: v for k, v in intents[0].items() if k != "reason_ref"}
+        for finding in current["findings"]:
+            if finding["finding_id"] != record["finding_id"]:
+                continue
+            if (finding["occurrence_id"] != occurrence_id
+                    and record.get("evidence_hash") != digest(finding["evidence"])):
+                break
+            for candidate in finding["recommendations"]:
+                actions = candidate["intents"]
+                if len(actions) == 1 and {k: v for k, v in actions[0].items() if k != "reason_ref"} == intent:
+                    return intents[0]
+        raise AnalyticsError("stale_recommendation", "The current audit no longer supports this change", 409)
 
     def compare_runs(self, run_left: Mapping, run_right: Mapping):
         # A passes frozen trace refs in these run records. Inject them only for
         # this calculation so comparison can never drift to a live trace set.
-        with self._lock:
-            old = self.source.control_snapshot
-            left, right = _comparison_pair(run_left, run_right)
-            call_refs_by_edge = {}
-            edges_by_run = {}
-            with self.source.read() as view:
-                for run in (left, right):
-                    run_edges = {}
-                    for ref in run["trace_collection"]["trace_refs"]:
-                        run_edges.update(view.trace(ref)["edges"])
-                    edges_by_run[run["run_id"]] = run_edges
-                    call_refs_by_edge[run["run_id"]] = {}
-                    product = run.get("config_snapshots", {}).get(
-                        run.get("config_snapshot", {}).get("service_id"))
-                    if product is None:
-                        continue
-                    calls = {call["call_ref"]: call for call in product.get("calls", [])}
-                    candidates = {}
-                    # Bind only when the exact configured owner/target/operation
-                    # identifies one call and one observed B edge in this run.
-                    for call_ref, call in calls.items():
-                        matches = [edge_id for edge_id, label in run_edges.items()
-                                   if _matches_call(label, product, call)]
-                        for edge_id in matches:
-                            candidates.setdefault(edge_id, []).append(call_ref)
-                    call_refs_by_edge[run["run_id"]] = {
-                        edge_id: refs[0] for edge_id, refs in candidates.items() if len(refs) == 1
-                    }
-            for run in (left, right):
-                snapshot = run["config_snapshot"]
-                product = run.get("config_snapshots", {}).get(snapshot["service_id"])
-                if product is None:
-                    continue
-                calls = {call["call_ref"]: call for call in product.get("calls", [])}
-                for row in snapshot["edges"]:
-                    call = calls[row["call_ref"]]
-                    matches = [edge_id for edge_id, label in edges_by_run[run["run_id"]].items()
-                               if _matches_call(label, product, call)]
-                    if (len(matches) == 1 and
-                            call_refs_by_edge.get(run["run_id"], {}).get(matches[0]) == row["call_ref"]):
-                        row["edge_id"] = matches[0]
-                run["analytics_call_refs_by_edge"] = call_refs_by_edge.get(run["run_id"], {})
-            def snapshot():
-                control = self._snapshot()
-                control.setdefault("runs", {}).update({left["run_id"]: left, right["run_id"]: right})
-                return control
-            self.source.control_snapshot = snapshot
-            try:
-                return self.service.compare({"baseline_run_id": left["run_id"], "candidate_run_id": right["run_id"]})
-            finally:
-                self.source.control_snapshot = old
+        left, right = _comparison_pair(run_left, run_right)
+        with self._lock, self.source.pin() as view:
+            view.control.setdefault("runs", {}).update({left["run_id"]: left, right["run_id"]: right})
+            return self.service.compare({"baseline_run_id": left["run_id"], "candidate_run_id": right["run_id"]})
 
     def report(self, environment_id: str, configs_dict: Mapping | None = None):
-        with self._lock:
-            with self.source.read() as view:
-                edges = view.environment(environment_id)["model"].get("edges", {})
-            old = self.source.control_snapshot
-            self.source.control_snapshot = self._with_configs(environment_id, configs_dict, edges)
-            try:
-                return self.service.report(environment_id)
-            finally:
-                self.source.control_snapshot = old
+        with self.configured(environment_id, configs_dict) as service:
+            return service.report(environment_id)
 
 
 def _policies(configs: Mapping, environment_id: str, edges: Mapping) -> list[dict]:
     """Translate product P4 configs to C's explicitly sourced edge-policy input."""
     policies = []
+    identities = {}
+    for label in edges.values():
+        for service in (label.get("caller"), label.get("callee")):
+            if isinstance(service, Mapping):
+                identities.setdefault(service["service_name"], set()).add(
+                    (service.get("project_id"), service.get("namespace")))
     for service_id, config in configs.items():
         revision = config.get("revision") or config.get("config_revision")
+        if (config.get("environment_id", environment_id) != environment_id
+                or config.get("service_id") != service_id):
+            continue
         for call in config.get("calls", []):
             target = call.get("target", {})
             for edge_id, label in edges.items():
                 if not _matches_call(label, config, call):
                     continue
-                budget = (call.get("budget_ms") or call.get("parent_budget_ms")
-                          or _parent_budget_ms(configs, config, label, call))
+                if _ambiguous_scope(config, identities) or _ambiguous_scope(target, identities):
+                    continue
+                parent = _incoming_timeout(configs, config, label, environment_id)
+                budget = call.get("budget_ms")
+                if budget is None:
+                    budget = call.get("parent_budget_ms")
+                uses_parent_budget = budget is None and parent is not None
+                if uses_parent_budget:
+                    budget = parent["timeout_ms"]
                 policies.append({
                     "edge_id": edge_id, "source": "runtime", "execution": "serial",
                     "service_id": config.get("service_id", service_id), "call_ref": call.get("call_ref"),
                     "target": target, "per_attempt_timeout_ns": _ms_to_ns(call.get("timeout_ms")),
                     "max_attempts": call.get("max_attempts"),
                     "budget_ns": _ms_to_ns(budget),
+                    "upstream_per_attempt_timeout_ns": _ms_to_ns(parent["timeout_ms"]) if parent else None,
+                    "upstream_config": parent,
+                    "budget_config": parent if uses_parent_budget else None,
                     "backoff": {"kind": "fixed", "base_ns": _ms_to_ns(call.get("backoff_ms", 0)), "jitter": "none"},
                     "retry_on": list(call.get("retry_on", [])), "config_revision": revision,
                     "environment_id": environment_id,
@@ -193,103 +172,188 @@ def _ms_to_ns(value):
     return None if value is None else int(float(value) * 1_000_000)
 
 
+def _ambiguous_scope(declared, identities):
+    scopes = identities.get(declared["service_id"], ())
+    candidates = [(project, namespace) for project, namespace in scopes
+                  if declared.get("project_id", project) == project
+                  and declared.get("namespace", namespace) == namespace]
+    return len(candidates) > 1
+
+
 def _matches_call(label: Mapping, config: Mapping, call: Mapping) -> bool:
     caller, callee = label.get("caller") or {}, label.get("callee") or {}
     owner, target = config.get("service_id"), call.get("target") or {}
     # P2 represents an unlinked callee as a string. Accept it only when the
     # observed address alias exactly equals the configured service identifier.
-    if not isinstance(caller, Mapping):
+    if not isinstance(caller, Mapping) or not owner or caller.get("service_name") != owner:
         return False
-    if owner and caller.get("service_name") != owner:
+    if any(config.get(k) is not None and config[k] != caller.get(k)
+           for k in ("namespace", "project_id")):
         return False
-    if target.get("service_id"):
-        if isinstance(callee, Mapping):
-            if callee.get("service_name") != target["service_id"]:
-                return False
-        elif callee != target["service_id"]:
+    if config.get("environment_id") is not None and config["environment_id"] != caller.get("environment"):
+        return False
+    if not target.get("service_id") or not target.get("method") or not target.get("route"):
+        return False
+    if isinstance(callee, Mapping):
+        if (callee.get("service_name") != target["service_id"]
+                or any(target.get(k) is not None and target[k] != callee.get(k)
+                       for k in ("namespace", "project_id"))):
             return False
-    method, _, route = (label.get("operation") or "").partition(" ")
-    return (not target.get("method") or method == target["method"]) and (not target.get("route") or route == target["route"])
-
-
-def _parent_budget_ms(configs: Mapping, owner: Mapping, label: Mapping, call: Mapping | None = None):
-    """Use a declared incoming call timeout, never a measured trace duration."""
-    service_id = owner.get("service_id")
-    # If B cannot link the parent SERVER span, the exact P4 route for this
-    # configured outgoing call still identifies the declared parent timeout.
-    configured_routes = (call or {}).get("routes") or [(call or {}).get("route")]
-    fallback = configured_routes[0] if len(configured_routes) == 1 else None
-    operation = label.get("caller_operation") or fallback
-    if operation:
-        method, _, route = operation.partition(" ")
+    elif callee != target["service_id"] or target.get("namespace") is not None or target.get("project_id") is not None:
+        return False
+    # Stand's routes is authoritative. Its singular route is the first display
+    # route for a service-wide call_ref on older snapshots.
+    if "routes" in call:
+        if not isinstance(call["routes"], list) or label.get("caller_operation") not in call["routes"]:
+            return False
     else:
-        method = route = None
+        routes = config.get("routes", [])
+        if isinstance(routes, Mapping):
+            routes = [dict(settings, route=route) for route, settings in routes.items()]
+        if routes and all(isinstance(row.get("calls"), Mapping) for row in routes):
+            if not any(row.get("route") == label.get("caller_operation")
+                       and call.get("call_ref") in row["calls"] for row in routes):
+                return False
+    method, _, route = (label.get("operation") or "").partition(" ")
+    return method == target["method"] and route == target["route"]
+
+
+def _incoming_timeout(configs: Mapping, owner: Mapping, label: Mapping, environment_id: str):
+    """Resolve the one declared incoming call to this observed owner route."""
+    service_id = owner.get("service_id")
+    method, _, route = (label.get("caller_operation") or "").partition(" ")
+    if not method or not route or label.get("mixed_upstream"):
+        return None
+    upstream = label.get("upstream")
     matches = []
     for parent in configs.values():
+        if parent.get("environment_id", environment_id) != environment_id:
+            continue
+        if upstream and (parent.get("service_id") != upstream["caller"]["service_name"]
+                         or any(parent.get(k) is not None and parent[k] != upstream["caller"].get(k)
+                                for k in ("namespace", "project_id"))):
+            continue
         for call in parent.get("calls", []):
+            if upstream and upstream.get("call_ref") and call.get("call_ref") != upstream["call_ref"]:
+                continue
             target = call.get("target") or {}
             if (target.get("service_id") == service_id and
-                    (method is None or not target.get("method") or target["method"] == method) and
-                    (route is None or not target.get("route") or target["route"] == route) and
-                    call.get("timeout_ms") is not None):
-                matches.append(call["timeout_ms"])
-    return matches[0] if len(matches) == 1 else None
+                    target.get("method") == method and target.get("route") == route and
+                    all(target.get(k) is None or target[k] == label["caller"].get(k)
+                        for k in ("namespace", "project_id"))):
+                matches.append({"service_id": parent.get("service_id"), "call_ref": call.get("call_ref"),
+                                "revision": parent.get("revision") or parent.get("config_revision"),
+                                "timeout_ms": call.get("timeout_ms")})
+    if len(matches) == 1 and all(v is not None for v in matches[0].values()):
+        return matches[0]
+    return None
 
 
 def _comparison_pair(left: Mapping, right: Mapping) -> tuple[dict, dict]:
-    """Select the one changed service from A's full immutable snapshots."""
-    left_map, right_map = left.get("config_snapshots", {}), right.get("config_snapshots", {})
-    changed = [key for key in left_map.keys() | right_map.keys()
-               if digest(left_map.get(key)) != digest(right_map.get(key))]
-    if len(changed) == 1:
-        key = changed[0]
-        left = {**left, "comparison_config": left_map.get(key)}
-        right = {**right, "comparison_config": right_map.get(key)}
-    before, after = _comparison_run(left), _comparison_run(right)
-    old = {row["call_ref"]: row for row in before["config_snapshot"]["edges"]}
-    new = {row["call_ref"]: row for row in after["config_snapshot"]["edges"]}
-    differences = [(ref, field) for ref in old.keys() & new.keys()
-                   for field in old[ref].keys() | new[ref].keys()
-                   if old[ref].get(field) != new[ref].get(field)]
-    if len(differences) == 1:
-        call_ref, field = differences[0]
-        after["expected_change"] = {"service_id": after["config_snapshot"]["service_id"],
-                                   "call_ref": call_ref, "field": field,
-                                   "before": old[call_ref].get(field), "after": new[call_ref].get(field)}
+    """Validate A's complete frozen snapshots before selecting a changed call."""
+    from comparison.runs import validate_run_collections
+
+    before, after = dict(left), dict(right)
+    validate_run_collections(before, after)
+    if any(not isinstance(run.get("run_id"), str) or not run["run_id"] for run in (before, after)):
+        raise AnalyticsError("invalid_run", "Missing frozen run ID")
+    if "config_snapshots" in before or "config_snapshots" in after:
+        old, new = (_product_snapshots(run) for run in (before, after))
+        if old.keys() != new.keys():
+            raise AnalyticsError("runs_not_comparable", "Configured services differ")
+        changed = [key for key in old if old[key][0] != new[key][0]]
+        if len(changed) != 1:
+            raise AnalyticsError("runs_not_comparable", "Exactly one service policy must change")
+        service_id = changed[0]
+        before["config_snapshot"] = old[service_id][1]
+        after["config_snapshot"] = new[service_id][1]
+
+    # The comparator checks every setting of this service, including additions
+    # and deletions, and validates any expected change supplied by the caller.
+    if after.get("expected_change") is None:
+        old_calls, new_calls = ({row["call_ref"]: row for row in run.get("config_snapshot", {}).get("edges", [])}
+                                for run in (before, after))
+        differences = [(ref, field) for ref in old_calls.keys() & new_calls.keys()
+                       for field in old_calls[ref].keys() | new_calls[ref].keys()
+                       if old_calls[ref].get(field) != new_calls[ref].get(field)]
+        if len(differences) == 1:
+            ref, field = differences[0]
+            after["expected_change"] = {"service_id": after["config_snapshot"]["service_id"],
+                                        "call_ref": ref, "field": field}
     return before, after
 
 
-def _comparison_run(run: Mapping) -> dict:
-    """Bridge A's multi-service snapshot to C's single changed-call P11 input."""
-    result = dict(run)
-    refs = result.get("trace_refs", [])
-    result.setdefault("trace_collection", {
-        "run_id": result.get("run_id"), "status": "ready",
-        "expected_count": result.get("completed_requests", len(refs)),
-        "received_count": len(refs), "trace_refs": refs,
-    })
-    snapshots = result.get("config_snapshots", {})
-    if "config_snapshot" not in result and snapshots:
-        # The comparison algorithm validates that precisely one addressed P4
-        # field differs.  The common server selects/records that target before
-        # invoking C, so use its supplied comparable snapshot when available.
-        chosen = result.get("comparison_config")
-        result["config_snapshot"] = _legacy_snapshot(chosen or next(iter(snapshots.values())))
+def _product_snapshots(run):
+    snapshots = run.get("config_snapshots")
+    if not isinstance(snapshots, dict) or not snapshots:
+        raise AnalyticsError("runs_not_comparable", "Missing frozen service configurations")
+    revisions = run.get("config_revisions")
+    if revisions is not None and (not isinstance(revisions, dict) or revisions.keys() != snapshots.keys()):
+        raise AnalyticsError("runs_not_comparable", "Incomplete service revision map")
+    result = {}
+    for service_id, snapshot in snapshots.items():
+        if not isinstance(snapshot, dict) or snapshot.get("service_id") != service_id:
+            raise AnalyticsError("runs_not_comparable", "Snapshot service identity is inconsistent")
+        config = _product_snapshot(snapshot)
+        if revisions is not None and revisions.get(service_id) != config["revision"]:
+            raise AnalyticsError("runs_not_comparable", "Snapshot differs from the run's revision map")
+        result[service_id] = ({k: v for k, v in config.items() if k != "revision"}, config)
     return result
 
 
-def _legacy_snapshot(snapshot: Mapping) -> dict:
-    """P11's current comparator names call rows `edges`; P4 calls are equivalent."""
-    if "edges" in snapshot:
-        return dict(snapshot)
-    edges = []
+def _product_snapshot(snapshot: Mapping) -> dict:
+    # These fields describe acquisition, access and display. Unknown policy
+    # settings are kept, including the target, route topology and retry_on.
+    metadata = {"revision", "config_revision", "calls", "routes", "display_name", "is_lab",
+                "read_config", "write_fields", "write_enabled", "apply_recommendation",
+                "capabilities", "fetched_at_ns", "freshness"}
+    config = {k: v for k, v in snapshot.items() if k not in metadata}
+    config["revision"] = snapshot.get("revision") or snapshot.get("config_revision")
+    if not config["revision"]:
+        raise AnalyticsError("runs_not_comparable", "Missing historical service revision")
+    calls = {}
     for call in snapshot.get("calls", []):
-        edges.append({
-            "call_ref": call.get("call_ref"), "edge_id": call.get("edge_id"),
-            "per_attempt_timeout_ns": _ms_to_ns(call.get("timeout_ms")),
-            "max_attempts": call.get("max_attempts"),
-            "backoff": {"kind": "fixed", "base_ns": _ms_to_ns(call.get("backoff_ms", 0)), "jitter": "none"},
-        })
-    return {"service_id": snapshot.get("service_id"), "revision": snapshot.get("revision") or snapshot.get("config_revision"),
-            "route_work": {route["route"]: route.get("work") for route in snapshot.get("routes", [])},
-            "edges": edges}
+        ref = call.get("call_ref")
+        if not isinstance(ref, str) or not ref or ref in calls:
+            raise AnalyticsError("runs_not_comparable", "Missing or duplicate call reference")
+        calls[ref] = {k: v for k, v in call.items() if k != "write_fields"}
+        if "retry_on" in calls[ref]:
+            calls[ref]["retry_on"] = sorted(calls[ref]["retry_on"], key=str)
+        if "routes" in calls[ref]:
+            calls[ref]["routes"] = sorted(calls[ref]["routes"])
+
+    routes = {}
+    for route in snapshot.get("routes", []):
+        name = route["route"]
+        if name in routes:
+            raise AnalyticsError("runs_not_comparable", "Duplicate configured route")
+        settings = {k: v for k, v in route.items() if k not in {"route", "write_fields", "calls"}}
+        if "calls" in route:
+            # A includes the shared policy both at the top level and inside
+            # each route. Keep route membership and route-only fields (e.g.
+            # required), but count the same max_attempts edit only once.
+            settings["calls"] = {}
+            for ref, nested in route["calls"].items():
+                if ref not in calls:
+                    raise AnalyticsError("runs_not_comparable", "Route references an unknown call")
+                local = {}
+                for field, value in nested.items():
+                    if field not in calls[ref]:
+                        local[field] = value
+                    else:
+                        if field == "retry_on":
+                            value = sorted(value, key=str)
+                        if calls[ref][field] != value:
+                            raise AnalyticsError("runs_not_comparable", "Conflicting copies of a call policy")
+                settings["calls"][ref] = local
+        routes[name] = settings
+
+    edges = []
+    for ref in sorted(calls):
+        row = calls[ref]
+        if "timeout_ms" in row:
+            row["per_attempt_timeout_ns"] = _ms_to_ns(row.pop("timeout_ms"))
+        if "backoff_ms" in row:
+            row["backoff"] = {"kind": "fixed", "base_ns": _ms_to_ns(row.pop("backoff_ms")), "jitter": "none"}
+        edges.append(row)
+    return {**config, "routes": routes, "edges": edges}

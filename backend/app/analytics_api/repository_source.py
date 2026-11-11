@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from repository.store import SpanStore
 
 from analytics_support import AnalyticsError, digest, ref_key
 
-from .p2_adapter import analytics_trace
+from .p2_adapter import analytics_trace, merge_edge_labels
 
 
 class RepositorySource:
@@ -30,9 +31,14 @@ class RepositorySource:
         self.store = SpanStore(store) if self._owned_store else store
         self.limits = limits or IngestLimits()
         self.control_snapshot = control_snapshot
+        self._pinned_view = ContextVar("analytics_repository_view", default=None)
 
     @contextmanager
     def read(self):
+        pinned = self._pinned_view.get()
+        if pinned is not None:
+            yield pinned
+            return
         # SpanStore serialises writers with this re-entrant lock.  Holding it while
         # creating the analytics view makes a single audit internally consistent.
         lock = getattr(self.store, "_lock", None)
@@ -44,6 +50,16 @@ class RepositorySource:
         finally:
             if lock is not None:
                 lock.release()
+
+    @contextmanager
+    def pin(self):
+        """Share one exact repository and control view across a product request."""
+        with self.read() as view:
+            token = self._pinned_view.set(view)
+            try:
+                yield view
+            finally:
+                self._pinned_view.reset(token)
 
     def close(self):
         if self._owned_store:
@@ -93,28 +109,6 @@ class RepositoryView:
             settings = self.control.get("environments", {}).get(ref.environment_id, {})
             if "sampling" in settings:
                 trace["sampling"] = settings["sampling"]
-            for run in self.control.get("runs", {}).values():
-                refs = run.get("trace_refs") or run.get("trace_collection", {}).get("trace_refs", [])
-                if any(ref_key(item) == ref_key(ref.to_dict()) for item in refs):
-                    for span in trace["spans"]:
-                        if span.get("kind") == "server" and span.get("parent_span_id") is None:
-                            span["run_id"] = run.get("run_id")
-                            break
-                    # The call_ref belongs to A's frozen config. B supplies the
-                    # observed edge_id, so project the reference onto this view
-                    # only through the facade's unique config-to-edge binding.
-                    by_edge = run.get("analytics_call_refs_by_edge", {})
-                    if by_edge:
-                        spans_by_id = {span["span_id"]: span for span in trace["spans"]}
-                        for attempt in trace["attempts"]:
-                            call_ref = by_edge.get(attempt.get("edge_id"))
-                            if call_ref is None:
-                                continue
-                            if attempt.get("call_ref") is None:
-                                attempt["call_ref"] = call_ref
-                            client = spans_by_id.get(attempt.get("attempt_id"))
-                            if client is not None and client.get("call_ref") is None:
-                                client["call_ref"] = call_ref
             self._traces[ref] = trace
         return self._traces[ref]
 
@@ -131,7 +125,9 @@ class RepositoryView:
         metas = self._environment_metas(environment_id)
         settings = self.control.get("environments", {}).get(environment_id, {})
         traces = [self._adapt(m) for m in metas]
-        edges = {eid: edge for trace in traces for eid, edge in trace["edges"].items()}
+        edges = {}
+        for trace in traces:
+            merge_edge_labels(edges, trace["edges"])
         services = {}
         for trace in traces:
             for span in trace["spans"]:

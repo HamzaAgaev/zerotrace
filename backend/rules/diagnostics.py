@@ -3,6 +3,7 @@ from collections import defaultdict
 from math import sqrt
 
 from analytics_support import percentile_ns
+from core.timing import same_clock
 
 from .budget import current, sourced
 from .common import Assessment, asref, integer, trace_evidence
@@ -167,11 +168,18 @@ def retry_checks(ctx, edge, policy, limits):
         if raw_gaps is None:
             raw_gaps = [a.get("gap_before_ns") for a in group.attempts[1:]]
         values = [integer(v) for v in raw_gaps]
-        if len(values) != len(group.attempts) - 1 or any(v is None for v in values):
+        if len(values) != len(group.attempts) - 1:
             pauses.reject("unknown_serial_gaps")
         else:
+            clocks = [ctx.spans.get((key, a["attempt_id"]), a).get("clock_domain")
+                      for a in group.attempts]
             for i, value in enumerate(values, 1):
-                gaps[i].append((key, value))
+                if not clocks[i] or not same_clock(clocks[i - 1], clocks[i]):
+                    pauses.reject("cross_clock_uncertain")
+                elif value is None:
+                    pauses.reject("unknown_serial_gaps")
+                else:
+                    gaps[i].append((key, value))
         method = g.get("method") or group.attempts[0].get("method")
         client_span = ctx.spans.get((key, group.attempts[0]["attempt_id"]), {})
         op = client_span.get("operation")
@@ -264,4 +272,6 @@ def check_timeout_order(ctx, edge, policy):
                                         config_revision=policy.get("config_revision"), policy_source=policy.get("source")),
                          basis="config_aware")
             order.finding["evidence"]["source"] = "Конфигурация пары связанных вызовов"
+            if policy.get("upstream_config"):
+                order.finding["evidence"]["upstream_config"] = policy["upstream_config"]
     return order

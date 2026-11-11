@@ -4,7 +4,6 @@ from collections import Counter, defaultdict
 from analytics_support import AnalyticsError, digest, ref_key
 
 from .metrics import (
-    VERSION,
     canonical,
     label,
     measure_trace,
@@ -13,6 +12,9 @@ from .metrics import (
     service_name,
     summarize,
 )
+
+
+RUN_VERSION = "1.1.0"
 
 
 def _incompatible(reason):
@@ -69,7 +71,7 @@ def _change(before, after, expected):
             _incompatible("The changed field or value differs from the requested recommendation")
     if before["config_snapshot"]["revision"] == after["config_snapshot"]["revision"]:
         _incompatible("Different configurations have the same revision")
-    return change, old[call].get("edge_id")
+    return change, old[call]
 
 
 def _sample(run):
@@ -91,13 +93,17 @@ def _sample(run):
     return resolve(run.get("traces", ()), refs)
 
 
-def _attempts(row, graph, run, change, edge):
+def _attempts(row, graph, run, change, policy):
+    edge = policy.get("edge_id")
     if not row["calls_complete"]:
         raise AnalyticsError("invalid_run_sample", "Frozen trace has incomplete call observations",
                              details={"ref": row["ref"], "issues": row["issues"]})
     root = row["root"]
     if (str(root.get("kind", "")).lower() != "server" or label(root, "run_id") != run["run_id"]
-            or label(root, "probe") or graph.get("probe")):
+            or graph.get("probe") or any(
+                label(s, "probe") or label(s, "run_id") not in (None, run["run_id"])
+                or {"conflicting_run_marker", "invalid_probe_marker"}.intersection(s.get("diagnostics", []))
+                for s in graph["spans"])):
         raise AnalyticsError("invalid_run_sample", "Expected a non-probe entry SERVER from the selected run",
                              details={"ref": row["ref"]})
     call_groups = defaultdict(list)
@@ -107,6 +113,7 @@ def _attempts(row, graph, run, change, edge):
         if not key or key in attempts or attempt.get("trace_ref", row["ref"]) != row["ref"]:
             raise AnalyticsError("invalid_run_sample", "Invalid normalized attempt identity")
         attempts[key] = attempt
+    configured_calls = {call["call_ref"]: call for call in run["config_snapshot"]["edges"]}
     snapshot_service = run["config_snapshot"].get("service")
     has_owner_binding = snapshot_service is not None or any(
         label(span, "service_id") == change["service_id"] or service_name(span.get("service")) == change["service_id"]
@@ -140,17 +147,25 @@ def _attempts(row, graph, run, change, edge):
         if exact_edge and not same_owner and (registry_id is not None or snapshot_service is not None):
             raise AnalyticsError("invalid_run_sample", "The observed caller contradicts the configured edge")
         call_ref = observed("call_ref")
-        if call_ref is None and not has_edge:
+        derived = attempt.get("membership_source") == "derived"
+        if call_ref is None and (derived or not has_edge):
             raise AnalyticsError("invalid_run_sample", "Missing target identity on client span of the configured service")
+        if derived:
+            if call_ref not in configured_calls:
+                raise AnalyticsError("invalid_run_sample", "Observed call reference is absent from the frozen configuration")
+            _verify_call_target(attempt["edge"], configured_calls[call_ref])
         if call_ref is not None and has_edge and (call_ref == change["call_ref"]) != exact_edge:
             raise AnalyticsError("invalid_run_sample", "Conflicting call and edge identities")
         if (call_ref is not None and call_ref != change["call_ref"]) or (has_edge and not exact_edge):
             continue
-        if attempt.get("membership_source") == "derived":
-            # B also produces synthetic IDs/indexes for heuristic groups. A laboratory run
-            # must carry its own measured membership on each addressed CLIENT span.
+        if derived:
+            # B's generated grouping and indexes are useful for observation-only
+            # analytics. P11 needs the laboratory's independent CLIENT labels.
             group = label(client, "logical_call_id")
             index = label(client, "attempt_index")
+            resend = client.get("resend_count")
+            if resend is not None and index != resend + 1:
+                raise AnalyticsError("invalid_run_sample", "Attempt index conflicts with HTTP resend count")
         else:
             group = label(client, "logical_call_id") or attempt.get("call_id")
             index = observed("attempt_index")
@@ -164,12 +179,25 @@ def _attempts(row, graph, run, change, edge):
     return n, n - len(call_groups)
 
 
-def _measure(run, graphs, change, edge):
+def _verify_call_target(observed_edge, call):
+    target = call.get("target", {})
+    callee = service_name(observed_edge.get("callee"))
+    operation = observed_edge.get("operation")
+    if target.get("service_id") and callee and callee != target["service_id"]:
+        raise AnalyticsError("invalid_run_sample", "Call reference conflicts with the observed target")
+    if target.get("method") and target.get("route") and operation != f"{target['method']} {target['route']}":
+        raise AnalyticsError("invalid_run_sample", "Call reference conflicts with the observed operation")
+    if (call.get("routes") and observed_edge.get("caller_operation")
+            and observed_edge["caller_operation"] not in call["routes"]):
+        raise AnalyticsError("invalid_run_sample", "Call reference is outside the observed owner route")
+
+
+def _measure(run, graphs, change, policy):
     rows = [measure_trace(g) for g in graphs]
     counts = Counter()
     attempts_total = retries_total = 0
     for row, graph in zip(rows, graphs):
-        n, retries = _attempts(row, graph, run, change, edge)
+        n, retries = _attempts(row, graph, run, change, policy)
         counts[n] += 1
         attempts_total += n
         retries_total += retries
@@ -180,7 +208,30 @@ def _measure(run, graphs, change, edge):
                   attempts_per_input=ratio(attempts_total, len(rows)), attempt_count_histogram={str(n): count for n, count in sorted(counts.items())},
                   http_status_counts=dict(sorted(Counter(str(r["root"].get("http_status") or "unknown") for r in rows).items())),
                   trace_refs=sorted((r["ref"] for r in rows), key=ref_key))
+    if "seed" in run:
+        result["seed"] = run["seed"]
     return result
+
+
+def _uses_randomness(run):
+    faults = run.get("faults", [])
+    if not isinstance(faults, list):
+        _incompatible("Invalid frozen faults")
+    for fault in faults:
+        rate = fault.get("error_rate") if isinstance(fault, dict) else None
+        if type(rate) not in (int, float) or not 0 <= rate <= 1:
+            _incompatible("Invalid frozen fault probability")
+        point = fault.get("failure_point", {})
+        if not isinstance(point, dict):
+            _incompatible("Invalid frozen fault selection")
+        if 0 < rate < 1 or rate > 0 and point.get("mode", "fixed") != "fixed":
+            return True
+    for snapshot in run.get("config_snapshots", {}).values():
+        for route in snapshot.get("routes", []):
+            work = route.get("work", {})
+            if work.get("kind") == "lognormal" and work.get("p50_ms") != work.get("p99_ms"):
+                return True
+    return False
 
 
 def validate_run_collections(*runs):
@@ -210,9 +261,14 @@ def compare_runs(before, after, expected_change=None):
     for key in ("stand_id", "scenario_revision", "fault_revision", "load"):
         if before.get(key) is None or after.get(key) is None or before[key] != after[key]:
             _incompatible(f"Missing or different {key}")
+    if any(before.get(key) != after.get(key) for key in ("scenario_id", "faults")):
+        _incompatible("Different frozen scenarios or faults")
+    if (_uses_randomness(before) or _uses_randomness(after)) and (
+            before.get("seed") is None or before.get("seed") != after.get("seed")):
+        _incompatible("Stochastic runs require the same recorded seed")
     if before["trace_collection"].get("expected_count") != after["trace_collection"].get("expected_count"):
         _incompatible("Expected input counts differ")
-    change, edge = _change(before, after, expected_change if expected_change is not None else after.get("expected_change"))
+    change, policy = _change(before, after, expected_change if expected_change is not None else after.get("expected_change"))
     a_graphs, b_graphs = _sample(before), _sample(after)
     a_ids = {ref_key(g["trace_ref"])[:2] for g in a_graphs}
     b_ids = {ref_key(g["trace_ref"])[:2] for g in b_graphs}
@@ -221,11 +277,12 @@ def compare_runs(before, after, expected_change=None):
         _incompatible("The frozen samples overlap or belong to different environments")
     if any(run.get("environment_id", next(iter(envs))) not in envs for run in (before, after)):
         _incompatible("Frozen trace environment differs from run metadata")
-    a = _measure(before, a_graphs, change, edge)
-    b = _measure(after, b_graphs, change, edge)
-    return {"algorithm_version": VERSION, "stand_id": before["stand_id"], "change": change,
+    a = _measure(before, a_graphs, change, policy)
+    b = _measure(after, b_graphs, change, policy)
+    return {"algorithm_version": RUN_VERSION, "stand_id": before["stand_id"], "change": change,
             "baseline": a, "candidate": b, "attempts_per_input_delta": b["attempts_per_input"] - a["attempts_per_input"],
-            "input_hash": digest([VERSION, before["run_id"], after["run_id"], a["config_revision"],
+            "input_hash": digest([RUN_VERSION, before["run_id"], after["run_id"], a["config_revision"],
                                   b["config_revision"], a["trace_refs"], b["trace_refs"], change, before["stand_id"],
-                                  before["scenario_revision"], before["fault_revision"], before["load"]]),
+                                  before["scenario_revision"], before["fault_revision"], before["load"],
+                                  before.get("seed"), after.get("seed")]),
             "warnings": ["partial_sample"] if "partial" in (a["collection_status"], b["collection_status"]) else []}

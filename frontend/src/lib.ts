@@ -1,4 +1,4 @@
-import type { Route, Span, TraceRef, TraceSummary } from './api/types.js';
+import type { Finding, Route, Span, TraceDetail, TraceRef, TraceSummary } from './api/types.js';
 export const serviceColors: Record<string, string> = { gateway: '#96a2ff', orders: '#65c9ba', payment: '#dbad6b', inventory: '#65c9ba', pricing: '#dbad6b', 'catalog-api': '#96a2ff' };
 export function ms(value: string | null | undefined): number | null { if (value == null || !/^\d+$/.test(value)) return null; return Number(BigInt(value)) / 1e6; }
 export function duration(value: string | null | undefined): string { const n = ms(value); if (n === null) return 'Неизвестно'; return n >= 1000 ? `${(n / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} с` : `${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} мс`; }
@@ -10,6 +10,14 @@ export function traceHref(ref: TraceRef | string): string {
     environment_id: ref.environment_id, generation: String(ref.generation), revision: String(ref.revision),
   });
   return `#/traces/${ref.trace_id}?${params}`;
+}
+export function findingsForTrace(trace: TraceDetail, findings: Finding[]): Finding[] {
+  if (trace.finding_occurrence_ids !== undefined) {
+    const ids = new Set(trace.finding_occurrence_ids);
+    return findings.filter(f => ids.has(f.occurrence_id));
+  }
+  const selected = traceHref(trace.trace_ref);
+  return findings.filter(f => f.exemplars.some(ref => traceHref(ref) === selected));
 }
 export function readRoute(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, '').split('?');

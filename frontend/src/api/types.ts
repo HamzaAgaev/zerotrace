@@ -15,19 +15,20 @@ export interface Span {
   outcome: Outcome; http_status: number | null; error_type: string | null;
   target?: string;
 }
-export interface TraceDetail { summary: TraceSummary; trace_ref: TraceRef; spans: Span[]; quality_issues: string[] }
+export interface TraceDetail { finding_occurrence_ids?: string[]; summary: TraceSummary; trace_ref: TraceRef; spans: Span[]; quality_issues: string[] }
 export interface Finding {
   finding_id: string; occurrence_id: string; recommendation_id: string; rule_id: string; rule_version: string;
   title: string; severity: 'high' | 'medium' | 'low'; confidence: 'high' | 'medium' | 'low';
   basis: 'config_aware' | 'observed' | 'inferred'; edge: { caller: string; callee: string; operation: string };
   explanation: string; affected_count: number; denominator_count: number; exemplars: TraceRef[];
-  evidence: BudgetEvidence | TraceEvidence;
-  recommendation: { text: string; why: string; risks: string[]; changes: { field: string; before: string; after: string }[] };
+  evidence: BudgetEvidence | TraceEvidence | PolicyEvidence;
+  recommendation: { can_prepare_plan?: boolean; text: string; why: string; risks: string[]; changes: { field: string; before: string; after: string }[] };
 }
 export interface BudgetEvidence {
   kind: 'retry_budget'; attempts: number; timeout_ns: string; backoff_total_ns: string;
   required_ns: string; budget_ns: string; config_revision: string; source: string;
 }
+export interface PolicyEvidence { kind: 'policy_observation'; source: string }
 export interface TraceEvidence { kind: 'trace_observation'; source: string }
 export type BudgetFinding = Finding & { evidence: BudgetEvidence };
 export function isBudgetFinding(finding: Finding): finding is BudgetFinding {

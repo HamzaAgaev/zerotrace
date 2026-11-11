@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from analytics_support import AnalyticsError
 
-VERSION = "p8-score-v1.0.1"
+VERSION = "p8-score-v1.0.2"
 SEVERITIES = ("low", "medium", "high")
 ABSENT = object()
 
@@ -181,10 +181,10 @@ def score(actual_results, expected):
     if mode is not None and mode not in {"trace_only", "config_aware"}:
         raise _invalid("Expected trace_only or config_aware mode.")
     mode_mismatch = mode is not None and actual.get("mode") != mode
-    mismatches = {field: {"expected": expected[field], "actual": actual[field]}
+    mismatches = {field: {"expected": expected[field], "actual": actual.get(field)}
                   for field in ("scenario_id", "scenario_version", "build_ref", "seed")
-                  if expected.get(field) is not None and actual.get(field) is not None
-                  and expected[field] != actual[field]}
+                  if expected.get(field) is not None
+                  and not _matches_value(actual.get(field), {"equals": expected[field]})}
     blocked = bool(missing or mode_mismatch or mismatches)
     assertions, positive, forbidden = [], set(), set()
     if blocked:
@@ -232,8 +232,8 @@ def score(actual_results, expected):
     counts = Counter(a["status"] for a in assertions)
     status = "failed" if counts["failed"] else ("blocked" if counts["blocked"] or not assertions else "passed")
     labelled = len(positive) + len(forbidden)
-    return {"scorer_version": VERSION, "scenario_id": actual.get("scenario_id", expected.get("scenario_id")),
-            "scenario_version": actual.get("scenario_version", expected.get("scenario_version")), "build_ref": actual.get("build_ref"),
+    return {"scorer_version": VERSION, "scenario_id": actual.get("scenario_id"),
+            "scenario_version": actual.get("scenario_version"), "build_ref": actual.get("build_ref"),
             "seed": actual.get("seed"), "mode": actual.get("mode"), "status": status,
             "counts": {s: counts[s] for s in ("passed", "failed", "blocked")}, "assertions": assertions,
             "unlabelled_findings": unexpected, "unexpected_findings": unexpected,

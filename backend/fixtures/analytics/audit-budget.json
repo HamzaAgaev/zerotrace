@@ -4,14 +4,14 @@
   "producer_version": "0.1.0",
   "generated_at": "2026-11-10T12:00:00Z",
   "payload": {
-    "result_id": "9d782ed3b62851b12502335b13f494a56696f124fcbd2a7c459060daee59ad4e",
+    "result_id": "56a4df29009390d0de8e58b60c148c736ad81b289dd0e265ee73c7e7a2d5bc75",
     "generated_at": "2026-11-10T12:00:00Z",
     "findings": [
       {
         "finding_id": "2d767b6b5478cd65f89d4696ca51d162d714d974c3f78a078b8306bce785753d",
-        "occurrence_id": "48aa429061e6c134a31522a8f8d18b2bf0b1f1f2f40c3a1945518f81022c70d7",
+        "occurrence_id": "6b47a5e1f62c35009094153a75121fedf302c3d7e2a0fd4c516cc85a1725af5e",
         "rule_id": "R4",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "title": "Превышен локальный бюджет повторов",
         "severity": "high",
         "confidence": "high",
@@ -79,7 +79,7 @@
           "recommended_attempts": 2,
           "recommended_required_ns": "550000000"
         },
-        "recommendation_id": "a93570ff13686f53aebc3ad428fef67943c51736d006c42da3d48dd2c592fdac",
+        "recommendation_id": "eb517118d37abc2e93f36b9338d3eb045427b592afc74686c84bc99cacf32ed0",
         "recommendation": {
           "text": "Установить максимум 2 попыток у владельца вызова.",
           "why": "Уменьшение лимита сокращает расчётное число последовательных попыток.",
@@ -98,9 +98,9 @@
       },
       {
         "finding_id": "b7c8ca1b8980b7ad39b045547dd8aaeb02cc946b53cf7b73caaf1696992e42ab",
-        "occurrence_id": "d6629ecbcdf4d486c16fb8327103e0af5480c1ad6a13a9ef4c696a122c4716f9",
+        "occurrence_id": "ecb18a4fb57cc02c0e7125f71871cc3860d8b6e9f395420fa058f13a6bee0320",
         "rule_id": "OBS_RETRIES",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "title": "Наблюдаются повторные попытки",
         "severity": "low",
         "confidence": "high",
@@ -224,7 +224,7 @@
             }
           ]
         },
-        "recommendation_id": "0dbc850b23d318701891105dc3769a61ad600db0e4c9a3e1e2b806508dae4066",
+        "recommendation_id": "1dc1337918af92bde512db51519ef09100a083fbe38a3987676d9a54c133af50",
         "recommendation": {
           "text": "Проверьте подтверждённые группы попыток по примерам трасс.",
           "why": "Подтверждённые повторы в 30 из 30 пригодных логических вызовов.",
@@ -237,7 +237,7 @@
     "rule_evaluations": [
       {
         "rule_id": "OBS_RETRIES",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "evaluated",
         "eligible_count": 30,
         "triggered_count": 30,
@@ -255,7 +255,7 @@
       },
       {
         "rule_id": "R1",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -277,7 +277,7 @@
       },
       {
         "rule_id": "R2",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -299,7 +299,7 @@
       },
       {
         "rule_id": "R3",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -321,7 +321,7 @@
       },
       {
         "rule_id": "R4",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "evaluated",
         "eligible_count": 1,
         "triggered_count": 1,
@@ -339,12 +339,12 @@
       },
       {
         "rule_id": "R5",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
         "excluded_by_reason": {
-          "unknown_serial_gaps": 30
+          "unknown_serial_gaps": 60
         },
         "by_edge": [
           {
@@ -354,14 +354,14 @@
             "eligible_trace_count": 0,
             "triggered_count": 0,
             "excluded_by_reason": {
-              "unknown_serial_gaps": 30
+              "unknown_serial_gaps": 60
             }
           }
         ]
       },
       {
         "rule_id": "R6",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -383,7 +383,7 @@
       },
       {
         "rule_id": "R7",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "evaluated",
         "eligible_count": 60,
         "triggered_count": 0,
@@ -401,7 +401,7 @@
       },
       {
         "rule_id": "R8",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -423,7 +423,7 @@
       },
       {
         "rule_id": "D1",
-        "rule_version": "1.1.0",
+        "rule_version": "1.1.1",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,

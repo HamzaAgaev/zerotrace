@@ -190,6 +190,8 @@ class DetectorTests(unittest.TestCase):
 
     def test_r5_independent_by_index_and_enough_samples(self):
         a,c = group(n=2, gaps_ns=[1*MS])
+        for attempt in a:
+            attempt["clock_domain"] = "host"
         self.assertIsNone(by_rule(run(model(a,[c])),"R5"))
         f = by_rule(run(model(a,[c]), [], {"min_cases":1}), "R5")
         self.assertEqual(f["evidence"]["gaps"][0]["p95_ns"], str(MS))

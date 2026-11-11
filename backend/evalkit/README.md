@@ -6,6 +6,7 @@ A small pair of inputs for evaluating R4:
 
 ```json
 {
+  "scenario_id": "s01_budget",
   "mode": "config_aware",
   "capabilities": ["runtime_config"],
   "audit": {
@@ -32,4 +33,4 @@ A small pair of inputs for evaluating R4:
 - `policy_assertions`, `apply_assertions` and `quality_assertions` use the same value comparisons. Their paths start at the actual results root, e.g. `{"path":"apply.status","equals":"conflict"}`. Missing values are recorded separately from explicit nulls.
 - Precision counts unique returned findings matching required and forbidden labels. Recall counts mandatory selectors with an observed match among evaluable selectors. Numerical and severity mismatches independently fail their assertions. Unlabelled findings are listed for review; `unexpected_policy: fail` also fails the run when they are present. Missing denominators are null.
 - Include `case_id`, `status` and `projected_ns` in each entry in `actual_results.projections`. Matching `expected.projection_measurements` entries include `case_id`, independently acquired `measured_ns`, provenance in `source`, and optional `tolerance_ns`. The projection metrics contain MAE on available comparisons, mean absolute relative error on nonzero measurements, availability and abstentions. Durations are nanoseconds. Synthetic control cases and independent measurements can be scored separately.
-- Empty assertion sets or missing prerequisites yield `blocked`. A mandatory assertion failure yields `failed`. Record scenario/build/seed references, trace references, load summary and artifacts in the actual result. Conflicting scenario ID, scenario version, build or seed values in the expectation and actual result block the score and appear in `mismatched_inputs`.
+- Empty assertion sets or missing prerequisites yield `blocked`. A mandatory assertion failure yields `failed`. Record scenario/build/seed references, trace references, load summary and artifacts in the actual result. Each scenario ID, scenario version, build or seed named in the expectation must be present and equal in the actual result. Missing or conflicting values block the score and appear in `mismatched_inputs`.

@@ -243,7 +243,7 @@ class Context:
                     "client_http_status", "client_grpc_status", "first_path", "attempt_index", "method",
                     "idempotency", "quality_issues", "gap_before_ns", "clock_compatible", "protocol",
                     "conflicting_span", "invalid", "call_id", "caller_version", "callee_version", "config_revision",
-                    "workload_id", "timeout_scope")
+                    "workload_id", "timeout_scope", "clock_domain")
         c_fields = ("call_id", "edge_id", "hypothesis", "confidence", "attempt_ids", "gaps_ns",
                     "evidence_codes", "quality_issues", "method", "workload_id", "caller_version",
                     "callee_version", "config_revision", "timeout_scope", "invalid", "conflicting_span")
@@ -254,5 +254,5 @@ class Context:
             "edge_labels": self.edge_labels,
             "attempts": [(key, public(row, a_fields)) for key, row in sorted(self.attempts.items())],
             "calls": [(g.key, public(g.data, c_fields)) for edge in sorted(self.groups) for g in self.groups[edge]],
-            "spans": [(key, public(span, ("kind", "parent_span_id", "method", "operation", "idempotency"))) for key, span in sorted(self.spans.items())],
+            "spans": [(key, public(span, ("kind", "parent_span_id", "method", "operation", "idempotency", "clock_domain"))) for key, span in sorted(self.spans.items())],
         })

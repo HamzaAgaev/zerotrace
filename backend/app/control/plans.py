@@ -8,6 +8,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+from analytics_support import AnalyticsError
 from app.integrations.http_config import ProductError, read_config, remote_json
 
 
@@ -120,11 +121,15 @@ def select_target(config: dict, intent: dict) -> dict:
 
 
 class Plans:
-    def __init__(self, registry, records, mutation_lock: threading.RLock, lab_guard):
+    def __init__(
+        self, registry, records, mutation_lock: threading.RLock, lab_guard,
+        resolve_recommendation=None,
+    ):
         self.registry = registry
         self.records = records
         self.lock = mutation_lock
         self.lab_guard = lab_guard
+        self.resolve_recommendation = resolve_recommendation
 
     def create(self, body: dict) -> dict:
         if not isinstance(body, dict):
@@ -198,6 +203,23 @@ class Plans:
             json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else str(value)
         )
 
+    def _check_recommendation(self, plan: dict) -> None:
+        if not plan.get("recommendation_id"):
+            return
+        if self.resolve_recommendation is None:
+            raise ProductError(409, "stale_recommendation", "Не удалось подтвердить рекомендацию.")
+        try:
+            intent = self.resolve_recommendation(
+                plan["environment_id"], plan["occurrence_id"], plan["recommendation_id"]
+            )
+        except AnalyticsError as exc:
+            raise ProductError(exc.status, exc.code, str(exc)) from exc
+        target = {"service_id": plan["service_id"], "call_ref": plan.get("call_ref")}
+        if (intent.get("target") != target
+                or intent.get("expected_config_revision") != plan["expected_revision"]
+                or validate_changes(intent.get("set")) != plan["set"]):
+            raise ProductError(409, "stale_recommendation", "Действующая рекомендация изменилась.")
+
     def apply(self, plan_id: str, body: dict) -> dict:
         if not isinstance(body, dict):
             raise ProductError(400, "invalid_request", "Ожидался объект запроса.")
@@ -236,6 +258,7 @@ class Plans:
             target = select_target(current, plan)
             if any(field not in target.get("write_fields", []) for field in plan["set"]):
                 raise ProductError(403, "field_forbidden", "Разрешение на запись изменилось.")
+            self._check_recommendation(plan)
             for active in self.records.items("operation"):
                 if (
                     active["environment_id"] == plan["environment_id"]
@@ -288,21 +311,27 @@ class Plans:
             self.records.put("operation", operation_id, operation)
             return
         if not recovering:
+            patch_started = False
             try:
                 selector = {key: plan[key] for key in ("call_ref", "route") if plan.get(key)}
-                remote_json(
-                    service,
-                    "PATCH",
-                    "/_config",
-                    {
-                        "request_id": operation["request_id"],
-                        "expected_revision": plan["expected_revision"],
-                        **selector,
-                        "set": plan["set"],
-                    },
-                )
+                # Another laboratory plan can change the parent after this one
+                # was accepted. Serialize the final check and write with other PATCHes.
+                with self.lock:
+                    self._check_recommendation(plan)
+                    patch_started = True
+                    remote_json(
+                        service,
+                        "PATCH",
+                        "/_config",
+                        {
+                            "request_id": operation["request_id"],
+                            "expected_revision": plan["expected_revision"],
+                            **selector,
+                            "set": plan["set"],
+                        },
+                    )
             except ProductError as exc:
-                if exc.status < 500:
+                if not patch_started or exc.status < 500:
                     operation.update(
                         status="rejected", error={"code": exc.code, "message": str(exc)}
                     )
@@ -313,6 +342,14 @@ class Plans:
                 self._retry_readback(operation, plan, service)
                 return
             except Exception:
+                if not patch_started:
+                    operation.update(
+                        status="rejected",
+                        error={"code": "recommendation_unavailable",
+                               "message": "Не удалось проверить рекомендацию перед записью."},
+                    )
+                    self.records.put("operation", operation_id, operation)
+                    return
                 operation.update(
                     status="unknown",
                     error={

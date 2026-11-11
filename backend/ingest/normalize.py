@@ -239,6 +239,13 @@ def _normalize_span(
         "target": target is not None,
     }
 
+    probe_values = [attrs[key] for key in _PROBE_KEYS if key in attrs]
+    probe = any(str(value).lower() == "true" for value in probe_values) if probe_values else None
+    if any(str(value).lower() not in {"true", "false"} for value in probe_values):
+        diagnostics.append("invalid_probe_marker")
+    run_ids = {value for key in _RUN_ID_KEYS if isinstance(value := attrs.get(key), str) and value}
+    if len(run_ids) > 1:
+        diagnostics.append("conflicting_run_marker")
     return NormalizedSpan(
         trace_id=raw.trace_id,
         span_id=raw.span_id,
@@ -260,6 +267,11 @@ def _normalize_span(
         grpc_status=grpc_status,
         error_type=error_type,
         resend_count=resend_count,
+        run_id=run_ids.pop() if len(run_ids) == 1 else None,
+        probe=probe,
+        call_ref=_lab_label(attrs, "zerotrace.call_ref"),
+        logical_call_id=_lab_label(attrs, "zerotrace.logical_call_id"),
+        attempt_index=_as_int(attrs.get("zerotrace.attempt_index")),
         idempotency=idempotency,
         links_present=raw.links_count > 0,
         async_markers=async_markers,
@@ -342,6 +354,11 @@ def _looks_like_id(segment: str) -> bool:
     if _HEX_ID_RE.fullmatch(segment):
         return True
     return bool(_LONG_TOKEN_RE.fullmatch(segment)) and any(c.isdigit() for c in segment)
+
+
+def _lab_label(attrs: dict[str, Any], key: str) -> str | None:
+    value = attrs.get(key)
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _as_str(value: Any) -> str | None:

@@ -1,6 +1,6 @@
 # Запуск, подключение и управление
 
-Product API возвращает JSON envelope вида `schema`, `schema_version`, `generated_at`, `producer_version`, `payload`. Списки находятся в `payload.items`; конфигурация, план, стенд и прогон — объектами в `payload`. API телеметрии `/v1/traces` отвечает стандартным OTLP ответом.
+По умолчанию Product API возвращает JSON envelope вида `schema`, `schema_version`, `generated_at`, `producer_version`, `payload`. Списки находятся в `payload.items`; конфигурация, план, стенд и прогон — объектами в `payload`. API телеметрии `/v1/traces` отвечает стандартным OTLP ответом.
 
 ## Запуск
 
@@ -49,7 +49,15 @@ services:
 | Fault | `PUT /api/v1/lab/stands/{stand_id}/fault`; сброс — `DELETE` по тому же адресу |
 | Run | `POST /api/v1/lab/stands/{stand_id}/runs` |
 | Run history | `GET /api/v1/lab/runs` → `payload.items` — массив; `GET /api/v1/lab/runs/{run_id}` → один объект |
-| Сравнение | `POST /api/v1/comparisons` с `baseline_run_id` и `candidate_run_id` |
+| Сравнение | `POST /api/v1/comparisons` принимает пару `baseline_run_id` и `candidate_run_id` либо пару списков `baseline_trace_refs` и `candidate_trace_refs` |
+
+Полный аудит окружения доступен через `GET /api/v1/audit?environment_id=shop&view=full`.
+Карточка трассы возвращает связанные с её ревизией `finding_occurrence_ids`.
+`GET /api/v1/state` сохраняет снимок аналитики, а `POST /api/v1/projections` вычисляет
+проекцию для точной ревизии трассы. В `GET /api/v1/report` можно передать
+`snapshot_id`, `projection_id` и `comparison_id`. Готовый отчёт доступен по
+`GET /api/v1/reports/{report_id}` в JSON или с `?format=html`.
+Формы запросов приведены в [OpenAPI аналитики](../../backend/app/analytics_api/openapi.json).
 
 ### Конфигурация и применение
 

@@ -87,6 +87,24 @@ class EvalTest(unittest.TestCase):
         self.assertEqual(score(actual, {"must_not_find":[{"rule_id":"R4",
                          "selector":{"edge_id":"missing"}}]})["status"], "blocked")
 
+    def test_expected_run_identity_must_be_present_in_actual_results(self):
+        identity = dict(scenario_id="s01", scenario_version="v1", build_ref="build-a", seed=0)
+        expected = {**identity, "must_find": [{"rule_id": "R4"}]}
+        actual = case([finding("R4")], **identity)
+        self.assertEqual(score(actual, expected)["status"], "passed")
+        self.assertEqual(score({**actual, "seed": False}, expected)["status"], "blocked")
+        for field, value in identity.items():
+            for missing in ({}, {field: None}):
+                with self.subTest(field=field, missing=missing):
+                    result = score({**{k: v for k, v in actual.items() if k != field}, **missing}, expected)
+                    self.assertEqual(result["status"], "blocked")
+                    self.assertIsNone(result[field])
+                    self.assertEqual(result["assertions"][0]["mismatched_inputs"],
+                                     {field: {"expected": value, "actual": None}})
+        result = score(case([finding("R4")]), expected)
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(set(result["assertions"][0]["mismatched_inputs"]), set(identity))
+
     def test_unqualified_finding_cannot_clear_an_ineligible_negative_assertion(self):
         actual = case([finding("R4")])
         actual["audit"]["rule_evaluations"] = []

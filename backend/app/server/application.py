@@ -4,15 +4,16 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
+from app.analytics_api.backend_routes import BackendApp
+from app.analytics_api.facade import AnalyticsFacade
+from app.control.analytics_results import AnalyticsResults
 from app.control.plans import Plans, timestamp
 from app.control.store import ControlStore
-from app.data_api.adapter import SpanStoreAdapter, make_graph_builder
-from app.data_api.handlers import ApiError, get_trace, list_traces
 from app.integrations.http_config import ProductError, read_config
 from app.integrations.registry import Registry
 from app.otlp_api.handler import handle_traces
@@ -42,7 +43,18 @@ def create_app(config: dict) -> Flask:
     from app.control.laboratory import Laboratory
 
     lab = Laboratory(config, registry, telemetry, records, mutation_lock)
-    plans = Plans(registry, records, mutation_lock, lab.guard_edit)
+
+    analytics = AnalyticsFacade(
+        telemetry, records, results=AnalyticsResults(records), environments=registry.environments
+    )
+    api = BackendApp(analytics.service)
+
+    def resolve_plan(environment_id, occurrence_id, recommendation_id):
+        return analytics.resolve_recommendation(
+            environment_id, occurrence_id, recommendation_id, snapshots(environment_id)
+        )
+
+    plans = Plans(registry, records, mutation_lock, lab.guard_edit, resolve_plan)
     app.extensions.update(
         telemetry=telemetry, records=records, registry=registry, lab=lab, plans=plans
     )
@@ -100,19 +112,6 @@ def create_app(config: dict) -> Flask:
             raise ProductError(404, "environment_not_found", "Окружение не зарегистрировано.")
         return value
 
-    def integer_query(name: str, default=None):
-        value = request.args.get(name)
-        if value is None:
-            return default
-        if not value.isdigit() or len(value) > 12:
-            raise ProductError(400, "invalid_" + name, "Ожидалось неотрицательное целое число.")
-        return int(value)
-
-    def data_response(value):
-        if isinstance(value, ApiError):
-            return jsonify(value.to_dict()), value.status
-        return jsonify(value)
-
     def snapshots(env: str) -> dict:
         services = [
             item
@@ -146,31 +145,6 @@ def create_app(config: dict) -> Flask:
             time.time_ns(),
         )
         return Response(response.body, status=response.status, content_type=response.media_type)
-
-    @app.get("/api/v1/traces")
-    def traces():
-        return data_response(
-            list_traces(
-                SpanStoreAdapter(telemetry),
-                environment(),
-                integer_query("limit", 100),
-                integer_query("offset", 0),
-                graph_builder=make_graph_builder(telemetry),
-            )
-        )
-
-    @app.get("/api/v1/traces/<trace_id>")
-    def trace(trace_id):
-        return data_response(
-            get_trace(
-                SpanStoreAdapter(telemetry),
-                make_graph_builder(telemetry),
-                environment(),
-                trace_id,
-                integer_query("generation"),
-                integer_query("revision"),
-            )
-        )
 
     @app.get("/api/v1/environments")
     def environments():
@@ -253,11 +227,8 @@ def create_app(config: dict) -> Flask:
                 raise ProductError(
                     403, "recommendation_lab_only", "Применение рекомендации доступно на стенде."
                 )
-            resolved = analytics().resolve_recommendation(
-                intent["environment_id"],
-                intent.get("occurrence_id"),
-                intent["recommendation_id"],
-                snapshots(intent["environment_id"]),
+            resolved = resolve_plan(
+                intent["environment_id"], intent.get("occurrence_id"), intent["recommendation_id"]
             )
             intent.update(resolved)
             intent.update(resolved.get("target", {}))
@@ -321,37 +292,50 @@ def create_app(config: dict) -> Flask:
         ]
         return jsonify(envelope({"items": items}, "runs"))
 
-    facade = None
-
-    def analytics():
-        nonlocal facade
-        if facade is None:
-            from app.analytics_api.facade import AnalyticsFacade
-            from app.control.analytics_results import AnalyticsResults
-
-            facade = AnalyticsFacade(telemetry, records, results=AnalyticsResults(records))
-        return facade
-
+    @app.get("/api/v1/traces")
+    @app.get("/api/v1/traces/<trace_id>")
     @app.get("/api/v1/audit")
-    def audit():
-        env = environment()
-        from app.analytics_api.dto import audit_view
+    @app.get("/api/v1/state")
+    @app.get("/api/v1/policies")
+    @app.get("/api/v1/report")
+    @app.get("/api/v1/reports/<report_id>")
+    def analytics_read(trace_id=None, report_id=None):
+        env = environment() if report_id is None or "environment_id" in request.args else None
+        environ = dict(request.environ)
+        # Flask implements HEAD through the GET handler and omits its body.
+        environ["REQUEST_METHOD"] = "GET"
+        if env and "environment_id" not in request.args:
+            params = [*request.args.items(multi=True), ("environment_id", env)]
+            environ["QUERY_STRING"] = urlencode(params)
+        saved_snapshot = request.path == "/api/v1/report" and request.args.get("snapshot_id")
+        configs = snapshots(env) if env and report_id is None and not saved_snapshot else None
+        with analytics.configured(env, configs):
+            result = api.dispatch(environ)
+        if isinstance(result, str):
+            return Response(result, mimetype="text/html")
+        return jsonify(result)
 
-        return jsonify(envelope(audit_view(analytics().audit(env, snapshots(env))), "audit"))
+    @app.post("/api/v1/projections")
+    def projections():
+        with analytics.configured() as service:
+            return jsonify(envelope(service.project(body()), "projection"))
 
     @app.post("/api/v1/comparisons")
     def comparisons():
         value = body()
-        left = lab.get_run(value.get("baseline_run_id", ""))
-        right = lab.get_run(value.get("candidate_run_id", ""))
+        if not ({"baseline_run_id", "candidate_run_id"} & value.keys()) or (
+            {"baseline_trace_refs", "candidate_trace_refs"} & value.keys()
+        ):
+            with analytics.configured() as service:
+                return jsonify(envelope(service.compare(value), "comparison"))
+        if any(not isinstance(value.get(key), str) or not value[key]
+               for key in ("baseline_run_id", "candidate_run_id")):
+            raise ProductError(400, "invalid_request", "Укажите идентификаторы обоих прогонов.")
+        left = lab.get_run(value["baseline_run_id"])
+        right = lab.get_run(value["candidate_run_id"])
         if any(item["trace_collection"]["status"] == "waiting" for item in (left, right)):
             raise ProductError(409, "traces_pending", "Ожидаем телеметрию прогонов.")
-        return jsonify(envelope(analytics().compare_runs(left, right), "comparison"))
-
-    @app.get("/api/v1/report")
-    def report():
-        env = environment()
-        return jsonify(envelope(analytics().report(env, snapshots(env)), "report"))
+        return jsonify(envelope(analytics.compare_runs(left, right), "comparison"))
 
     @app.get("/")
     @app.get("/<path:asset>")

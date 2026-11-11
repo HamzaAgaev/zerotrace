@@ -63,6 +63,11 @@ class NormalizedSpan:
     idempotency: Idempotency = "unknown"
     links_present: bool = False
     async_markers: list[str] = field(default_factory=list)
+    run_id: str | None = None
+    probe: bool | None = None
+    call_ref: str | None = None
+    logical_call_id: str | None = None
+    attempt_index: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -86,6 +91,11 @@ class NormalizedSpan:
             "grpc_status": self.grpc_status,
             "error_type": self.error_type,
             "resend_count": self.resend_count,
+            "run_id": self.run_id,
+            "probe": self.probe,
+            "call_ref": self.call_ref,
+            "logical_call_id": self.logical_call_id,
+            "attempt_index": self.attempt_index,
             "idempotency": self.idempotency,
             "links_present": self.links_present,
             "async_markers": list(self.async_markers),
@@ -116,6 +126,11 @@ class NormalizedSpan:
             grpc_status=d.get("grpc_status"),
             error_type=d.get("error_type"),
             resend_count=d.get("resend_count"),
+            run_id=d.get("run_id"),
+            probe=d.get("probe"),
+            call_ref=d.get("call_ref"),
+            logical_call_id=d.get("logical_call_id"),
+            attempt_index=d.get("attempt_index"),
             idempotency=d.get("idempotency", "unknown"),
             links_present=bool(d.get("links_present", False)),
             async_markers=list(d.get("async_markers", [])),

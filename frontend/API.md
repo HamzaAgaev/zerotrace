@@ -18,7 +18,7 @@ GET services/environments возвращает `{items:[]}`; GET services/{id}/c
 
 ## Общие правила
 
-Все success responses — JSON envelope:
+Клиент запрашивает JSON envelope.
 
 ```json
 {
@@ -46,24 +46,24 @@ HTTP409 не становится demo fallback. На CORS/network/schema error 
 |---|---|---|
 | GET /api/v1/traces?environment_id=&limit=100&offset=0 | B | `{items:TraceSummary[],total:number}` |
 | GET /api/v1/traces/{id}?environment_id=&generation=&revision= | B | `TraceDetail` |
-| GET /api/v1/audit?environment_id= | C | `AuditResult` |
+| GET /api/v1/audit?environment_id=&view=full | C | `AuditResult` |
 | GET /api/v1/capabilities?environment_id= | A | `Capabilities` |
 | GET /api/v1/journal?environment_id= | A | `JournalEntry[]` |
 | POST /api/v1/change-plans | A | `ChangePlan` |
 
-JournalEntry использует requested_at и actual_changes, статусы из P6 и verification из P7 либо null до проверки. Коллекция journal необходима экрану истории; endpoint `/journal/{id}` можно добавить позже для polling операций. Список первого среза загружает первые100 и фильтрует/пагинирует локально. Если total>100, интерфейс сообщает, что загружена часть. Полный server search/cursor — следующий этап.
+JournalEntry использует requested_at и actual_changes, статусы из P6 и verification из P7 либо null до проверки. Коллекция journal необходима экрану истории; клиент отслеживает операции через `GET /api/v1/journal/{id}`. Список первого среза загружает первые100 и фильтрует/пагинирует локально. Если total>100, интерфейс сообщает, что загружена часть. Полный server search/cursor — следующий этап.
 
 ### Для Михаила (B)
 
 TraceSummary: trace_ref, trace_id, operation, service, start_ns, duration_ns, span_count, service_count, outcome(ok/error/unknown), http_status:number|null, finding_count, quality_issues:string[].
 
-TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},spans,quality_issues}`. Span содержит span_id,parent_span_id|null,service,name,kind(server/client/internal),start_offset_ns,duration_ns,outcome,http_status|null,error_type|null. `start_offset_ns` считается для выбранной шкалы на сервере/adapter; frontend не вычитает timestamps разных clocks. Готовность модели и clock quality остаются у B/C.
+TraceDetail: `{summary,trace_ref:{environment_id,trace_id,generation,revision},spans,quality_issues,finding_occurrence_ids}`. Карточка выбирает находки по полному списку `finding_occurrence_ids` выбранной ревизии. Span содержит span_id,parent_span_id|null,service,name,kind(server/client/internal),start_offset_ns,duration_ns,outcome,http_status|null,error_type|null. `start_offset_ns` считается для выбранной шкалы на сервере/adapter; frontend не вычитает timestamps разных clocks. Готовность модели и clock quality остаются у B/C.
 
 У клиентского спана может быть строковое поле `target` с наблюдаемым адресатом вызова, например `payment` из `server.address`. Если серверный спан не найден, граф показывает отдельный узел адресата. Время ответа сервиса рассчитывается по его серверным спанам.
 
 ### Для Амира (C)
 
-AuditResult: result_id,generated_at,findings,rule_evaluations. Finding содержит готовые evidence operands/required/budget; браузер только форматирует ns и показывает текст. Конкретные refs occurrence/recommendation нужны для запроса plan. Для R4 evidence.kind = retry_budget. Для наблюдений без конфига evidence = {kind: trace_observation, source}; карточка отображает объяснение и рекомендацию без расчёта бюджета. exemplars содержит полные TraceRef.
+AuditResult: result_id,generated_at,findings,rule_evaluations. Finding содержит готовые evidence operands/required/budget; браузер только форматирует ns и показывает текст. Конкретные refs occurrence/recommendation нужны для запроса plan. Для R4 evidence.kind = retry_budget. Для наблюдений без конфига evidence = {kind: trace_observation, source}; карточка отображает объяснение и рекомендацию без расчёта бюджета. Полный аудит также возвращает `policy_observation` для выводов по конфигурации. `exemplars` содержит до пяти примеров с полной TraceRef.
 
 Пример evidence: attempts3,timeout_ns1000000000,backoff_total_ns150000000,required_ns3150000000,budget_ns2000000000,config_revision"12",source"Конфигурация стенда". Полные ключи/структура в types.ts.
 
@@ -100,10 +100,10 @@ ChangePlan: plan_id,plan_hash,finding_id,target,expected_revision,expires_at,cha
 - Граф/тайминги: максимум 100 details с concurrency4; traces с более чем 2000 спанов пропускаются с предупреждением. Граф выводит до 40 сервисов. Один cross-service server span и его client-parent считаются одним наблюдаемым вызовом. Повторы не объединяются в логический запрос; это не коэффициент retry amplification. Неизвестный исход хранится отдельно.
 - Медиана/p95 используют линейную интерполяцию по отсортированным значениям, как в P3. Для связи берётся client-parent interval, при его отсутствии server interval; показатели объединённой выборки не имеют одного гарантированного источника. При переходе к серверным агрегатам нужен явный duration_basis для каждой метрики.
 - Время вне дочерних интервалов — server duration минус clipped union непосредственных children, суммируется по операциям; не CPU и не глобальный wall time.
-- Редактор видит только config_aware findings. Полного списка политик нет. Live backoff не восстанавливается из суммы пауз: пользователь задаёт fixed backoff явно. Демочерновик начинает с 75 мс средней паузы для суммы 150 мс; рекомендация с двумя попытками использует 50 мс.
+- Редактор видит только config_aware findings. Серверные политики доступны через `GET /api/v1/policies`. Live backoff не восстанавливается из суммы пауз: пользователь задаёт fixed backoff явно. Демочерновик начинает с 75 мс средней паузы для суммы 150 мс; рекомендация с двумя попытками использует 50 мс.
 - Экспорт черновика: `zerotrace.exploration` 1.0.0, payload kind=policy-draft, mode, applied=false, occurrence_id, target, expected_config_revision, assumptions, draft{timeout,attempts,backoff,budget}, check. Размерности draft в мс. Это локальный документ, не POST payload и не ChangePlan.
 - Открытие исходного плана рекомендации по-прежнему вызывает POST /api/v1/change-plans с точными refs. Этот план не включает ручные правки; интерфейс это явно объясняет.
-- What-if: локальная browser-interval-blocks-preview-v1, до 8 непересекающихся выбранных веток. Корень один, родители известны, bounds строгие, cycles/depth>100/quality issues запрещены. Ускорение ветки масштабирует её длительность целиком, внутри родителя объединяются перекрывающиеся блоки, сохраняются offsets запусков; последовательные блоки сжимаются. Авторитетный расчёт позже должен прийти от C. Экспорт содержит trace_ref, branches, result, measured=false, applied=false.
+- What-if: локальная browser-interval-blocks-preview-v1, до 8 непересекающихся выбранных веток. Корень один, родители известны, bounds строгие, cycles/depth>100/quality issues запрещены. Ускорение ветки масштабирует её длительность целиком, внутри родителя объединяются перекрывающиеся блоки, сохраняются offsets запусков; последовательные блоки сжимаются. Серверный расчёт C доступен через `POST /api/v1/projections`. Экспорт содержит trace_ref, branches, result, measured=false, applied=false.
 - Группы: только одна пара service/operation, непересекающиеся ids из загруженной выборки; медиана, p95, errors, unknown. Изменения структуры и причинность не вычисляются.
 
-Для следующего этапа A/B/C должны согласовать отдельные versioned DTO для полного реестра политик, серверного графа/таймингов, what-if и cohorts. Не следует объявлять локальные exports готовыми wire contracts этих endpoints.
+Для серверного сравнения групп передайте две выборки TraceRef в `POST /api/v1/comparisons`. Форматы проекции, сравнения и отчётов описаны в [OpenAPI аналитики](../backend/app/analytics_api/openapi.json).

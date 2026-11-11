@@ -84,8 +84,9 @@ class BackendIntegrationTests(unittest.TestCase):
                     span["attributes"].append({"key": "run_id", "value": {"stringValue": run_id}})
                 else:
                     span["attributes"].extend([
-                        {"key": "attempt_index", "value": {"intValue": str(index)}},
-                        {"key": "logical_call_id", "value": {"stringValue": "charge-1"}},
+                        {"key": "zerotrace.call_ref", "value": {"stringValue": "charge"}},
+                        {"key": "zerotrace.attempt_index", "value": {"intValue": str(index)}},
+                        {"key": "zerotrace.logical_call_id", "value": {"stringValue": "charge-1"}},
                     ])
             ref = self.ingest(packet, clock="stand")
             with source.read() as view:

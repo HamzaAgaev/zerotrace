@@ -77,7 +77,7 @@ class AnalyticsService:
                 key = digest([environment_id, f["occurrence_id"], r["recommendation_id"]])
                 entries.append(("recommendation", key, {"environment_id": environment_id,
                                 "finding_id": f["finding_id"], "occurrence_id": f["occurrence_id"],
-                                "recommendation": r}))
+                                "evidence_hash": digest(f["evidence"]), "recommendation": r}))
         self.results.put_many(entries)
         return env, result
 

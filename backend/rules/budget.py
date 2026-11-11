@@ -150,6 +150,8 @@ def retry_budget(result, policy, refs, limits, *, lab=False):
                     operand_sources={k: (policy[k].get("source") if isinstance(policy.get(k), dict) and "value" in policy[k]
                                           else policy.get("source", policy.get("effective_source"))) for k in
                                      ("max_attempts", "per_attempt_timeout_ns", "budget_ns", "backoff")})
+    if policy.get("budget_config"):
+        evidence["budget_config"] = policy["budget_config"]
     # Find largest admissible count, keeping the remaining recovery opportunities.
     lo, hi = 0, n
     while hi - lo > 1:
