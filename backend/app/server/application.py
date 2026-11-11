@@ -18,6 +18,7 @@ from app.control.store import ControlStore
 from app.integrations.http_config import ProductError, read_config
 from app.integrations.registry import Registry
 from app.otlp_api.handler import handle_traces
+from app.server.assembly import QUIET_AFTER_NS, AssemblyTicker
 from contracts import IngestLimits
 from repository import SpanStore
 
@@ -45,6 +46,12 @@ def create_app(config: dict) -> Flask:
 
     lab = Laboratory(config, registry, telemetry, records, mutation_lock)
 
+    assembly_ticker = AssemblyTicker(
+        telemetry,
+        interval_s=float(config.get("assembly_tick_s", 1.0)),
+        quiet_after_ns=int(config.get("assembly_quiet_after_ns", QUIET_AFTER_NS)),
+    ).start()
+
     analytics = AnalyticsFacade(
         telemetry, records, results=AnalyticsResults(records), environments=registry.environments
     )
@@ -59,7 +66,7 @@ def create_app(config: dict) -> Flask:
     plans = Plans(registry, records, mutation_lock, lab.guard_edit, resolve_plan)
     app.extensions.update(
         telemetry=telemetry, records=records, registry=registry, lab=lab, plans=plans,
-        audit_jobs=audit_jobs,
+        audit_jobs=audit_jobs, assembly_ticker=assembly_ticker,
     )
     plans.recover()
 

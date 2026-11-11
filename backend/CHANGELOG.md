@@ -9,6 +9,12 @@
 
 ## [0.8.0]
 
+- Фоновое обслуживание assembly: `app/server/assembly.py` (`AssemblyTicker`) —
+  раз в секунду переводит молчащие open-трассы в quiet через
+  `SpanStore.advance_assembly`; подключён в `create_app`, настройки
+  `assembly_tick_s` / `assembly_quiet_after_ns`. Цикл сам завершается при
+  закрытии стора. Тест: перевод в quiet без ручного вызова + выход при
+  закрытии стора.
 - Golden-харнесс для миграции аналитики на `core/model.py`:
   `tests/analytics/test_migration_golden.py` фиксирует полный вывод
   `rules.audit.run()` на неизменном входе (`fixtures/analytics/golden/audit-baseline.json`).

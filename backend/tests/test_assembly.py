@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,29 @@ class TestAssemblyLifecycle:
                 "SELECT value FROM meta WHERE key = 'schema_version'"
             ).fetchone()
             assert int(version[0]) == 3
+
+
+class TestAssemblyTicker:
+    def test_ticker_closes_silent_open_traces(self, store: SpanStore):
+        from app.server.assembly import AssemblyTicker
+
+        store.ingest(batch("ae" * 16), BINDING, T0)
+        ticker = AssemblyTicker(store, interval_s=0.02, quiet_after_ns=50_000_000).start()
+        try:
+            deadline = time.time() + 5
+            meta = store.resolve_trace("env", "ae" * 16)
+            while time.time() < deadline and meta.assembly_state != "quiet":
+                time.sleep(0.05)
+                meta = store.resolve_trace("env", "ae" * 16)
+            assert meta.assembly_state == "quiet"
+        finally:
+            ticker.stop()
+
+    def test_ticker_exits_when_store_closes(self, store: SpanStore):
+        from app.server.assembly import AssemblyTicker
+
+        ticker = AssemblyTicker(store, interval_s=0.01).start()
+        thread = ticker._thread
+        store.close()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
