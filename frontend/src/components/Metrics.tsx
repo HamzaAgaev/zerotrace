@@ -37,26 +37,3 @@ export function Metrics({ items }: { items: { label: string; value: ReactNode; t
     </div>
   )}</dl>;
 }
-
-export function PairBars({ label, labelContent = label, values, limit, scale, info, labels = ['До', 'После'] }: {
-  label: string;
-  labelContent?: ReactNode;
-  values: readonly [{ amount: number; text: string }, { amount: number; text: string }];
-  labels?: readonly [string, string];
-  scale?: number;
-  info?: string;
-  limit?: { amount: number; text: string };
-}) {
-  const max = Math.max(1, scale ?? 0, ...values.map(v => v.amount), limit?.amount ?? 0);
-  return <figure className="pair-chart">
-    <figcaption>{labelContent}{limit && <small>{limit.text}</small>}{info && <MetricInfo label={`Что значит «${label}»`}>{info}</MetricInfo>}</figcaption>
-    {values.map(({ amount, text }, index) => <div className="pair-row" key={index}>
-      <span>{labels[index]}</span>
-      <span className="pair-track" aria-hidden="true">
-        <i style={{ width: `${amount / max * 100}%` }}/>
-        {limit && <b style={{ left: `${limit.amount / max * 100}%` }}/>}
-      </span>
-      <strong>{text}</strong>
-    </div>)}
-  </figure>;
-}

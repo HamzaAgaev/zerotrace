@@ -22,7 +22,7 @@ export function decodeStored<T>(raw: string | null, fallback: T, validate?: (val
 }
 export function encodeStored(value:unknown) { return JSON.stringify({value,updated:Date.now()}); }
 
-/** Bound expendable navigation history; never evict configuration or projection drafts. */
+/** Bound expendable navigation history; never evict configuration drafts. */
 export function writeStored(storage: Storage, key:string, value:unknown) {
   const history:string[]=[];
   for(let i=0;i<storage.length;i++) {

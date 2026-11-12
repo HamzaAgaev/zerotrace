@@ -10,7 +10,7 @@ import { PlanDialog } from './PlanDialog';
 
 type CallValues = { timeout: string; attempts: string; backoff: string; retry: string };
 type Draft = { revision: string; call?: CallValues; work?: RouteWork };
-export function ServiceConfig({ client, service, environmentId, demo = false, disabled = false, maxAttempts = 3, onSave = () => undefined, onChanged, initialCall }: { initialCall?: { callee:string; operation:string }; client: Client; service: string; environmentId: string; demo?: boolean; disabled?: boolean; maxAttempts?: number; onSave?: (value: number) => void; onChanged?: () => void }) {
+export function ServiceConfig({ client, service, environmentId, demo = false, localOnly = false, disabled = false, maxAttempts = 3, onSave = () => undefined, onChanged, initialCall }: { initialCall?: { callee:string; operation:string }; client: Client; service: string; environmentId: string; demo?: boolean; localOnly?: boolean; disabled?: boolean; maxAttempts?: number; onSave?: (value: number) => void; onChanged?: () => void }) {
   const context = `config:${environmentId}:${service}`;
   const [demoDraft, setDemoDraft] = usePersistentState(`${context}:demo`, String(maxAttempts));
   const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null);
@@ -107,6 +107,6 @@ export function ServiceConfig({ client, service, environmentId, demo = false, di
       </form>}
       {draft&&<><Button onClick={()=>removeDraft(key)}>Сбросить черновик выбранного эндпоинта</Button>{conflict&&<><section className="form-section"><h3>Текущие значения на сервере</h3><dl className="technical-grid">{call ? <><div><dt>Таймаут попытки</dt><dd>{call.timeout_ms} мс</dd></div><div><dt>Всего попыток</dt><dd>{call.max_attempts}</dd></div><div><dt>Пауза между попытками</dt><dd>{call.backoff_ms} мс</dd></div><div><dt>Условия повтора</dt><dd>{call.retry_on.join(', ') || 'Без повторов'}</dd></div></> : route?.work.kind === 'fixed' ? <div><dt>Время обработки</dt><dd>{route.work.delay_ms} мс</dd></div> : route && <><div><dt>Медиана</dt><dd>{route.work.p50_ms} мс</dd></div><div><dt>99-й перцентиль</dt><dd>{route.work.p99_ms} мс</dd></div></>}</dl></section><Button onClick={()=>setDrafts(old=>({...old,[key]:{...old[key],revision:snapshot.revision}}))}>Значения проверены — использовать текущую версию</Button></>}</>}
     </>}
-    {plan&&<PlanDialog key={plan.value.plan_id} client={client} plan={plan.value} canApply={plan.value.apply_enabled} onClose={()=>setPlan(null)} onApplied={entry=>{if(entry?.status==='applied'||entry?.status==='no_op'){removeDraft(plan.target);setPlan(null);setReload(v=>v+1);onChanged?.();}}}/>}
+    {plan&&<PlanDialog localOnly={localOnly} key={plan.value.plan_id} client={client} plan={plan.value} canApply={plan.value.apply_enabled} onClose={()=>setPlan(null)} onApplied={entry=>{if(entry?.status==='applied'||entry?.status==='no_op'){removeDraft(plan.target);setPlan(null);setReload(v=>v+1);onChanged?.();}}}/>}
   </div>;
 }

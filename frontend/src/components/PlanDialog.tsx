@@ -12,11 +12,12 @@ function targetParts(target: string) {
   return { service: target.slice(0, index), operation: target.slice(index + 3) };
 }
 
-export function PlanDialog({ plan, finding, demo = false, canApply, client, onApplied, onStaleRecommendation, onClose, showRuleInfo = true }: {
+export function PlanDialog({ plan, finding, demo = false, localOnly = false, canApply, client, onApplied, onStaleRecommendation, onClose, showRuleInfo = true }: {
   plan: ChangePlan;
   finding?: Finding;
   showRuleInfo?: boolean;
   demo?: boolean;
+  localOnly?: boolean;
   canApply: boolean;
   client: Client;
   onApplied: (entry: JournalEntry | null) => void;
@@ -140,7 +141,7 @@ export function PlanDialog({ plan, finding, demo = false, canApply, client, onAp
         {plan.warnings.map(warning => <p className="plan-warning" key={warning}>{warning}</p>)}
       </div>
       <footer>
-        <span>{applyBlocked || 'Изменения будут применены на сервере.'}</span>
+        <span>{applyBlocked || (localOnly ? 'Изменения сохранятся только в демонстрационном наборе.' : 'Изменения будут применены на сервере.')}</span>
         <div className="page-actions">
           <Button onClick={close} disabled={busy}>Закрыть</Button>
           {canApply && <Button variant="primary" onClick={() => void apply()} disabled={busy || !plan.apply_enabled} title={!plan.apply_enabled ? 'Сервер не разрешает применить этот план' : undefined}>

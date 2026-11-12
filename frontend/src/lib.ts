@@ -62,8 +62,8 @@ export function readRoute(hash: string): Route {
   if (page === 'services') return { page: new URLSearchParams(query).get('tab') === 'statistics' ? 'timings' : 'graph' };
   if (page === 'policies') return { page: 'graph' };
   if (page === 'compare') return { page: 'traces' };
-  if (['audit', 'journal', 'sources', 'graph', 'timings', 'policies', 'lab'].includes(page)) {
-    return { page: page as 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'policies' | 'lab' };
+  if (['audit', 'journal', 'sources', 'graph', 'timings', 'lab'].includes(page)) {
+    return { page: page as 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'lab' };
   }
   if (!traceId) return { page: 'traces' };
   const params = new URLSearchParams(query);

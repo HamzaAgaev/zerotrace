@@ -7,7 +7,6 @@ import type { AuditResult, Finding, TraceDetail as TraceDetailData } from '../ap
 import { Metrics } from '../components/Metrics';
 import { Tabs } from '../components/Tabs';
 import { Button, Icon, LoadingState, Message, Panel, PageHeader, RetryButton } from '../components/ui';
-import { WhatIf } from '../components/WhatIf';
 import { compactTimelineSpans, duration, findingsForTrace, ms, outcomeLabels, timelineRows, traceRequest, traceServiceColors } from '../lib';
 import { FindingCard } from './Audit';
 
@@ -33,7 +32,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
   onExport: () => void;
   onBuild?: () => void;
 }) {
-  const [tab, setTab] = usePersistentTab(`trace:${JSON.stringify(trace.trace_ref)}:tab`, 'timeline', ['timeline','audit','whatif']);
+  const [tab, setTab] = usePersistentTab(`trace:${JSON.stringify(trace.trace_ref)}:tab`, 'timeline', ['timeline','audit']);
   const [selected, setSelected] = usePersistentState<string | undefined>(`trace:${JSON.stringify(trace.trace_ref)}:span`, undefined);
   const [collapsedIds, setCollapsedIds] = usePersistentState<string[]>(`trace:${JSON.stringify(trace.trace_ref)}:collapsed`, []);
   const collapsed = new Set(collapsedIds);
@@ -149,7 +148,6 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
     <Tabs label="Разделы трейса" value={tab} onChange={setTab} fullWidth items={[
       { value: 'timeline', label: 'Выполнение', panelId: 'timeline-panel' },
       { value: 'audit', label: <>Аудит {findings.length > 0 && <span>{findings.length}</span>}</>, panelId: 'audit-panel' },
-      { value: 'whatif', label: 'Прогноз ускорения', panelId: 'whatif-panel' },
     ]}/>
 
     {tab === 'timeline' && <div id="timeline-panel" role="tabpanel" aria-labelledby="timeline-panel-tab">
@@ -237,8 +235,5 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
         </div></Panel>}
     </div>}
 
-    {tab === 'whatif' && <div id="whatif-panel" role="tabpanel" aria-labelledby="whatif-panel-tab">
-      <WhatIf trace={trace}/>
-    </div>}
   </>;
 }
