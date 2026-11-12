@@ -1,11 +1,10 @@
 # server
 
 **Зачем:** сборка единого HTTP-приложения (Flask), lifecycle и раздача UI.
-Зона A (Никита); файл `assembly.py` — совместный стык с B.
 
 **Модули:**
 
-- `application.py` — `create_app(config)`: поднимает SpanStore (B) и
+- `application.py` — `create_app(config)`: поднимает SpanStore и
   ControlStore, реестр источников, лабораторию, аналитику и все HTTP-маршруты
   (OTLP, Product API, data API, аналитика, статика фронтенда). Один процесс —
   один SQLite-файл в WAL.
@@ -15,5 +14,5 @@
   `assembly_quiet_after_ns`). Цикл сам завершается при закрытии стора;
   `stop()` — явная остановка.
 
-**Запуск:** `python -m app.server --config deploy/config.json`
-(см. `docs/guides/operations.md`).
+**Запуск:** из корня репозитория в контейнере: `python -m app.server --config deploy/config.json`.
+[Руководство оператора](../../../docs/guides/operations.md).

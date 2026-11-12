@@ -9,11 +9,11 @@ docker compose up --build
 docker compose --profile demo up --build
 ```
 
-Первый запуск включает ZeroTrace, UI и API на `http://127.0.0.1:8000`. Профиль `demo` дополнительно запускает gateway, orders, inventory, pricing, delivery, payment, fraud, bank-api, notifications и `demo-load`. Compose хранит базу и состояние в именованных volumes. Обычный `docker compose down` их сохраняет.
+Базовый запуск включает ZeroTrace, UI и API на `http://127.0.0.1:8000`. Профиль `demo` дополнительно запускает gateway, orders, inventory, pricing, delivery, payment, fraud, bank-api, notifications и `demo-load`. Compose хранит базу и состояние в именованных volumes. Обычный `docker compose --profile demo down` их сохраняет. Требования к окружению и шаги первого запуска — в [инструкции сборки](getting-started.md).
 
 ## Подключение собственного источника
 
-Добавьте запись `{"source_id":"my-api","environment_id":"shop"}` в `sources` файла `deploy/config.json`. При старте сервер создаёт для неё случайный токен в token volume по пути `shop/my-api`; файл имеет права `0600`. Значение не выдаётся через Product API и не пишется приложением в логи. Если нужен read/write config, отдельно добавьте service с `service_id`, `environment_id`, server-side `control_url` и ограниченным `write_fields`. Для одного наблюдения запись service не нужна.
+Добавьте запись `{"source_id":"my-api","environment_id":"shop"}` в `sources` файла `deploy/config.json`. При старте сервер создаёт для неё случайный токен в token volume по пути `shop/my-api`; файл имеет права `0600`. Значение не выдаётся через Product API и не пишется приложением в логи. В поставляемом `shop` управляющий адаптер зарегистрирован только для `orders`; остальные сервисы, включая `payment`, доступны для наблюдения. Если нужен read/write config собственного приложения, отдельно добавьте service с `service_id`, `environment_id`, server-side `control_url` и ограниченным `write_fields`. Для одного наблюдения запись service не нужна.
 
 Подключите собственное приложение к тому же Compose project/network и смонтируйте token volume только для чтения. Например, дополнение Compose сервиса:
 
@@ -61,7 +61,7 @@ services:
 
 ### Конфигурация и применение
 
-План целиком принадлежит A. Запрос выбирает одно service и один target (`call_ref` для исходящего вызова или `route` для входящего маршрута), сверяет текущую revision и показывает before/after:
+План целиком принадлежит модулю управления ZeroTrace. Запрос выбирает одно service и один target (`call_ref` для исходящего вызова или `route` для входящего маршрута), сверяет текущую revision и показывает before/after:
 
 ```json
 {
@@ -79,9 +79,9 @@ services:
 {"request_id":"apply-orders-001","plan_hash":"<hash-from-plan>"}
 ```
 
-Повтор того же request ID с тем же plan/hash возвращает ту же операцию; повтор с другим содержимым — `409 request_id_conflict`. Устаревшая config revision — `409 stale_revision`. Запись рекомендации разрешена только в `sandbox`. Потерянный или не подтверждённый ответ получает состояние `unknown`, после чего A сверяет результат по service API; не отправляйте новую операцию вслепую.
+Повтор того же request ID с тем же plan/hash возвращает ту же операцию; повтор с другим содержимым — `409 request_id_conflict`. Устаревшая config revision — `409 stale_revision`. Применение рекомендации разрешено только в `sandbox`; разрешённые ручные изменения внешних сервисов доступны отдельно. Потерянный или не подтверждённый ответ получает состояние `unknown`, после чего сервер сверяет результат по service API; не отправляйте новую операцию вслепую.
 
-За записью A обращается к сервисному adapter API: `GET /_config`, `PATCH /_config`, `GET /_config/operations/{request_id}`. PATCH включает `request_id`, `expected_revision`, ровно один selector (`call_ref` или `route`) и map `set`. Адаптер проверяет compare-and-swap и сохраняет повторяемый результат операции. Это API сервиса, а не отдельный plan/apply API стенда. Fault идет отдельными service control endpoints `PUT /_chaos` и `DELETE /_chaos`.
+За записью сервер обращается к сервисному adapter API: `GET /_config`, `PATCH /_config`, `GET /_config/operations/{request_id}`. PATCH включает `request_id`, `expected_revision`, ровно один selector (`call_ref` или `route`) и map `set`. Адаптер проверяет compare-and-swap и сохраняет повторяемый результат операции. Это API сервиса, а не отдельный plan/apply API стенда. Fault идет отдельными service control endpoints `PUT /_chaos` и `DELETE /_chaos`.
 
 Исходящая retry policy хранится у вызывающего сервиса и выбирается по `call_ref`, независимо от истории входящего запроса. Для входящего маршрута отдельно настраивается собственная работа `work`: `{"kind":"fixed","delay_ms":5}` либо `{"kind":"lognormal","p50_ms":10,"p99_ms":30}`. Вызовы downstream идут дополнительно к этой работе. Конфиг фиксируется при входе HTTP-запроса, поэтому новые revisions применяются к следующим запросам.
 
@@ -124,10 +124,10 @@ Fault задаётся для входящего route сервиса:
 }
 ```
 
-В `config_revisions` передавайте полную карту сервисов из активного стенда; значения revision приходят от сервисных adapters и в текущем демо — строки. `request_count` допустим от 1 до 1000, `concurrency` от 1 до 32. `seed` необязателен; если опущен, A создаёт и сохраняет его. Seed относится только к воспроизводимой нагрузке лаборатории и не требуется от OTLP источников/пользовательских приложений. Повтор request ID с тем же телом возвращает тот же run; изменённое тело даёт `409 request_id_conflict`. После выполнения телеметрия может иметь `waiting`, `ready` или `partial`; сравнение использует зафиксированные ссылки трасс.
+В `config_revisions` передавайте полную карту сервисов из активного стенда; значения revision приходят от сервисных adapters и в текущем демо — строки. `request_count` допустим от 1 до 1000, `concurrency` от 1 до 32. `seed` необязателен; если опущен, сервер создаёт и сохраняет его. Seed относится только к воспроизводимой нагрузке лаборатории и не требуется от OTLP источников/пользовательских приложений. Повтор request ID с тем же телом возвращает тот же run; изменённое тело даёт `409 request_id_conflict`. После выполнения телеметрия может иметь `waiting`, `ready` или `partial`; сравнение использует зафиксированные ссылки трасс.
 
 ## Хранение и границы API
 
-Одна SQLite база `/data/zerotrace.db` используется B и A. Основные таблицы B: `meta`, `traces`, `spans`, `trace_runs`, `run_samples`, `frozen_trace_revisions`. Последняя сохраняет точные metadata/spans ревизии, выбранные в зафиксированной sample, чтобы поздний ingest не менял сравнение. A хранит plans, operations, runs, stand, fault/run request idempotency records в `control_records(kind,key,payload)` той же базе. C использует facade над B telemetry store и read-only snapshot A control records; свои артефакты записывает в те же control records через namespaced kinds. Сериализация записи проходит транзакционно; база работает в WAL.
+Одна SQLite база `/data/zerotrace.db` используется телеметрией и управлением. Таблицы телеметрии: `meta`, `traces`, `spans`, `trace_runs`, `run_samples`, `frozen_trace_revisions`. Последняя сохраняет точные metadata/spans ревизии, выбранные в зафиксированной sample, чтобы поздний ingest не менял сравнение. Модуль управления хранит plans, operations, runs, stand, fault/run request idempotency records в `control_records(kind,key,payload)` той же базе. Аналитика использует facade над telemetry store и снимками управляющих записей; свои артефакты записывает в те же control records через namespaced kinds. Сериализация записи проходит транзакционно; база работает в WAL.
 
 Product API обычно отдаёт object/array в envelope `payload`; списки сервисов и run history находятся в массиве `payload.items`, а список операций журнала — сам массив `payload`. Это не map по service ID. Сервисный `GET /_config`, напротив, отдаёт объект: `calls` — массив, `routes` — объект, ключи которого являются route strings. Реестр сервера отдельно задаёт адрес управления и разрешённые `write_fields`.

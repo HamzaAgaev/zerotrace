@@ -6,7 +6,7 @@
 
 ```sh
 docker compose --profile demo up --build -d
-docker compose ps                          # все 11 контейнеров healthy
+docker compose --profile demo ps            # 11 работают; 10 настроенных healthchecks healthy
 curl -s http://127.0.0.1:8000/healthz      # {"status":"ok"}
 ```
 
@@ -19,9 +19,7 @@ curl -s http://127.0.0.1:8000/healthz      # {"status":"ok"}
 **API (опционально):**
 
 ```sh
-curl -s "http://127.0.0.1:8000/api/v1/audit?environment_id=shop&view=full" \
-  | python3 -c "import json,sys; d=json.load(sys.stdin)['payload']; \
-print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['findings']])"
+curl --fail "http://127.0.0.1:8000/api/v1/audit?environment_id=shop&view=full"
 ```
 
 В `shop` граф строится из реальных трейсов. `orders` поддерживает ручное
@@ -32,9 +30,16 @@ print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['find
 
 **UI:** Лаборатория → «Создать стенд оформления заказа» (сценарий checkout, 9 сервисов, состояние «Готов»).
 Или API: `POST /api/v1/lab/stands {"scenario_id":"checkout"}` → запомнить
-`stand_id`, `config_revisions` (все `"1"`).
+`stand_id`, `scenario_revision`, `fault_revision` и `config_revisions`.
+Используйте фактические значения ответа: ранее сохранённые настройки
+могут быть восстановлены при создании нового стенда.
 
 ## Шаг 3. Сбой и baseline-прогон
+
+Перед baseline проверьте политики: `gateway / orders-create` — одна попытка
+с timeout 700 мс; `orders / charge-payment` — 3 попытки, timeout 250 мс,
+пауза 50 мс. Это значения сценария по умолчанию. Если настройки были
+изменены раньше, восстановите их через интерфейс до начала двух прогонов.
 
 **UI:** Лаборатория → форма «Сбой входящего вызова»: сервис `payment`,
 входящий вызов `POST /charge`, вероятность ошибки `100`, код `503`,
@@ -43,7 +48,8 @@ print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['find
 **UI:** Запросов 30, одновременных запросов 1, число для воспроизведения
 запуска 42 → «Запустить прогон».
 
-**API-прогон:** `POST /api/v1/lab/stands/{stand_id}/runs` с телом:
+**API-прогон:** ниже пример тела для чистого стенда; значения ревизий
+нужно заменить полученными от сервера. `POST /api/v1/lab/stands/{stand_id}/runs` с телом:
 
 ```json
 {
@@ -77,13 +83,14 @@ print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['find
 план (`changes: max_attempts 3→2`); затем `POST /api/v1/change-plans/{plan_id}/apply`
 с `plan_hash` и стабильным `request_id`.
 
-Ожидается: операция `applied`, настройки orders → `max_attempts: 2`, версия конфигурации `2`.
+Ожидается: операция `applied`, настройки orders → `max_attempts: 2`.
+Актуальную версию конфигурации перечитайте с сервера.
 **UI:** Журнал — статус «Настройки применены» и изменения «Было → Станет»;
 настройки сервиса orders обновлены. Проверка проблемы показана отдельно.
 
 ## Шаг 6. Повторный прогон и сравнение
 
-Второй run с **тем же seed 42** и `config_revisions` где `orders: "2"`,
+Второй run с **тем же seed 42** и актуальной картой `config_revisions`,
 новый `request_id`. Затем `POST /api/v1/comparisons`:
 
 ```json
@@ -114,4 +121,4 @@ print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['find
 
 - Не мерджить ветки и не пересобирать образ после репетиции.
 - Не чистить volumes до конца показа (`down` без `-v`).
-- Не применять планы к окружению shop (403 `recommendation_lab_only`).
+- Рекомендации аудита применять только в лаборатории. Ручная запись разрешённых полей `orders` в `shop` — отдельная возможность.

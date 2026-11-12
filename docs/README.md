@@ -1,22 +1,31 @@
 # Документация ZeroTrace
 
-## Устройство и контракты
+## Знакомство с проектом
+
+- [Возможности и ограничения](guides/capabilities.md).
+- [Сборка и первый запуск](guides/getting-started.md).
+- [Сценарий демонстрации](guides/demo-checklist.md).
+- [Интерактивная архитектура](architecture/overview.html) и [SVG для экспорта](architecture/overview.svg).
+
+## Устройство и действующие контракты
 
 - [Компоненты и структура кода](architecture/components.md).
 - [Конфигурация сервисов и лаборатория](architecture/configuration-and-lab.md).
+- [Подключение OTLP и API управления](guides/operations.md).
 - [HTTP API интерфейса](../frontend/API.md).
 - [API и исполнение тестового сервиса](../stand/README.md).
-
-## Работа с системой
-
-- [Запуск, подключение OTLP и управление](guides/operations.md).
-- [Разработка и проверки](development/testing.md).
-- [Интерфейс](../frontend/README.md).
+- [Экраны и состояние интерфейса](../frontend/README.md).
 - [Аналитический модуль и самостоятельный CLI](../backend/app/analytics_api/README.md).
 
-## Планирование
+## Разработка
 
-[Общий план](plans/PLAN.md) и [контракты P1–P11](plans/CONTRACTS.md)
-описывают целевую систему. Зоны команды: [A](plans/A_stand.md),
-[B](plans/B_core.md), [C](plans/C_rules.md), [D](plans/D_product.md).
-Плановые требования могут охватывать возможности за пределами текущего API.
+- [Проверки и тесты](development/testing.md).
+- [Типизированная модель аналитики](development/analytics-core-model-migration.md).
+- [Контракты и примеры данных](../backend/fixtures/README.md).
+
+## Требования и дальнейшее развитие
+
+[Общий план](plans/PLAN.md), [контракты P1–P11](plans/CONTRACTS.md) и
+[требования к интерфейсу](plans/FRONTEND_UNIFICATION.md) сохраняют проектные
+решения и критерии приёмки. Полный план шире поставляемой версии: описание
+действующих функций и границ находится в руководствах выше.
