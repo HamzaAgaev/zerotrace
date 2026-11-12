@@ -38,6 +38,7 @@ if line not in s:
 PY
 if nginx -t && systemctl reload nginx; then
   rm -f "$snippet_backup"
+  bash deploy/restrict-courses.sh
   curl --fail --silent --show-error --resolve mhs.dmitriy.space:443:127.0.0.1 https://mhs.dmitriy.space/zerotrace/healthz
   echo
   echo 'ZeroTrace: https://mhs.dmitriy.space/zerotrace/'
