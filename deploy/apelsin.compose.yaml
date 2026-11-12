@@ -1,0 +1,6 @@
+services:
+  zerotrace:
+    build:
+      args:
+        VITE_BASE_PATH: /zerotrace/
+    restart: unless-stopped

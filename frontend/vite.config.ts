@@ -1,2 +1,2 @@
 import { defineConfig } from 'vite';
-export default defineConfig({ server: { port: 5173, strictPort: true }, preview: { port: 4173, strictPort: true } });
+export default defineConfig({ base: process.env.VITE_BASE_PATH || '/', server: { port: 5173, strictPort: true }, preview: { port: 4173, strictPort: true } });
