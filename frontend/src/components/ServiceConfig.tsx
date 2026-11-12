@@ -1,4 +1,3 @@
-import { downloadJson } from '../analysis';
 import { usePersistentState } from '../state';
 import { Endpoint, endpointLabel } from './HttpText';
 import { Select } from './Select';
@@ -18,7 +17,6 @@ export function ServiceConfig({ client, service, environmentId, localOnly = fals
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = usePersistentState(`${context}:selected`, '');
   const [drafts, setDrafts] = usePersistentState<Record<string,Draft>>(`${context}:drafts`, {});
-  const [budgets, setBudgets] = usePersistentState<Record<string,string>>(`${context}:budgets`, {});
   const [pending, setPending] = useState(false);
   const inFlight = useRef(false);
   const requestVersion = useRef(0);
@@ -86,7 +84,6 @@ export function ServiceConfig({ client, service, environmentId, localOnly = fals
           <Field label="Всего попыток, включая первую"><input required type="number" min="1" max="10" value={values.attempts} disabled={disabled||!call.write_fields.includes('max_attempts')} onChange={e=>updateCall('attempts',e.target.value)}/></Field>
           <Field label="Пауза между попытками, мс"><input required type="number" min="0" value={values.backoff} disabled={disabled||!call.write_fields.includes('backoff_ms')} onChange={e=>updateCall('backoff',e.target.value)}/></Field>
           <Field label="Условия повтора (через запятую)"><input value={values.retry} disabled={disabled||!call.write_fields.includes('retry_on')} onChange={e=>updateCall('retry',e.target.value)}/></Field>
-          <section className="form-section"><h3>Время на попытки</h3><p className="small-text">Максимальное время: {Number(values.timeout)>0&&Number(values.attempts)>0&&Number(values.backoff)>=0?(Number(values.timeout)*Number(values.attempts)+Number(values.backoff)*(Number(values.attempts)-1)).toLocaleString('ru-RU')+' мс':'укажите корректные значения'}.</p><Field label="Доступное время ожидания, мс (для проверки)"><input type="number" min="1" value={budgets[key] ?? ''} placeholder="Укажите, если известно" onChange={e=>setBudgets(old=>({...old,[key]:e.target.value}))}/></Field>{Number(budgets[key])>0&&<p>Запас времени: {(Number(budgets[key])-(Number(values.timeout)*Number(values.attempts)+Number(values.backoff)*(Number(values.attempts)-1))).toLocaleString('ru-RU')} мс. Отрицательное значение означает превышение доступного времени.</p>}<Button type="button" onClick={()=>downloadJson('zerotrace-call-draft.json',{kind:'configuration-preview',environment_id:environmentId,service,call_ref:call.call_ref,expected_revision:draft?.revision??snapshot.revision,values,available_time_ms:budgets[key]||null,applied:false})}>Скачать черновик</Button><p className="muted small-text">Оценка учитывает таймауты всех попыток и паузы между ними.</p></section>
         </>}
         {route&&work&&<>
           <Field label="Время обработки запроса"><Select value={work.kind} disabled={disabled||!route.write_fields.includes('work')} onChange={v=>updateWork(v==='fixed'?{kind:'fixed',delay_ms:1}:{kind:'lognormal',p50_ms:1,p99_ms:2})}><option value="fixed">Постоянное</option><option value="lognormal">Меняется от запроса к запросу</option></Select></Field>
