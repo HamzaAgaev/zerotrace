@@ -1,5 +1,5 @@
 import { usePersistentState, usePersistentTab } from '../state';
-import { SpanOperation, endpointLabel } from './HttpText';
+import { SpanOperation, Endpoint, endpointLabel } from './HttpText';
 import { PairBars } from './Metrics';
 import { Select } from './Select';
 import { useMemo } from 'react';
@@ -14,7 +14,7 @@ const maxBranches = 8;
 
 /** Full operation plus span-specific context so repeats of the same endpoint stay distinguishable. */
 function spanOptionLabel(span: Span) {
-  return `${endpointLabel(span.service, span.name)} · смещение ${duration(span.start_offset_ns)} от начала трейса · длительность ${duration(span.duration_ns)}`;
+  return `${endpointLabel(span.service, span.name)} — начало через ${duration(span.start_offset_ns)}`;
 }
 
 export function WhatIf({ trace }: { trace: TraceDetail }) {
@@ -56,7 +56,7 @@ export function WhatIf({ trace }: { trace: TraceDetail }) {
   const atLimit = branchCount >= maxBranches;
   const pickConflict = !!pick && conflicts(pick);
   const add = (id: string) => {
-    if (!atLimit && !conflicts(id)) {
+    if (trace.spans.some(span => span.span_id === id && span.parent_span_id) && !atLimit && !conflicts(id)) {
       setBranches(old => ({ ...old, [id]: 50 }));
       setTab('scenario');
     }
@@ -82,10 +82,10 @@ export function WhatIf({ trace }: { trace: TraceDetail }) {
                   key={span.span_id}
                   value={span.span_id}
                   label={spanOptionLabel(span)}>
-                  {spanOptionLabel(span)}
+                  <Endpoint service={span.service} operation={span.name}/>{trace.spans.filter(other => endpointLabel(other.service, other.name) === endpointLabel(span.service, span.name)).length > 1 && <small className="cell-note">Начало через {duration(span.start_offset_ns)}</small>}
                 </option>)}
               </Select>
-              <Button disabled={!pick || atLimit || pickConflict} onClick={() => add(pick)}>Добавить</Button>
+              <Button disabled={!trace.spans.some(span => span.span_id === pick && span.parent_span_id) || atLimit || pickConflict} onClick={() => add(pick)}>Добавить</Button>
             </div>
             {atLimit && <p className="muted">Достигнут предел: добавлено 8 веток. Удалите одну из выбранных веток, чтобы добавить новую.</p>}
             {!atLimit && pickConflict && <p className="muted">Вызов уже выбран или входит в выбранную ветку. Удалите пересекающуюся ветку, чтобы добавить его.</p>}
@@ -94,9 +94,9 @@ export function WhatIf({ trace }: { trace: TraceDetail }) {
               const span = trace.spans.find(item => item.span_id === id);
               return <div className="scenario-branch" key={id}>
                 <div>
-                  <strong>{span?.service ?? 'Вызов недоступен'}</strong>
-                  <span>{span ? <SpanOperation span={span} /> : 'Этот спан больше не найден в трейсе. Удалите ветку.'}</span>
-                  {span && <small className="field-note">Смещение {duration(span.start_offset_ns)} от начала трейса · длительность {duration(span.duration_ns)}</small>}
+                  <strong>{span ? <>Сервис: {span.service}</> : 'Вызов недоступен'}</strong>
+                  <span>{span ? <>Эндпоинт: <SpanOperation span={span} /></> : 'Этот спан больше не найден в трейсе. Удалите ветку.'}</span>
+                  {span && <small className="field-note">Время от начала трейса: {duration(span.start_offset_ns)} — длительность {duration(span.duration_ns)}</small>}
                   <Button variant="ghost" aria-label={`Убрать ветку ${span ? endpointLabel(span.service, span.name) : id}`} icon="close"
                     onClick={() => setBranches(old => { const next = { ...old }; delete next[id]; return next; })} />
                 </div>
@@ -113,7 +113,6 @@ export function WhatIf({ trace }: { trace: TraceDetail }) {
         <Panel title="Прогноз длительности запроса">
           <div className="budget-preview">
             {result.value ? <>
-              <Badge tone="accent">Прогноз, не измерение</Badge>
               <PairBars label="Длительность запроса" labels={['Факт', 'Прогноз']} values={[
                 { amount: result.value.baseline, text: formatMs(result.value.baseline) },
                 { amount: result.value.projected, text: formatMs(result.value.projected) },
@@ -124,7 +123,6 @@ export function WhatIf({ trace }: { trace: TraceDetail }) {
                 branches, result: result.value, measured: false, applied: false,
               })}>Скачать прогноз</Button>
             </> : <Message tone="warning">{result.error}</Message>}
-            <p className="muted">Модель не учитывает изменение повторов и нагрузки. Ограничения описаны на вкладке «Как считается».</p>
             {result.error && <a className="button" href="#/traces">Выбрать другой трейс</a>}
           </div>
         </Panel>
@@ -132,13 +130,14 @@ export function WhatIf({ trace }: { trace: TraceDetail }) {
     </div>
 
     {tab === 'candidates' && (ranking.length > 0
-      ? <Panel title="Что можно ускорить: сокращение длительности на 50%" meta={<Badge>Первые 200 спанов</Badge>}>
+      ? <Panel title="Что можно ускорить">
+        <p className="panel-note">Оценка при ускорении ветки на 50%. Проверены первые 200 дочерних спанов.</p>
         <TableScroll>
           <table className="explore-table">
             <thead><tr><th>Сервис / операция</th><th>Прогноз длительности</th><th>Возможное сокращение</th><th>Действие</th></tr></thead>
             <tbody>{ranking.map(item => <tr key={item.span.span_id}>
               <td>{item.span.service}<small className="cell-note"><SpanOperation span={item.span} /></small>
-                <small className="cell-note">Смещение {duration(item.span.start_offset_ns)} от начала · длительность {duration(item.span.duration_ns)}</small>
+                <small className="cell-note">Время от начала трейса: {duration(item.span.start_offset_ns)} — длительность {duration(item.span.duration_ns)}</small>
               </td>
               <td>{formatMs(item.projected)}</td>
               <td>{formatMs(item.gain)}</td>
@@ -152,8 +151,8 @@ export function WhatIf({ trace }: { trace: TraceDetail }) {
 
     {tab === 'about' && <Panel title="Как считается прогноз">
       <div className="info-block">
-        <p>Ускоряется вся выбранная ветка. Последовательные блоки сдвигаются; внутри перекрывающихся блоков сохраняются смещения запусков. Ненаблюдаемые зависимости, кэш и дедлайны не пересчитываются.</p>
-        <p>Можно выбрать до восьми непересекающихся веток. Прогноз требует полного дерева с одним корнем и корректными границами спанов. Это предварительная модель интервалов, а не измерение после изменения приложения.</p>
+        <p>Прогноз сокращает длительность выбранного вызова и всех вложенных вызовов. Следующие вызовы начинаются раньше. Для параллельных вызовов сохраняется разница между временем их запуска. Изменения кэширования, ограничений времени и зависимостей, отсутствующих в трейсе, не учитываются.</p>
+        <p>Можно выбрать до восьми веток, которые не вложены друг в друга. Для расчёта нужен полный трейс: один начальный вызов, все родительские спаны и корректное время начала и окончания вызовов. Результат — оценка, а не измерение работы изменённого приложения.</p>
       </div>
     </Panel>}
   </div>;

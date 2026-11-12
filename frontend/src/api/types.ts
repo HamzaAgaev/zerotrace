@@ -1,7 +1,7 @@
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger';
 export type Outcome = 'ok' | 'error' | 'unknown';
 export type SourceMode = 'demo' | 'live';
-export type Route = { page: 'traces'; traceId?: string; traceRef?: TraceRef } | { page: 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'policies' | 'compare' | 'lab' };
+export type Route = { page: 'traces'; traceId?: string; traceRef?: TraceRef } | { page: 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'policies' | 'lab' };
 export interface TraceRef { environment_id: string; trace_id: string; generation: number; revision: number }
 export interface TraceSummary {
   trace_ref: TraceRef;

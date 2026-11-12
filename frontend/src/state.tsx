@@ -3,13 +3,13 @@ import { createContext, useContext, useState, type Dispatch, type SetStateAction
 
 export const StateScope = createContext('default');
 const prefix = uiStoragePrefix;
-export function usePersistentState<T>(name: string, initial: T | (() => T)): [T, Dispatch<SetStateAction<T>>] {
+export function usePersistentState<T>(name: string, initial: T | (() => T), validate?: (value: unknown) => value is T): [T, Dispatch<SetStateAction<T>>] {
   const scope = useContext(StateScope);
   const key = prefix + scope + ':' + name;
   const fallback = () => typeof initial === 'function' ? (initial as () => T)() : initial;
   const read = (): T => {
     try {
-      return decodeStored(localStorage.getItem(key), fallback());
+      return decodeStored(localStorage.getItem(key), fallback(), validate);
     } catch { /* Storage is optional. */ }
     return fallback();
   };

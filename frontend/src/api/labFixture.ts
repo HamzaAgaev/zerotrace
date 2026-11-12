@@ -95,11 +95,11 @@ export function labReducer(state: LabState, action: Action): LabState {
   }
   if (stand.status !== 'ready') return reject('Дождитесь готовности стенда или завершения остановки.');
   if (runs.some(run => run.standId === stand.id && run.status === 'running')) {
-    return reject('Прогон выполняется. Дождитесь завершения запросов.');
+    return reject('Тест выполняется. Дождитесь завершения запросов.');
   }
   if (action.type === 'stop') {
     if (runs.some(run => run.standId === stand.id && run.collection === 'waiting')) {
-      return reject('Дождитесь фиксации трейсов перед остановкой стенда.');
+      return reject('Дождитесь сбора трейсов перед остановкой стенда.');
     }
     return { ...state, message: '', stand: { ...stand, status: 'stopping' } };
   }
@@ -111,17 +111,17 @@ export function labReducer(state: LabState, action: Action): LabState {
   }
   if (action.type === 'apply') {
     if (stand.id !== action.standId || stand.configRevision !== action.revision) {
-      return reject('Версия конфигурации изменилась. Откройте новый предпросмотр и подтвердите его.');
+      return reject('Версия настроек изменилась. Откройте новый предпросмотр и подтвердите его.');
     }
     if (stand.maxAttempts !== 3) return state;
-    return { ...state, message: 'Изменение применено в демостенде. Версия конфигурации 13.',
+    return { ...state, message: 'Изменение применено в демостенде. Версия настроек 13.',
       stand: { ...stand, maxAttempts: 2, configRevision: '13' } };
   }
   if (action.type === 'run') {
     const { versions } = action;
     if (versions.scenarioRevision !== stand.scenarioRevision || versions.faultRevision !== stand.faultRevision ||
         versions.configRevision !== stand.configRevision) {
-      return reject('Версии стенда изменились. Проверьте текущие значения и запустите прогон снова.');
+      return reject('Версии стенда изменились. Проверьте текущие значения и запустите тест снова.');
     }
     if (!stand.fault) return reject('Сначала задайте сбой payment.');
     const run: Run = { ...versions, id: action.id, standId: stand.id, fault: stand.fault,
@@ -133,8 +133,8 @@ export function labReducer(state: LabState, action: Action): LabState {
 }
 
 export function comparisonIssue(before: Run, after: Run): string {
-  if (before.status === 'failed' || after.status === 'failed') return 'Один из прогонов завершился с ошибкой.';
-  if (before.collection === 'waiting' || after.collection === 'waiting') return 'Дождитесь фиксации трейсов обоих прогонов.';
+  if (before.status === 'failed' || after.status === 'failed') return 'Один из тестов завершился с ошибкой.';
+  if (before.collection === 'waiting' || after.collection === 'waiting') return 'Дождитесь сбора трейсов обоих тестов.';
   if (!before.samples.length || !after.samples.length) return 'Для сравнения нужны две непустые выборки.';
   if (before.id === after.id || before.standId !== after.standId ||
       before.scenarioRevision !== after.scenarioRevision || before.faultRevision !== after.faultRevision ||

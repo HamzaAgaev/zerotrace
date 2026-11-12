@@ -215,10 +215,6 @@ def trace_detail(graph: TraceGraph, call_model: CallModel | None = None) -> Trac
             client.kind != "client"
             or client.async_markers
             or len(children) != 1
-            or client.http_status is None
-            or not 200 <= client.http_status < 400
-            or client.otel_status == "error"
-            or client.error_type is not None
         ):
             continue
         server = by_id.get(children[0])
@@ -226,9 +222,6 @@ def trace_detail(graph: TraceGraph, call_model: CallModel | None = None) -> Trac
             server is not None
             and server.kind == "server"
             and server.service != client.service
-            and server.http_status == client.http_status
-            and server.otel_status != "error"
-            and server.error_type is None
         ):
             compactable[client.span_id] = server.span_id
     return TraceDetail(

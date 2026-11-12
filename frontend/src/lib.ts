@@ -62,8 +62,8 @@ export function readRoute(hash: string): Route {
   if (page === 'services') return { page: new URLSearchParams(query).get('tab') === 'statistics' ? 'timings' : 'graph' };
   if (page === 'policies') return { page: 'graph' };
   if (page === 'compare') return { page: 'traces' };
-  if (['audit', 'journal', 'sources', 'graph', 'timings', 'policies', 'compare', 'lab'].includes(page)) {
-    return { page: page as 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'policies' | 'compare' | 'lab' };
+  if (['audit', 'journal', 'sources', 'graph', 'timings', 'policies', 'lab'].includes(page)) {
+    return { page: page as 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'policies' | 'lab' };
   }
   if (!traceId) return { page: 'traces' };
   const params = new URLSearchParams(query);
@@ -78,11 +78,18 @@ export function readRoute(hash: string): Route {
 }
 export function filterTraces(traces: TraceSummary[], query: string, service: string, status: string, sort: string): TraceSummary[] { const q = query.trim().toLowerCase(); return traces.filter(t => `${t.operation} ${t.service} ${t.trace_id}`.toLowerCase().includes(q) && (!service || service === t.service) && (!status || t.outcome === status)).sort((a, b) => { const av = BigInt(sort === 'slow' ? a.duration_ns : a.start_ns), bv = BigInt(sort === 'slow' ? b.duration_ns : b.start_ns); return av === bv ? a.trace_id.localeCompare(b.trace_id) : av > bv ? -1 : 1; }); }
 export function compactTimelineSpans(spans: Span[], pairs?: Record<string, string>): Span[] {
-  if (!pairs) return spans;
   const byId = new Map(spans.map(span => [span.span_id, span]));
   const hidden = new Set<string>();
   const parents = new Map<string, string | null>();
-  for (const [clientId, serverId] of Object.entries(pairs)) {
+  const resolved = { ...pairs };
+  for (const client of spans) {
+    if (client.kind !== 'client') continue;
+    const children = spans.filter(span => span.parent_span_id === client.span_id);
+    if (children.length === 1 && children[0].kind === 'server' && children[0].service !== client.service) {
+      resolved[client.span_id] = children[0].span_id;
+    }
+  }
+  for (const [clientId, serverId] of Object.entries(resolved)) {
     const client = byId.get(clientId);
     const server = byId.get(serverId);
     if (client && server?.parent_span_id === clientId) {
@@ -99,15 +106,6 @@ export function timelineRows(spans: Span[]): { span: Span; depth: number }[] {
   const map = new Map(spans.map(s => [s.span_id, s])); const visited = new Set<string>(); const output: { span: Span; depth: number }[] = [];
   const walk = (span: Span, depth: number) => { if (visited.has(span.span_id)) return; visited.add(span.span_id); output.push({ span, depth: Math.min(depth, 20) }); spans.filter(s => s.parent_span_id === span.span_id).sort((a,b) => Number(BigInt(a.start_offset_ns) - BigInt(b.start_offset_ns))).forEach(s => walk(s, depth + 1)); };
   spans.filter(s => !s.parent_span_id || !map.has(s.parent_span_id)).forEach(s => walk(s, 0)); spans.forEach(s => walk(s, 0)); return output;
-}
-
-/** Explicit links take precedence over the saved comparison draft. */
-export function comparisonModeForHash(hash: string, saved: boolean): boolean {
-  const [path, query] = hash.replace(/^#\/?/, '').split('?');
-  const mode = new URLSearchParams(query).get('mode');
-  if (path === 'compare' || mode === 'compare') return true;
-  if (mode === 'list') return false;
-  return saved;
 }
 
 export function serviceSurfaceForHash(hash: string, saved: 'graph' | 'table'): 'graph' | 'table' {

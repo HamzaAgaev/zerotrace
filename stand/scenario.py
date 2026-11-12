@@ -64,6 +64,24 @@ def load_scenario(path: str | Path) -> dict[str, Any]:
                 valid_work = False
             if not valid_work:
                 raise ScenarioError(f"route {route!r} in {service_id!r} has invalid work")
+            if not _finite_number(definition.get("tail_ms", 0), 0, 3_600_000):
+                raise ScenarioError("invalid route tail duration")
+            steps = definition.get("steps", [])
+            if not isinstance(steps, list):
+                raise ScenarioError("steps must be a list")
+            for step in steps:
+                refs = step.get("parallel", [step.get("call")])
+                if (not isinstance(refs, list) or not refs or len(refs) > 64
+                        or len(set(refs)) != len(refs)
+                        or any(ref not in definition.get("calls", {}) for ref in refs)
+                        or not _finite_number(step.get("delay_ms", 0), 0, 3_600_000)):
+                    raise ScenarioError("invalid step references or duration")
+                offsets = step.get("offsets_ms", {})
+                if not isinstance(offsets, dict) or any(
+                    key not in refs or not _finite_number(value, 0, 3_600_000)
+                    for key, value in offsets.items()
+                ):
+                    raise ScenarioError("invalid parallel start offsets")
             calls = definition.get("calls", {})
             if not isinstance(calls, dict):
                 raise ScenarioError(f"route {route!r} calls must be an object")

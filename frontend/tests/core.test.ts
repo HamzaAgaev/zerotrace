@@ -107,3 +107,22 @@ test('the live client requests and accepts full config-aware policy observations
   });
   assert.deepEqual(await client.getAudit(), audit);
 });
+
+test('compact chain hides failed senders, preserves receivers, retries and unpaired calls', () => {
+  const sample = demoDetail(demoTraces[0].trace_id).spans[0];
+  const root = { ...sample, span_id:'root', parent_span_id:null, service:'orders', kind:'server' as const };
+  const sender = { ...sample, span_id:'b4565446772bfb58', parent_span_id:'root', service:'orders', name:'POST', kind:'client' as const, outcome:'error' as const, http_status:504, error_type:'timeout' };
+  const receiver = { ...sample, span_id:'payment', parent_span_id:sender.span_id, service:'payment', name:'POST /charge', kind:'server' as const, http_status:200 };
+  const retrySender = { ...sender, span_id:'retry' };
+  const retryReceiver = { ...receiver, span_id:'payment-retry', parent_span_id:'retry' };
+  const unpaired = { ...sender, span_id:'unpaired' };
+  const spans = [root,sender,receiver,retrySender,retryReceiver,unpaired];
+  const compact = compactTimelineSpans(spans);
+  assert.deepEqual(compact.map(span=>span.span_id), ['root','payment','payment-retry','unpaired']);
+  assert.equal(compact[1].parent_span_id,'root');
+  assert.equal(compact[2].parent_span_id,'root');
+  assert.equal(receiver.parent_span_id,sender.span_id);
+  assert.equal(spans.length,6);
+  const withoutKind=spans.map(({kind,...span})=>span);
+  assert.deepEqual(compactTimelineSpans(withoutKind,{[sender.span_id]:receiver.span_id,retry:'payment-retry'}).map(span=>span.span_id),compact.map(span=>span.span_id));
+});

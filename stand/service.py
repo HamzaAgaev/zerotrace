@@ -422,8 +422,9 @@ class ServiceRuntime:
         if selected_boundary == "before-first":
             return self._fault_status(fault)
         for step in route.get("steps", []):
+            time.sleep(step.get("delay_ms", 0) / 1000)
             call_refs = step.get("parallel") or [step["call"]]
-            results = self._run_group(route["calls"], call_refs, seed, request_key)
+            results = self._run_group(route["calls"], call_refs, seed, request_key, step.get("offsets_ms", {}))
             mandatory = [
                 results[ref]
                 for ref in call_refs
@@ -434,16 +435,23 @@ class ServiceRuntime:
                 return mandatory[0]
             if selected_boundary == f"after-{step.get('id')}":
                 return self._fault_status(fault)
+        time.sleep(route.get("tail_ms", 0) / 1000)
         return route.get("response_status", 200)
 
-    def _run_group(self, calls: dict[str, dict[str, Any]], call_refs: list[str], seed: str, request_key: str) -> dict[str, int]:
+    def _run_group(self, calls: dict[str, dict[str, Any]], call_refs: list[str], seed: str, request_key: str, offsets: dict[str, float] | None = None) -> dict[str, int]:
+        started = time.monotonic()
+        def invoke(ref):
+            delay = (offsets or {}).get(ref, 0) / 1000 - (time.monotonic() - started)
+            if delay > 0:
+                time.sleep(delay)
+            return self._call(calls[ref], ref, seed, request_key)
         if len(call_refs) == 1:
             ref = call_refs[0]
-            return {ref: self._call(calls[ref], ref, seed, request_key)}
+            return {ref: invoke(ref)}
         contexts = [contextvars.copy_context() for _ in call_refs]
         with ThreadPoolExecutor(max_workers=len(call_refs)) as executor:
             futures = {
-                ref: executor.submit(context.run, self._call, calls[ref], ref, seed, request_key)
+                ref: executor.submit(context.run, invoke, ref)
                 for ref, context in zip(call_refs, contexts, strict=True)
             }
             return {ref: future.result() for ref, future in futures.items()}
@@ -452,11 +460,13 @@ class ServiceRuntime:
         target = call["target"]
         endpoint = self.endpoints.get(target["service_id"], f"http://{target['service_id']}:8080")
         url = endpoint.rstrip("/") + target["route"]
-        logical_call_id = hashlib.sha256(f"{request_key}:{self.state.service_id}:{call_ref}".encode()).hexdigest()[:24]
+        logical_group = call.get("observed_group", call_ref)
+        logical_call_id = hashlib.sha256(f"{request_key}:{self.state.service_id}:{logical_group}".encode()).hexdigest()[:24]
         attempts = call["max_attempts"]
         last_status = 502
         transport_reason: str | None = None
-        for index in range(1, attempts + 1):
+        for retry_index in range(1, attempts + 1):
+            index = call.get("observed_attempt", 1) + retry_index - 1
             headers = {
                 "X-ZeroTrace-Seed": seed,
                 "X-ZeroTrace-Request-Key": request_key,
@@ -501,9 +511,11 @@ class ServiceRuntime:
                 transport_reason = "request"
             finally:
                 _OUTBOUND_METADATA.reset(token)
+            if call.get("observed_status") is not None:
+                last_status = call["observed_status"]
             if 200 <= last_status < 300:
                 return last_status
-            if index == attempts or not self._retry_allowed(last_status, call["retry_on"], transport_reason):
+            if retry_index == attempts or not self._retry_allowed(last_status, call["retry_on"], transport_reason):
                 return last_status
             delay = call["backoff_ms"] / 1000
             if delay:

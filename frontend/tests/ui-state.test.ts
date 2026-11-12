@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decodeStored, encodeStored } from '../src/storage.js';
-import { serviceSurfaceForHash, comparisonModeForHash, readRoute, traceHref } from '../src/lib.js';
+import { serviceSurfaceForHash, readRoute, traceHref } from '../src/lib.js';
 import { fieldLabel, formatCount, formatMs, formatPercent, journalStatusLabel, statusLabel, verificationLabel } from '../src/presentation.js';
 test('stored state restores drafts and rejects malformed or incompatible records',()=>{
  const draft={service:'orders',timeout:'',attempts:'2'};
@@ -19,12 +19,9 @@ test('exact trace contexts remain distinct and identifiers are not truncated',()
  assert.deepEqual(readRoute(traceHref(ref)),{page:'traces',traceId:ref.trace_id,traceRef:ref});
 });
 
-test('explicit comparison links override saved mode and allow leaving legacy links',()=>{
- assert.equal(comparisonModeForHash('#/traces?mode=compare',false),true);
- assert.equal(comparisonModeForHash('#/compare',false),true);
- assert.equal(comparisonModeForHash('#/traces?mode=list',true),false);
- assert.equal(comparisonModeForHash('#/traces',true),true);
- assert.equal(comparisonModeForHash('#/traces?mode=unknown',false),false);
+test('retired comparison links open the ordinary trace list',()=>{
+ assert.equal(readRoute('#/compare').page,'traces');
+ assert.equal(readRoute('#/traces?mode=compare').page,'traces');
 });
 test('nested state rejects arrays in place of records and malformed nested fields',()=>{
  const fallback={positions:{},details:{}};
@@ -57,4 +54,17 @@ test('human-facing labels separate applied settings from symptom checks',()=>{
  assert.equal(formatCount(1200),'1 200');
  assert.equal(formatPercent(.951),'95,1 %');
  assert.equal(formatPercent(null),'—');
+});
+
+test('explicit draft validation restores alternate modes instead of imposing the default shape',()=>{
+ type Draft = {mode:'fixed';boundary_id:string} | {mode:'random';boundary_ids:string[]};
+ const fallback:Draft={mode:'fixed',boundary_id:'before-first'};
+ const validate=(value:unknown):value is Draft=>{
+  if(!value||typeof value!=='object')return false;
+  const draft=value as Draft;
+  return draft.mode==='fixed'?typeof draft.boundary_id==='string':draft.mode==='random'&&Array.isArray(draft.boundary_ids)&&draft.boundary_ids.every(id=>typeof id==='string');
+ };
+ const random:Draft={mode:'random',boundary_ids:['before-first','after-first']};
+ assert.deepEqual(decodeStored<Draft>(encodeStored(random),fallback,validate),random);
+ assert.deepEqual(decodeStored<Draft>(encodeStored({mode:'random',boundary_ids:[null]}),fallback,validate),fallback);
 });

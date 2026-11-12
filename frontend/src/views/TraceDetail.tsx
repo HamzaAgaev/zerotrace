@@ -158,7 +158,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
           {compactSpans.length < spans.length && <Button type="button" variant="ghost" onClick={() => {
             if (showAllSpans && selected) setSelected(trace.compactable_client_spans?.[selected] ?? selected);
             setShowAllSpans(!showAllSpans);
-          }}>{showAllSpans ? 'Свернуть пары спанов' : 'Показать все спаны'}</Button>}
+          }}>{showAllSpans ? 'Скрыть спаны отправителей' : 'Показать все спаны'}</Button>}
           {collapsed.size > 0 && <Button variant="ghost" onClick={() => setCollapsed(new Set())}>Развернуть всё</Button>}
           {total > 0 && <div className="timeline-zoom" role="group" aria-label="Масштаб шкалы">
             <Button type="button" aria-label="Уменьшить масштаб" disabled={zoom === 1}
@@ -216,9 +216,9 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
           {selectedSpan && <div className="inspector">
             <dl><div><dt>Сервис</dt><dd className="service-name"><i style={{ background: colors.get(selectedSpan.service) }}/>{selectedSpan.service}</dd></div><div><dt>{/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/.test(selectedSpan.name) ? 'Эндпоинт' : 'Операция'}</dt><dd><SpanOperation span={selectedSpan}/></dd></div>
               <div><dt>Длительность</dt><dd>{duration(selectedSpan.duration_ns)}</dd></div>
-              <div><dt>Время от начала трейса</dt><dd>{duration(selectedSpan.start_offset_ns)}<small className="field-note">Через сколько после начала трейса начался этот спан</small></dd></div>
-              <div><dt>{httpCodeLabel}</dt><dd>{selectedSpan.http_status === null ? 'Не наблюдался' : <HttpStatus code={selectedSpan.http_status}/>}</dd></div>
-              {selectedSpan.error_type && <div><dt>Тип ошибки</dt><dd className="text-danger">{selectedSpan.error_type}</dd></div>}
+              <div><dt>Время от начала трейса</dt><dd>{duration(selectedSpan.start_offset_ns)}</dd></div>
+              <div><dt>{httpCodeLabel}</dt><dd>{selectedSpan.http_status === null ? 'Нет данных' : <HttpStatus code={selectedSpan.http_status}/>}</dd></div>
+              {selectedSpan.error_type && selectedSpan.error_type.trim() !== String(selectedSpan.http_status) && <div><dt>Тип ошибки</dt><dd className="text-danger">{selectedSpan.error_type}</dd></div>}
               <div><dt>Span ID</dt><dd><CopyId key={selectedSpan.span_id} label="Span ID" value={selectedSpan.span_id}/></dd></div>
             </dl>
           </div>}

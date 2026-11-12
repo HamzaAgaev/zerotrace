@@ -45,7 +45,7 @@ export const journalStatusLabel = (name: string) => journalStatusLabels[name] ??
 export const verificationLabel = (name: string | null) =>
   name === null ? 'Не проверялась' : verificationLabels[name] ?? name;
 
-export const scenarioLabels: Record<string, string> = { checkout: 'Оформление заказа' };
+export const scenarioLabels: Record<string, string> = { checkout: 'Магазин — демопример', generated: 'По выбранному трейсу' };
 export const scenarioLabel = (id: string) => scenarioLabels[id] ?? id;
 
 const milliseconds = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });

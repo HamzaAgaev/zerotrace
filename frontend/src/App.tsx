@@ -27,13 +27,11 @@ const nav: { id: 'traces' | 'audit' | 'journal' | 'sources' | 'graph' | 'lab'; l
 ];
 const pageTitles: Record<string, string> = {
   traces: 'Трейсы', graph: 'Сервисы', timings: 'Сервисы', audit: 'Аудит', lab: 'Лаборатория',
-  journal: 'Журнал изменений', sources: 'Настройки подключения', policies: 'Сервисы', compare: 'Сравнение трейсов',
+  journal: 'Журнал изменений', sources: 'Настройки подключения', policies: 'Сервисы',
 };
-function documentTitle(route: ReturnType<typeof readRoute>, hash: string): string {
-  if (route.page === 'traces' && route.traceId) return `Трейс ${route.traceId} · ZeroTrace`;
-  const path = hash.replace(/^#\/?/, '').split('?')[0];
-  if (path === 'compare' || new URLSearchParams(hash.split('?')[1]).get('mode') === 'compare') return 'Сравнение трейсов · ZeroTrace';
-  return `${pageTitles[route.page] ?? 'Трейсы'} · ZeroTrace`;
+function documentTitle(route: ReturnType<typeof readRoute>): string {
+  if (route.page === 'traces' && route.traceId) return `Трейс ${route.traceId} — ZeroTrace`;
+  return `${pageTitles[route.page] ?? 'Трейсы'} — ZeroTrace`;
 }
 function initialConnection(): Connection { try { const raw = JSON.parse(localStorage.getItem('zerotrace.connection') ?? 'null'); if (raw && ['live', 'demo'].includes(raw.mode) && typeof raw.baseUrl === 'string') return { mode: raw.mode, baseUrl: normalizeBaseUrl(raw.baseUrl), environmentId: typeof raw.environmentId === 'string' ? raw.environmentId : undefined }; } catch { /* A broken saved setting must not prevent opening settings. */ } return { mode: 'live', baseUrl: '', environmentId: 'shop' }; }
 export default function App() {
@@ -54,8 +52,8 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
   const [membershipBusy, setMembershipBusy] = useState(false);
   const [journalBusy, setJournalBusy] = useState(true);
   useEffect(() => { const update = () => setRoute(readRoute(location.hash)); window.addEventListener('hashchange', update); return () => window.removeEventListener('hashchange', update); }, []);
-  useEffect(() => { document.title = documentTitle(route, location.hash); }, [route]);
-  const needsTraceSample = route.page === 'graph' || route.page === 'timings' || route.page === 'compare';
+  useEffect(() => { document.title = documentTitle(route); }, [route]);
+  const needsTraceSample = route.page === 'graph' || route.page === 'timings';
   const needsAudit = route.page === 'audit' || route.page === 'policies'
     || route.page === 'graph' || route.page === 'timings'
     || (route.page === 'traces' && !!route.traceId);
@@ -118,7 +116,8 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
   const pageBusy = busy || (route.page === 'audit' && auditBusy)
     || (route.page === 'journal' && journalBusy);
   const selectedId = route.page === 'traces' ? route.traceId : undefined;
-  const selectedRef = route.page === 'traces' ? route.traceRef : undefined;
+  const routeRef = route.page === 'traces' ? route.traceRef : undefined;
+  const selectedRef = useMemo(() => routeRef, [routeRef?.environment_id, routeRef?.trace_id, routeRef?.generation, routeRef?.revision]);
   useEffect(() => { const controller = new AbortController(); setTrace(null); setTraceError(''); if (!selectedId) { setTraceBusy(false); return () => controller.abort(); } setTraceBusy(true);
     const { signal } = controller;
     setMembershipBusy(connection.mode === 'live');
@@ -197,7 +196,7 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
       mode: connection.mode,
       trace,
       audit,
-      ...(connection.mode === 'demo' ? { limitations: ['Все значения — демонстрационные fixtures.'] } : {}),
+      ...(connection.mode === 'demo' ? { limitations: ['Все значения взяты из демонстрационного набора.'] } : {}),
     }, { schema: 'zerotrace.frontend-report', producerVersion: 'frontend-0.2.0' });
   }
   return <><ViewMemory route={location.hash}/><div className="app-shell"><a className="skip-link" href="#main-content">Перейти к содержимому</a><aside className="sidebar"><a className="brand" href="#/traces" aria-label="ZeroTrace — главная"><span className="brand-mark"><i/><i/><i/></span>ZeroTrace</a><nav aria-label="Основная навигация">{nav.filter(n=>['traces','graph','audit','lab'].includes(n.id)).map(n => <a key={n.id} href={n.id === 'graph' ? '#/services' : `#/${n.id}`} className={`nav-link ${(route.page === n.id || (n.id === 'graph' && route.page === 'timings')) ? 'is-active' : ''}`} aria-current={route.page === n.id ? 'page' : undefined}><Icon name={n.icon}/><span>{n.label}</span>{n.id === 'audit' && audit?.findings.length ? <small>{audit.findings.length}</small> : null}</a>)}</nav><details className="nav-more" key={route.page} open={['journal','sources'].includes(route.page)}><summary>Ещё <Icon name="chevron" size={13}/></summary><nav aria-label="Дополнительные разделы">{nav.filter(n=>['journal','sources'].includes(n.id)).map(n=><a key={n.id} href={n.id === 'graph' ? '#/services' : `#/${n.id}`} className={`nav-link ${route.page===n.id?'is-active':''}`} aria-current={route.page===n.id?'page':undefined}><Icon name={n.icon}/>{n.label}</a>)}</nav></details></aside><div className="main-shell"><main id="main-content" tabIndex={-1}>

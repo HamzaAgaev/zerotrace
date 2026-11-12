@@ -68,7 +68,7 @@ test('P11 experiment compares three and two attempts after telemetry is fixed', 
   assert.equal(lab.stand?.faultRevision, 1);
   lab = labReducer(lab, { type: 'run', id: 'candidate', versions: { ...versions, configRevision: '13' } });
   lab = labReducer(lab, { type: 'loadComplete', id: 'candidate' });
-  assert.match(comparisonIssue(lab.runs[0], lab.runs[1]), /фиксации/);
+  assert.match(comparisonIssue(lab.runs[0], lab.runs[1]), /сбора трейсов/);
   lab = labReducer(lab, { type: 'tracesReady', id: 'candidate' });
   const [before, after] = lab.runs;
   assert.equal(comparisonIssue(before, after), '');

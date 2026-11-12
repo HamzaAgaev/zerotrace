@@ -86,15 +86,15 @@ export function compareCohorts(a: TraceSummary[], b: TraceSummary[]): string | n
 export function projectIntervals(trace: TraceDetail, reductions: Record<string, number>) {
   const spans = trace.spans, map = new Map(spans.map(s => [s.span_id,s]));
   if (spans.length > 2000 || !spans.length || map.size !== spans.length) throw new Error('Модель требует от 1 до 2000 уникальных спанов.');
-  if (trace.quality_issues.length) throw new Error('Для этого трейса есть замечания к качеству данных. Выберите полный трейс без ошибок границ.');
+  if (trace.quality_issues.length) throw new Error('Данные этого трейса неполны или содержат ошибки времени выполнения. Выберите другой трейс.');
   if (Object.entries(reductions).some(([id,p]) => !map.has(id) || !Number.isFinite(p) || p < 0 || p > 100)) throw new Error('Некорректная ветка или процент ускорения.');
   const roots = spans.filter(s => !s.parent_span_id);
-  if (roots.length !== 1 || spans.some(s => s.parent_span_id && !map.has(s.parent_span_id))) throw new Error('Требуется дерево с одним корнем и известными родителями.');
+  if (roots.length !== 1 || spans.some(s => s.parent_span_id && !map.has(s.parent_span_id))) throw new Error('Для прогноза нужен один начальный вызов и все родительские спаны.');
   const children = new Map<string,Span[]>();
   for (const s of spans) if (s.parent_span_id) children.set(s.parent_span_id,[...(children.get(s.parent_span_id) ?? []),s]);
   const visited = new Set<string>();
   const walk = (s: Span, depth: number): number => {
-    if (depth > 100 || visited.has(s.span_id)) throw new Error('Цикл или слишком глубокое дерево.');
+    if (depth > 100 || visited.has(s.span_id)) throw new Error('В связях спанов есть цикл или более 100 уровней вложенности.');
     visited.add(s.span_id);
     const start = numericMs(s.start_offset_ns), length = numericMs(s.duration_ns);
     const groups: { start:number; end:number; members:{span:Span; projected:number}[] }[] = [];
@@ -112,10 +112,10 @@ export function projectIntervals(trace: TraceDetail, reductions: Record<string, 
   // Overlapping selections are ambiguous; require disjoint branches.
   for (const id of Object.keys(reductions)) {
     let parent = map.get(id)?.parent_span_id; const chain = new Set<string>();
-    while (parent) { if (chain.has(parent)) throw new Error('Цикл в дереве.'); chain.add(parent); if (reductions[parent] !== undefined) throw new Error('Выберите непересекающиеся ветки: родитель и потомок не могут ускоряться отдельно.'); parent = map.get(parent)?.parent_span_id; }
+    while (parent) { if (chain.has(parent)) throw new Error('В родительских связях спанов есть цикл.'); chain.add(parent); if (reductions[parent] !== undefined) throw new Error('Выберите непересекающиеся ветки: родитель и потомок не могут ускоряться отдельно.'); parent = map.get(parent)?.parent_span_id; }
   }
   const projected = walk(roots[0],0);
-  if (visited.size !== spans.length) throw new Error('В дереве есть недостижимые спаны.');
+  if (visited.size !== spans.length) throw new Error('Часть спанов не связана с начальным вызовом.');
   const baseline = numericMs(roots[0].duration_ns);
   return { baseline, projected, gain:Math.max(0,baseline-projected) };
 }
