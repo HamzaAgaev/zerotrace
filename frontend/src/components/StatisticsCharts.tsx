@@ -53,7 +53,7 @@ function Trend({points,mode}:{points:Point[];mode:'errors'|'latency'}) {
 export function PeriodTrends({data}:{data:PeriodMetrics}) {
   if(!data.timeline)return <p className="muted">Сервер не предоставил данные для графиков.</p>;
   return <div className="test-chart-grid period-trends">
-    <Panel title="Ошибки по времени"><div className="lab-body"><p className="muted">Доля ошибок среди запросов с известным результатом</p><Trend points={data.timeline} mode="errors"/></div></Panel>
-    <Panel title="Время ответа по времени"><div className="lab-body"><p className="muted">Время основного запроса, включая обращения к другим сервисам</p><Trend points={data.timeline} mode="latency"/></div></Panel>
+    <Panel title="Ошибки по времени"><div className="lab-body"><Trend points={data.timeline} mode="errors"/></div></Panel>
+    <Panel title="Время ответа по времени"><div className="lab-body"><Trend points={data.timeline} mode="latency"/></div></Panel>
   </div>;
 }
