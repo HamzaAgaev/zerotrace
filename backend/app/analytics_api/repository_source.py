@@ -185,6 +185,16 @@ class RepositoryView:
             self._metas[environment_id] = sorted(metas, key=lambda m: ref_key(m.trace_ref.to_dict()))
         return self._metas[environment_id]
 
+    def restrict_audit_to_trace(self, ref):
+        """Pin the exact requested trace without scanning the entire environment."""
+        environment, trace_id, generation, revision = ref_key(ref)
+        meta = self.span_store.resolve_trace(environment, trace_id, generation, revision)
+        if meta is None:
+            raise AnalyticsError("trace_not_found", "Requested trace unavailable", 404, ref)
+        if meta.trace_ref.revision != revision:
+            raise AnalyticsError("stale_revision", "Requested trace revision unavailable", 409, ref)
+        self._metas[environment] = [meta]
+
     def _input_identity(self, environment_id):
         if environment_id not in self._identities:
             self._identities[environment_id] = [

@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from analytics_support import AnalyticsError
 
-AuditScope = tuple[str, str, str | None]
+AuditScope = tuple[str, str, str | None, tuple | None]
 
 
 class AuditJobs:

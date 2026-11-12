@@ -52,6 +52,11 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
   const [journalBusy, setJournalBusy] = useState(true);
   useEffect(() => { const update = () => setRoute(readRoute(location.hash)); window.addEventListener('hashchange', update); return () => window.removeEventListener('hashchange', update); }, []);
   useEffect(() => { document.title = documentTitle(route); }, [route]);
+  const selectedId = route.page === 'traces' ? route.traceId : undefined;
+  const routeRef = route.page === 'traces' ? route.traceRef : undefined;
+  const selectedRef = useMemo(() => routeRef, [routeRef?.environment_id, routeRef?.trace_id, routeRef?.generation, routeRef?.revision]);
+  const loadedTraceRef = trace?.trace_ref;
+  const auditTraceRef = selectedId ? (loadedTraceRef?.trace_id === selectedId ? loadedTraceRef : undefined) : undefined;
   const needsTraceSample = route.page === 'graph' || route.page === 'timings';
   const needsAudit = route.page === 'audit'
     || route.page === 'graph' || route.page === 'timings'
@@ -94,7 +99,7 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
     return () => controller.abort();
   }, [client, refreshKey, needsTraceSample]);
   useEffect(() => {
-    if (!needsAudit) {
+    if (!needsAudit || (selectedId && !auditTraceRef)) {
       setAudit(null);
       return;
     }
@@ -103,7 +108,7 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
     setAuditBusy(true);
     setAuditError('');
     setAudit(null);
-    void client.getAudit(signal).then(result => {
+    void client.getAudit(signal, auditTraceRef).then(result => {
       if (!signal.aborted) setAudit(result);
     }).catch(error => {
       if (!signal.aborted) setAuditError(error instanceof Error ? error.message : 'Не удалось загрузить аудит');
@@ -111,12 +116,9 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
       if (!signal.aborted) setAuditBusy(false);
     });
     return () => controller.abort();
-  }, [client, refreshKey, auditRefreshKey, needsAudit]);
+  }, [client, refreshKey, auditRefreshKey, needsAudit, selectedId, auditTraceRef]);
   const pageBusy = busy || (route.page === 'audit' && auditBusy)
     || (route.page === 'journal' && journalBusy);
-  const selectedId = route.page === 'traces' ? route.traceId : undefined;
-  const routeRef = route.page === 'traces' ? route.traceRef : undefined;
-  const selectedRef = useMemo(() => routeRef, [routeRef?.environment_id, routeRef?.trace_id, routeRef?.generation, routeRef?.revision]);
   useEffect(() => { const controller = new AbortController(); setTrace(null); setTraceError(''); if (!selectedId) { setTraceBusy(false); return () => controller.abort(); } setTraceBusy(true);
     const { signal } = controller;
     setMembershipBusy(connection.mode === 'live');
@@ -133,9 +135,14 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
     });
     return () => controller.abort();
   }, [client, connection.mode, selectedId, selectedRef, refreshKey]);
-  const loadedTraceRef = trace?.trace_ref;
   useEffect(() => {
-    if (!loadedTraceRef || connection.mode !== 'live') return;
+    if (!loadedTraceRef || connection.mode !== 'live' || auditBusy || !audit) return;
+    if (audit.trace_findings) {
+      const ids = audit.trace_findings.find(row => row.trace_ref.environment_id === loadedTraceRef.environment_id && row.trace_ref.trace_id === loadedTraceRef.trace_id && row.trace_ref.generation === loadedTraceRef.generation && row.trace_ref.revision === loadedTraceRef.revision)?.occurrence_ids ?? [];
+      setTrace(current => current?.trace_ref === loadedTraceRef ? { ...current, finding_occurrence_ids: ids, summary: { ...current.summary, finding_count: ids.length } } : current);
+      setMembershipBusy(false);
+      return;
+    }
     const controller = new AbortController();
     const { signal } = controller;
     setMembershipBusy(true);
@@ -145,13 +152,13 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
         finding_occurrence_ids: audited.finding_occurrence_ids,
         summary: { ...current.summary, finding_count: audited.summary.finding_count },
       } : current);
-    }).catch(() => {
-      // Trace telemetry remains available when the audit lookup fails.
+    }).catch(error => {
+      if (!signal.aborted) setAuditError(error instanceof Error ? error.message : 'Не удалось загрузить проблемы трейса.');
     }).finally(() => {
       if (!signal.aborted) setMembershipBusy(false);
     });
     return () => controller.abort();
-  }, [client, connection.mode, loadedTraceRef, auditRefreshKey]);
+  }, [client, connection.mode, loadedTraceRef, auditRefreshKey, audit, auditBusy]);
   useEffect(() => () => planRequest.current?.abort(), []);
   const refresh = useCallback(() => setRefreshKey(v => v + 1), []);
   const changeConnection = (value: Connection) => { setPlanError(''); setConnection(value); try { localStorage.setItem('zerotrace.connection', JSON.stringify(value)); } catch { /* Current connection still works if persistence is unavailable. */ } };
@@ -205,6 +212,6 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
     {route.page === 'sources' ? <ConnectionView connection={connection} capabilities={capabilities} onChange={changeConnection}/> : route.page === 'lab' ? <Lab demo={connection.mode === 'demo'} client={client}/> : error ? <div className="connection-error"><Message tone="danger">{error}</Message><div className="error-actions"><RetryButton onClick={refresh}/><a className="button button--primary" href="#/sources">Настроить подключение</a></div><p className="muted">Демонстрационные данные не подставляются вместо ответа сервера.</p></div> : pageBusy ? <LoadingState>Загружаем данные…</LoadingState> : route.page === 'graph' || route.page === 'timings' ? <>{auditError&&<Message tone="warning">Аудит недоступен: {auditError}. Проблемные связи могут быть показаны не полностью.</Message>}<Services client={client} environmentId={connection.environmentId || 'shop'} traces={traces} total={total} audit={audit} view={route.page} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/></> : route.page === 'audit' ? auditError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Аудит недоступен: {auditError}</Message> : <Audit audit={audit} onPlan={openPlan} pending={planBusy}/> : route.page === 'journal' ? journalError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Журнал недоступен: {journalError}</Message> : <Journal entries={journal}/> : selectedId ? traceError ? <Message tone="danger" action={<>
       <RetryButton onClick={refresh}/>
       <BackToTraces/>
-    </>}>{traceError}</Message> : traceBusy || !trace ? <LoadingState>Открываем трейс…</LoadingState> : <TraceDetail key={`${trace.trace_ref.environment_id}-${trace.trace_ref.trace_id}-${trace.trace_ref.generation}-${trace.trace_ref.revision}`} trace={trace} audit={audit} auditLoading={auditBusy || membershipBusy} auditError={auditError} onRetryAudit={() => setAuditRefreshKey(key => key + 1)} onPlan={openPlan} pending={planBusy} onExport={exportReport} onBuild={() => void buildLabFromTrace(trace.trace_ref)}/> : <TraceList client={client}/>}
+    </>}>{traceError}</Message> : traceBusy || !trace ? <LoadingState>Открываем трейс…</LoadingState> : <TraceDetail key={`${trace.trace_ref.environment_id}-${trace.trace_ref.trace_id}-${trace.trace_ref.generation}-${trace.trace_ref.revision}`} trace={trace} audit={audit} auditLoading={!auditError && (auditBusy || membershipBusy)} auditError={auditError} onRetryAudit={() => setAuditRefreshKey(key => key + 1)} onPlan={openPlan} pending={planBusy} onExport={exportReport} onBuild={() => void buildLabFromTrace(trace.trace_ref)}/> : <TraceList client={client}/>}
   </main></div>{plan && <PlanDialog key={plan.plan.plan_id} plan={plan.plan} finding={plan.finding} showRuleInfo={!selectedId} demo={connection.mode === 'demo'} canApply={connection.mode === 'live' && connection.environmentId === 'sandbox' && plan.plan.apply_enabled} client={client} onApplied={refresh} onStaleRecommendation={refreshStaleRecommendation} onClose={() => setPlan(null)}/>}</div></>;
 }

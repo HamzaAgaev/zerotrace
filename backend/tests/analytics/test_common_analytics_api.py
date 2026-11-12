@@ -412,3 +412,30 @@ def test_trace_membership_and_full_audit_use_the_live_config(app, monkeypatch):
     configs["gateway"]["calls"][0]["timeout_ms"] = 1000
     updated = payload(client.get("/api/v1/traces/" + ref["trace_id"]))
     assert inversion["occurrence_id"] not in updated["finding_occurrence_ids"]
+
+
+def test_trace_audit_only_analyzes_exact_selected_trace(app, monkeypatch):
+    refs = ingest(app, '1' * 32, '2' * 32)
+    from app.analytics_api.service import rules
+    original = rules.run
+    seen = []
+
+    def record(model, *args):
+        seen.append([t['trace_ref'] for t in model['traces']])
+        return original(model, *args)
+
+    monkeypatch.setattr(rules, 'run', record)
+    client = app.test_client()
+    query = {**refs[0], 'view': 'full', 'defer': 'true'}
+    response = client.get('/api/v1/audit', query_string=query)
+    job = response.json['payload'].get('job_id')
+    if job:
+        app.extensions['audit_jobs'].close()
+        response = client.get('/api/v1/audit', query_string={**query, 'job_id': job})
+        assert client.get('/api/v1/audit', query_string={**query, 'trace_id': refs[1]['trace_id'], 'job_id': job}).status_code == 404
+    result = payload(response)
+    assert seen == [[refs[0]]]
+    assert 'trace_findings' in result
+    assert all(row['trace_ref'] == refs[0] for row in result['trace_findings'])
+    payload(client.get('/api/v1/audit', query_string={'environment_id': 'shop', 'view': 'full'}))
+    assert len(seen[-1]) == 2

@@ -311,20 +311,29 @@ def create_app(config: dict) -> Flask:
     @app.get("/api/v1/reports/<report_id>")
     def analytics_read(trace_id=None, report_id=None):
         env = environment() if report_id is None or "environment_id" in request.args else None
+        audit_ref = None
+        if request.path == "/api/v1/audit" and any(k in request.args for k in ("trace_id", "generation", "revision")):
+            from analytics_support import ref_key
+            try:
+                audit_ref = {"environment_id": env, "trace_id": request.args.get("trace_id"),
+                             "generation": int(request.args["generation"]), "revision": int(request.args["revision"])}
+            except (KeyError, ValueError):
+                raise AnalyticsError("invalid_trace_ref", "Укажите полную версию трейса.", 400)
+            ref_key(audit_ref)
         if request.path == "/api/v1/audit" and request.args.get("defer") == "true":
             profile, mode = request.args.get("view", "v1"), request.args.get("mode")
             if profile not in {"v1", "full"}:
                 raise AnalyticsError("invalid_view", "Expected v1 or full", 400)
             if mode not in {None, "config_aware", "trace_only"}:
                 raise AnalyticsError("invalid_mode", "Expected trace_only or config_aware", 400)
-            scope = (env, profile, mode)
+            scope = (env, profile, mode, tuple(audit_ref.values()) if audit_ref else None)
 
             def calculate_audit():
                 params = {"environment_id": env, "view": profile}
                 if mode is not None:
                     params["mode"] = mode
                 configs = snapshots(env) if mode != "trace_only" else None
-                with analytics.configured(env, configs):
+                with analytics.configured(env, configs, trace_ref=audit_ref):
                     return api.dispatch({"REQUEST_METHOD": "GET", "PATH_INFO": "/api/v1/audit",
                                          "QUERY_STRING": urlencode(params)})
 
@@ -346,7 +355,7 @@ def create_app(config: dict) -> Flask:
         )
         skip_snapshots = report_id is not None or saved_snapshot or trace_only
         configs = snapshots(env) if env and not skip_snapshots else None
-        with analytics.configured(env, configs):
+        with analytics.configured(env, configs, trace_ref=audit_ref):
             result = api.dispatch(environ)
         if isinstance(result, str):
             return Response(result, mimetype="text/html")

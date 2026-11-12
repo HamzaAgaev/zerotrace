@@ -113,7 +113,7 @@ export function validatePayload(kind: 'list' | 'trace' | 'audit' | 'capabilities
     && count(value.total) && (value.methods === undefined || strings(value.methods))
     && (value.success_rates === undefined || validSuccessRates(value.success_rates));
   if (kind === 'trace') valid = obj(value) && obj(value.summary) && validSummary(value.summary) && isTraceRef(value.trace_ref) && sameTraceRef(value.summary.trace_ref as TraceRef, value.trace_ref) && (value.finding_occurrence_ids === undefined || strings(value.finding_occurrence_ids)) && (value.compactable_client_spans === undefined || (obj(value.compactable_client_spans) && Object.entries(value.compactable_client_spans).every(([client, server]) => /^[a-f0-9]{16}$/.test(client) && str(server) && /^[a-f0-9]{16}$/.test(server)))) && strings(value.quality_issues) && Array.isArray(value.spans) && value.spans.every(span => obj(span) && str(span.span_id) && /^[a-f0-9]{16}$/.test(span.span_id) && (span.parent_span_id === null || str(span.parent_span_id)) && str(span.service) && str(span.name) && (span.kind === undefined || ['server', 'client', 'internal'].includes(String(span.kind))) && nanos(span.duration_ns) && nanos(span.start_offset_ns) && outcome(span.outcome) && http(span.http_status) && (span.error_type === null || str(span.error_type)) && (span.target === undefined || str(span.target)));
-  if (kind === 'audit') valid = obj(value) && str(value.result_id) && str(value.generated_at) && Array.isArray(value.rule_evaluations) && value.rule_evaluations.every(rule => obj(rule) && str(rule.rule_id) && ['evaluated', 'not_implemented', 'insufficient_data', 'not_applicable'].includes(String(rule.status)) && count(rule.eligible_count)) && Array.isArray(value.findings) && value.findings.every(validFinding);
+  if (kind === 'audit') valid = obj(value) && str(value.result_id) && str(value.generated_at) && Array.isArray(value.rule_evaluations) && value.rule_evaluations.every(rule => obj(rule) && str(rule.rule_id) && ['evaluated', 'not_implemented', 'insufficient_data', 'not_applicable'].includes(String(rule.status)) && count(rule.eligible_count)) && Array.isArray(value.findings) && value.findings.every(validFinding) && (value.trace_findings === undefined || (Array.isArray(value.trace_findings) && value.trace_findings.every(row => obj(row) && isTraceRef(row.trace_ref) && strings(row.occurrence_ids))));
   if (kind === 'capabilities') valid = obj(value) && str(value.mode) && str(value.api_version) && str(value.source_name) && ['receiving', 'idle', 'unknown'].includes(String(value.source_state)) && typeof value.apply_enabled === 'boolean' && obj(value.limits) && count(value.limits.max_trace_spans);
   if (kind === 'journal') valid = Array.isArray(value) && value.every(validJournal);
   if (kind === 'journal-entry') valid = validJournal(value);
@@ -172,15 +172,15 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     validatePayload(kind, payload);
     return payload as T;
   }
-  async function getAudit(signal?: AbortSignal): Promise<AuditResult> {
-    const query = { view: 'full', defer: 'true' };
+  async function getAudit(signal?: AbortSignal, traceRef?: TraceRef): Promise<AuditResult> {
+    const query = { view: 'full', defer: 'true', ...(traceRef ? { trace_id: traceRef.trace_id, generation: String(traceRef.generation), revision: String(traceRef.revision) } : {}) };
     const deadline = Date.now() + 45_000;
-    let result = await request<AuditResult | PendingAudit>(scoped('/api/v1/audit', query), 'audit', signal);
+    let result = await request<AuditResult | PendingAudit>(scoped('/api/v1/audit', query, traceRef?.environment_id), 'audit', signal);
     while (isPendingAudit(result)) {
       if (Date.now() >= deadline) throw new ApiError('Аудит ещё рассчитывается. Попробуйте ещё раз.', 0, 'audit_pending');
       await pause(signal, 750);
       result = await request<AuditResult | PendingAudit>(
-        scoped('/api/v1/audit', { ...query, job_id: result.job_id }), 'audit', signal,
+        scoped('/api/v1/audit', { ...query, job_id: result.job_id }, traceRef?.environment_id), 'audit', signal,
       );
     }
     return result;

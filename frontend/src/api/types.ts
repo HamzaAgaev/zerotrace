@@ -35,7 +35,7 @@ export type BudgetFinding = Finding & { evidence: BudgetEvidence };
 export function isBudgetFinding(finding: Finding): finding is BudgetFinding {
   return finding.evidence.kind === 'retry_budget';
 }
-export interface AuditResult { result_id: string; generated_at: string; findings: Finding[]; rule_evaluations: { rule_id: string; status: 'evaluated' | 'not_implemented' | 'insufficient_data' | 'not_applicable'; eligible_count: number }[] }
+export interface AuditResult { trace_findings?: { trace_ref: TraceRef; occurrence_ids: string[] }[]; result_id: string; generated_at: string; findings: Finding[]; rule_evaluations: { rule_id: string; status: 'evaluated' | 'not_implemented' | 'insufficient_data' | 'not_applicable'; eligible_count: number }[] }
 export interface ChangePlan { plan_id: string; plan_hash: string; finding_id: string; target: string; expected_revision: string; environment_id?: string; expires_at: string; changes: { field: string; before: string; after: string }[]; warnings: string[]; apply_enabled: boolean }
 export interface JournalEntry { operation_id: string; target: string; requested_at: string; status: 'planned' | 'applying' | 'applied' | 'no_op' | 'rejected' | 'unknown' | 'failed'; verification: 'checking' | 'insufficient_data' | 'symptom_absent' | 'symptom_present' | 'inconclusive' | null; actual_changes: { field: string; before: string; after: string }[] }
 export interface Capabilities { mode: string; api_version: string; source_name: string; source_state: 'receiving' | 'idle' | 'unknown'; apply_enabled: boolean; limits: { max_trace_spans: number } }
@@ -126,7 +126,7 @@ export interface RunComparison {
 export interface Client {
   listTraces(signal?: AbortSignal, query?: TraceQuery): Promise<ListPayload>;
   getTrace(id: string | TraceRef, signal?: AbortSignal, options?: { includeFindings?: boolean; includeSpanKind?: boolean }): Promise<TraceDetail>;
-  getAudit(signal?: AbortSignal): Promise<AuditResult>;
+  getAudit(signal?: AbortSignal, traceRef?: TraceRef): Promise<AuditResult>;
   getCapabilities(signal?: AbortSignal): Promise<Capabilities>;
   getJournal(signal?: AbortSignal): Promise<JournalEntry[]>;
   getJournalEntry(operationId: string, signal?: AbortSignal): Promise<JournalEntry>;

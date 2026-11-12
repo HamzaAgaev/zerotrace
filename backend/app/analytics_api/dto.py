@@ -34,4 +34,5 @@ def audit_view(result, *, include_policy=False):
         findings.append(item)
     return {"result_id": result["result_id"], "generated_at": result["generated_at"],
             "findings": findings, "rule_evaluations": result["rule_evaluations"],
-            "omitted_findings": omissions}
+            "omitted_findings": omissions,
+            **({"trace_findings": result["trace_findings"]} if include_policy else {})}

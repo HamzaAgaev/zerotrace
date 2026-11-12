@@ -42,7 +42,14 @@ test('audit polls the same job until the server returns a result', async () => {
       ? Response.json(envelope({ status: 'pending', job_id: jobId }), { status: 202 })
       : Response.json(envelope(demoAudit));
   });
-  assert.deepEqual(await client.getAudit(), demoAudit);
+  const ref = demoTraces[0].trace_ref;
+  assert.deepEqual(await client.getAudit(undefined, ref), demoAudit);
+  for (const url of calls) {
+    assert.equal(url.searchParams.get('trace_id'), ref.trace_id);
+    assert.equal(url.searchParams.get('environment_id'), ref.environment_id);
+    assert.equal(url.searchParams.get('generation'), String(ref.generation));
+    assert.equal(url.searchParams.get('revision'), String(ref.revision));
+  }
   assert.equal(calls.length, 2);
   assert.equal(calls[0].searchParams.get('defer'), 'true');
   assert.equal(calls[1].searchParams.get('job_id'), jobId);

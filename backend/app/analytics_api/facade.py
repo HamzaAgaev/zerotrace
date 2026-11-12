@@ -67,8 +67,10 @@ class AnalyticsFacade:
         return snapshot
 
     @contextmanager
-    def configured(self, environment_id=None, configs=None):
+    def configured(self, environment_id=None, configs=None, trace_ref=None):
         with self.source.pin() as view:
+            if trace_ref is not None:
+                view.restrict_audit_to_trace(trace_ref)
             if configs:
                 view.configure_policies(environment_id, configs, _policies)
                 settings = view.control.setdefault("environments", {}).setdefault(environment_id, {})
