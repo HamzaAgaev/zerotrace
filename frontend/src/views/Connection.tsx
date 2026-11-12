@@ -60,8 +60,9 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
             request.current?.abort();
             setTesting(false);
             setError('');
-            onChange({ mode: 'demo', baseUrl: connection.baseUrl });
-          }} disabled={connection.mode === 'demo'}>Открыть демоданные</Button>
+            if (connection.mode !== 'demo') onChange({ mode: 'demo', baseUrl: connection.baseUrl });
+            location.hash = '#/traces';
+          }}>Открыть демоданные</Button>
         </div>
       </Panel>
     </div>
