@@ -63,6 +63,7 @@ class TestAssemblyLifecycle:
         assert meta is not None
         assert meta.assembly_state == "forced"
         assert meta.forced_reason == "span_limit_reached"
+        assert store.list_trace_metas("env") == [meta]
 
     def test_force_close_unknown_trace(self, store: SpanStore):
         from contracts import TraceRef

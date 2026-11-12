@@ -40,9 +40,12 @@ export interface ChangePlan { plan_id: string; plan_hash: string; finding_id: st
 export interface JournalEntry { operation_id: string; target: string; requested_at: string; status: 'planned' | 'applying' | 'applied' | 'no_op' | 'rejected' | 'unknown' | 'failed'; verification: 'checking' | 'insufficient_data' | 'symptom_absent' | 'symptom_present' | 'inconclusive' | null; actual_changes: { field: string; before: string; after: string }[] }
 export interface Capabilities { mode: string; api_version: string; source_name: string; source_state: 'receiving' | 'idle' | 'unknown'; apply_enabled: boolean; limits: { max_trace_spans: number } }
 export interface TraceQuery { query?: string; service?: string; status?: string; method?: string; sort?: string; limit?: number; offset?: number; includeFindings?: boolean;
+  includeSuccessRates?: boolean;
   span_id?: string; start_from_ns?: string; start_to_ns?: string;
 }
-export interface ListPayload { items: TraceSummary[]; total: number; services?: string[]; methods?: string[]; outcomes?: Record<Outcome, number> }
+export const successWindowsMinutes = [5, 30, 60, 180] as const;
+export type SuccessRates = Record<(typeof successWindowsMinutes)[number], number | null>;
+export interface ListPayload { items: TraceSummary[]; total: number; services?: string[]; methods?: string[]; outcomes?: Record<Outcome, number>; success_rates?: SuccessRates }
 export interface Envelope<T> { schema: string; schema_version: string; generated_at: string; producer_version: string; payload: T }
 export interface Connection { mode: SourceMode; baseUrl: string; environmentId?: string }
 export interface Environment { environment_id: string; name: string; kind: 'external' | 'lab' }

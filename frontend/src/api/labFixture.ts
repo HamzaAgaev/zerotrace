@@ -62,7 +62,7 @@ export function labReducer(state: LabState, action: Action): LabState {
   if (action.type === 'build') {
     if (stand) return reject(sameTraceRef(stand.source, action.source) ? '' :
       'Уже есть стенд для другого трейса. Остановите его перед новой сборкой.');
-    if (!supportsLabSource(action.source)) return reject('Для этой ревизии трейса нет примера сборки. Выберите трейс вызова payment из orders.');
+    if (!supportsLabSource(action.source)) return reject('Для этой версии трейса нет примера сборки. Выберите трейс вызова payment из orders.');
     return { ...state, message: '', stand: {
       id: action.id, source: action.source, status: 'building', scenarioRevision: 1,
       faultRevision: 0, configRevision: '12', fault: null, maxAttempts: retryDefaults.maxAttempts,
@@ -111,10 +111,10 @@ export function labReducer(state: LabState, action: Action): LabState {
   }
   if (action.type === 'apply') {
     if (stand.id !== action.standId || stand.configRevision !== action.revision) {
-      return reject('Ревизия конфига изменилась. Откройте новый предпросмотр и подтвердите его.');
+      return reject('Версия конфигурации изменилась. Откройте новый предпросмотр и подтвердите его.');
     }
     if (stand.maxAttempts !== 3) return state;
-    return { ...state, message: 'Изменение применено в демостенде. Ревизия конфига 13.',
+    return { ...state, message: 'Изменение применено в демостенде. Версия конфигурации 13.',
       stand: { ...stand, maxAttempts: 2, configRevision: '13' } };
   }
   if (action.type === 'run') {

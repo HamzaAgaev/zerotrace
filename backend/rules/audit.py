@@ -17,7 +17,7 @@ from .common import (
     load_thresholds,
     trace_evidence,
 )
-from core.model import build_edge_policy, is_current_policy, trusted_int
+from core.model import EdgeRetrySamples, build_edge_policy, is_current_policy, trusted_int
 
 from .context import Context
 from .diagnostics import check_timeout_order, retry_checks, retry_paths, timing_checks
@@ -118,13 +118,15 @@ def run(model, policies=(), thresholds=None, baselines=None):
             policy = {}
         lim = limits.for_edge(edge)
         obs, r4 = Assessment("OBS_RETRIES", edge), Assessment("R4", edge)
-        summary = ctx.observations(edge, obs)
+        samples = EdgeRetrySamples()
+        summary = ctx.observations(edge, obs, samples)
         observations.append(summary)
         if obs.hit_count:
             evidence = trace_evidence(**summary)
-            samples = [dict(trace_ref=asref(g.key), attempt_ids=g.data["attempt_ids"]) for g in ctx.groups[edge]
-                       if not g.reason and g.data["hypothesis"] == "retry"][:5]
-            evidence["samples"] = samples
+            evidence["samples"] = [
+                dict(trace_ref=asref(g.key), attempt_ids=g.data["attempt_ids"])
+                for g in ctx.groups[edge] if not g.reason and g.data["hypothesis"] == "retry"
+            ][:5]
             obs.report("Наблюдаются повторные попытки",
                        f"Подтверждённые повторы в {obs.hit_count} из {obs.count} пригодных логических вызовов.",
                        evidence, severity="low")
@@ -156,7 +158,7 @@ def run(model, policies=(), thresholds=None, baselines=None):
         if ambiguous_policy or mismatched_revision:
             for result in (r4, r8):
                 result.reject("conflicting_policy_snapshots" if ambiguous_policy else "mismatched_config_revision")
-        batch = [obs, r1, r2, r3, r4, *retry_checks(ctx, edge, policy, lim), r8, d1]
+        batch = [obs, r1, r2, r3, r4, *retry_checks(ctx, edge, policy, lim, samples), r8, d1]
         labels = ctx.labels(edge, policy)
         for result in batch:
             if not result.count and not result.excluded:

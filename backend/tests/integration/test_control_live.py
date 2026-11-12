@@ -113,7 +113,7 @@ def apply_plan(base, plan):
     return result
 
 
-def start_run(base, stand_id, count=4, seed=512):
+def start_run(base, stand_id, count=4, seed=512, concurrency=2):
     stand = value(requests.get(base + "/api/v1/lab/stands/active"))
     body = {
         "request_id": str(uuid.uuid4()),
@@ -121,7 +121,7 @@ def start_run(base, stand_id, count=4, seed=512):
         "expected_fault_revision": stand["fault_revision"],
         "config_revisions": stand["config_revisions"],
         "request_count": count,
-        "concurrency": 2,
+        "concurrency": concurrency,
         "seed": seed,
     }
     run = value(requests.post(f"{base}/api/v1/lab/stands/{stand_id}/runs", json=body))
@@ -202,9 +202,11 @@ def test_real_trace_and_atomic_plan(live):
 
 def test_fault_runs_and_measured_comparison(live):
     base, _, stand_id = live
-    # Isolate retries at orders → payment, even when this test runs on a fresh stand.
-    change(base, "gateway", "orders-create", max_attempts=1)
     stand = value(requests.get(base + "/api/v1/lab/stands/active"))
+    duplicate = requests.post(base + "/api/v1/lab/stands", json={"scenario_id": "checkout"})
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "stand_already_active"
+    assert duplicate.json()["error"]["details"] == {"stand_id": stand_id}
     fault = {
         "service_id": "payment",
         "route": "POST /charge",
@@ -216,7 +218,31 @@ def test_fault_runs_and_measured_comparison(live):
         "request_id": str(uuid.uuid4()),
     }
     value(requests.put(f"{base}/api/v1/lab/stands/{stand_id}/fault", json=fault))
-    before = start_run(base, stand_id)
+    stand = value(requests.get(base + "/api/v1/lab/stands/active"))
+    versions = {
+        "scenario_revision": stand["scenario_revision"],
+        "expected_fault_revision": stand["fault_revision"],
+        "config_revisions": stand["config_revisions"],
+    }
+    for key, resource, expected, current in (
+        ("scenario_revision", "scenario", 0, stand["scenario_revision"]),
+        ("expected_fault_revision", "fault", 0, stand["fault_revision"]),
+        ("config_revisions", "config", "old", stand["config_revisions"]["orders"]),
+    ):
+        stale = {**versions["config_revisions"], "orders": expected} if resource == "config" else expected
+        request_id = str(uuid.uuid4())
+        rejected = requests.post(
+            f"{base}/api/v1/lab/stands/{stand_id}/runs",
+            json={**versions, key: stale, "request_id": request_id},
+        )
+        assert rejected.status_code == 409
+        error = rejected.json()["error"]
+        assert (error["code"], error["request_id"]) == ("stale_revision", request_id)
+        assert tuple(error["details"][field] for field in ("resource", "expected", "current")) == (
+            resource, expected, current,
+        )
+    assert value(requests.get(base + "/api/v1/lab/runs"))["items"] == []
+    before = start_run(base, stand_id, count=30, concurrency=1)
     assert all(row["http_status"] == 503 for row in before["results"])
     audit = value(requests.get(base + "/api/v1/audit?environment_id=sandbox"))
     finding = next(
@@ -226,8 +252,9 @@ def test_fault_runs_and_measured_comparison(live):
         and item["edge"]["caller"] == "orders"
         and item["edge"]["callee"] == "payment"
     )
-    assert finding["evidence"]["required_ns"] == "2500000000"
-    assert finding["evidence"]["budget_ns"] == "1800000000"
+    assert finding["evidence"]["required_ns"] == "850000000"
+    assert finding["evidence"]["budget_ns"] == "700000000"
+    assert finding["evidence"]["recommended_required_ns"] == "550000000"
     recommendation = {
         "environment_id": "sandbox",
         "finding_id": finding["finding_id"],
@@ -237,7 +264,7 @@ def test_fault_runs_and_measured_comparison(live):
     }
     plan = value(requests.post(base + "/api/v1/change-plans", json=recommendation))
     apply_plan(base, plan)
-    after = start_run(base, stand_id)
+    after = start_run(base, stand_id, count=30, concurrency=1)
     comparison = requests.post(
         base + "/api/v1/comparisons",
         json={"baseline_run_id": before["run_id"], "candidate_run_id": after["run_id"]},
@@ -246,8 +273,10 @@ def test_fault_runs_and_measured_comparison(live):
     payload = comparison.json()["payload"]
     assert payload["baseline"]["attempts_per_input"] == 3
     assert payload["candidate"]["attempts_per_input"] == 2
-    assert payload["baseline"]["http_status_counts"] == {"503": 4}
-    assert payload["candidate"]["http_status_counts"] == {"503": 4}
+    assert payload["baseline"]["attempt_count_histogram"] == {"3": 30}
+    assert payload["candidate"]["attempt_count_histogram"] == {"2": 30}
+    assert payload["baseline"]["http_status_counts"] == {"503": 30}
+    assert payload["candidate"]["http_status_counts"] == {"503": 30}
 
 
 def test_seed_and_incoming_work(live):

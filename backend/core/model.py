@@ -9,10 +9,11 @@ backoff_ms/backoff, retry_on, source, freshness, stale, config_revision).
 from __future__ import annotations
 
 import statistics
+from collections.abc import Hashable
 from dataclasses import dataclass, field
 from hashlib import sha256
 from json import dumps
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from contracts.p2 import CallModel, TraceGraph
 from contracts.p3 import Backoff, EdgePolicy, EdgeStats, Sourced, percentile_ns, ratio
@@ -52,6 +53,29 @@ class EdgeContribution:
 
     graph: TraceGraph
     calls: CallModel
+
+
+TraceIdentity = TypeVar("TraceIdentity", bound=Hashable)
+
+
+@dataclass
+class EdgeRetrySamples(Generic[TraceIdentity]):
+    """Accumulate edge statistics after the caller applies its eligibility rules."""
+
+    eligible_calls: int = 0
+    retry_calls: int = 0
+    grouped_attempts: int = 0
+    trace_refs: set[TraceIdentity] = field(default_factory=set)
+    gaps_by_index: dict[int, list[tuple[TraceIdentity, int]]] = field(default_factory=dict)
+
+    def add_call(self, ref: TraceIdentity, attempt_count: int, *, retry: bool) -> None:
+        self.eligible_calls += 1
+        self.retry_calls += retry
+        self.grouped_attempts += attempt_count
+        self.trace_refs.add(ref)
+
+    def add_gap(self, ref: TraceIdentity, index: int, gap_ns: int) -> None:
+        self.gaps_by_index.setdefault(index, []).append((ref, gap_ns))
 
 
 def contribution_digest(contributions: list[EdgeContribution]) -> str:
@@ -109,10 +133,18 @@ def build_edge_stats(
         unknown = len(attempts) - known
         errors = sum(1 for a in attempts if a.outcome in ERROR_OUTCOMES)
         success_durations = sorted(a.duration_ns for a in attempts if a.outcome == "ok")
-        gaps_by_index: dict[int, list[int]] = {}
+        samples: EdgeRetrySamples = EdgeRetrySamples()
+        for call in calls:
+            if call.hypothesis != "ambiguous":
+                samples.add_call(
+                    call.trace_ref, len(call.attempt_ids), retry=call.hypothesis == "retry",
+                )
         for a in attempts:
             if a.attempt_index is not None and a.gap_before_ns is not None:
-                gaps_by_index.setdefault(a.attempt_index, []).append(a.gap_before_ns)
+                samples.add_gap(a.trace_ref, a.attempt_index, a.gap_before_ns)
+        gaps_by_index = {
+            index: [gap for _, gap in values] for index, values in samples.gaps_by_index.items()
+        }
         all_gaps = [gap for gaps in gaps_by_index.values() for gap in gaps]
         jitter_cv = None
         if len(all_gaps) >= 2:
@@ -123,7 +155,7 @@ def build_edge_stats(
             edge_id=edge_id,
             dataset_ref=dataset_ref or "",
             attempts=len(attempts),
-            eligible_calls=sum(1 for c in calls if c.hypothesis != "ambiguous"),
+            eligible_calls=samples.eligible_calls,
             ambiguous_calls=sum(1 for c in calls if c.hypothesis == "ambiguous"),
             trace_count=len(bucket["traces"]),
             known_outcomes=known,

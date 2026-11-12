@@ -5,15 +5,18 @@ docs/development/analytics-core-model-migration.md).
 миграции обязан сохранить эти выводы побайтово. Обновление golden — только
 осознанно: GOLDEN_UPDATE=1 pytest tests/analytics/test_migration_golden.py.
 
-Два входа покрывают поверхность миграции:
+Входы покрывают поверхность миграции:
 - audit-baseline.json — общий прогон (R4 через плоские операнды, OBS_RETRIES);
 - audit-policy-operands.json — операнды Sourced-dict'ами (сверка ревизий),
   R7 со списком retry_on, R8 с парой таймаутов. D1-дрейф покрыт юнит-тестами
   tests/analytics/test_rules_drift.py.
+- audit-sandbox-checkout.json.gz — 30 замороженных трейсов checkout с 503
+  на payment и снимки политик baseline-прогона до применения R4.
 """
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 from pathlib import Path
@@ -77,3 +80,9 @@ def test_golden_audit_output_is_stable():
 def test_golden_policy_operand_paths_are_stable():
     m, policies = build_policy_operand_scenario()
     _check(run(m, policies), POLICY_OPERANDS)
+
+
+def test_recorded_sandbox_audit_is_stable():
+    with gzip.open(GOLDEN_DIR / "audit-sandbox-checkout.json.gz", "rt", encoding="utf-8") as file:
+        recorded = json.load(file)
+    assert run(recorded["model"], recorded["policies"]) == recorded["output"]

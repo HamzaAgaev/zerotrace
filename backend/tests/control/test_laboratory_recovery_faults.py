@@ -22,6 +22,10 @@ class Records:
     def put(self, kind, key, value):
         self.data[(kind, key)] = copy.deepcopy(value)
 
+    def put_many(self, values):
+        for kind, key, value in values:
+            self.put(kind, key, value)
+
     def items(self, kind):
         return [
             copy.deepcopy(value)
@@ -40,6 +44,7 @@ def ready_laboratory(services, faults, revision=0):
         "service_registry": services,
     }
     lab.records = Records()
+    lab._recovering = False
     lab.lock = threading.RLock()
     lab.guard_edit = lambda: None
     lab._save = lambda: lab.records.put("lab", "active", lab.stand)
@@ -203,17 +208,19 @@ def test_startup_finalizes_waiting_samples_after_verified_shutdown(
         return {"shutdown": True}
 
     class Telemetry:
-        def finalize_collection(self, run_id, now_ns):
+        def finalize_collection(self, run_id, now_ns, *, force=False):
             assert events[-1] == ("POST", "/_shutdown")
+            assert force
             events.append(("finalize", run_id))
             return SimpleNamespace(
                 status="partial", expected_count=3, received_count=1, trace_refs=[]
             )
 
     monkeypatch.setattr(laboratory_module, "remote_json", remote_json)
+    monkeypatch.setattr(Laboratory, "_port_released", staticmethod(lambda service: True))
     Laboratory(
         {"state_directory": str(tmp_path)},
-        registry=None,
+        registry=SimpleNamespace(remove_lab=lambda: None),
         telemetry=Telemetry(),
         records=records,
         lock=threading.RLock(),
@@ -222,6 +229,41 @@ def test_startup_finalizes_waiting_samples_after_verified_shutdown(
     recovered = records.get("run", "run-old")
     assert recovered["trace_collection"]["status"] == "partial"
     assert events[-1] == ("finalize", "run-old")
+
+
+def test_recovered_stand_holds_slot_until_shutdown_is_confirmed(tmp_path, monkeypatch):
+    records = Records()
+    records.put("lab", "active", {
+        "stand_id": "stand-old", "status": "ready",
+        "service_registry": {"payment": {"control_url": "http://127.0.0.1:8081"}},
+    })
+    recover_service = Laboratory._recover_service
+    monkeypatch.setattr(Laboratory, "_recover_service", lambda self, service: False)
+    lab = Laboratory(
+        {"state_directory": str(tmp_path)},
+        SimpleNamespace(remove_lab=lambda: None), None, records, threading.RLock(),
+    )
+    assert lab.active()["status"] == "stopping"
+    with pytest.raises(ProductError) as conflict:
+        lab.create({"scenario_id": "checkout"})
+    assert (conflict.value.code, conflict.value.details) == (
+        "stand_already_active", {"stand_id": "stand-old"},
+    )
+    with pytest.raises(ProductError) as unconfirmed:
+        lab.stop("stand-old")
+    assert unconfirmed.value.code == "stand_stop_unconfirmed"
+
+    calls = []
+
+    def foreign(service, method, path, **kwargs):
+        calls.append((method, path))
+        return {"stand_id": "stand-other"}
+
+    monkeypatch.setattr(Laboratory, "_recover_service", recover_service)
+    monkeypatch.setattr(laboratory_module, "remote_json", foreign)
+    assert lab.stop("stand-old")["status"] == "stopped"
+    assert lab.active() is None
+    assert calls == [("GET", "/_health")]
 
 
 def test_stop_retries_after_unconfirmed_process_exit():

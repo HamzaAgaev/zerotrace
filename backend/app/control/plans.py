@@ -143,6 +143,7 @@ class Plans:
         service = self.registry.service(environment, service_id)
         if not service:
             raise ProductError(404, "service_not_found", "Сервис не зарегистрирован.")
+        self._require_recommendation_target(body, service)
         with self.lock:
             if service.get("is_lab"):
                 self.lab_guard()
@@ -220,6 +221,15 @@ class Plans:
                 or validate_changes(intent.get("set")) != plan["set"]):
             raise ProductError(409, "stale_recommendation", "Действующая рекомендация изменилась.")
 
+    @staticmethod
+    def _require_recommendation_target(intent: dict, service: dict) -> None:
+        if intent.get("recommendation_id") and (
+            intent["environment_id"] != "sandbox" or not service.get("is_lab")
+        ):
+            raise ProductError(
+                403, "recommendation_lab_only", "Применение рекомендации доступно на стенде."
+            )
+
     def apply(self, plan_id: str, body: dict) -> dict:
         if not isinstance(body, dict):
             raise ProductError(400, "invalid_request", "Ожидался объект запроса.")
@@ -250,11 +260,17 @@ class Plans:
             service = self.registry.service(plan["environment_id"], plan["service_id"])
             if not service:
                 raise ProductError(404, "service_not_found", "Сервис не зарегистрирован.")
+            self._require_recommendation_target(plan, service)
             if service.get("is_lab"):
                 self.lab_guard()
             current = read_config(service)
             if current["revision"] != plan["expected_revision"]:
-                raise ProductError(409, "stale_revision", "Конфигурация изменилась.")
+                raise ProductError(
+                    409, "stale_revision", "Конфигурация изменилась.",
+                    {"resource": "config", "expected": plan["expected_revision"],
+                     "current": current["revision"], "service_id": plan["service_id"]},
+                    request_id=request_id,
+                )
             target = select_target(current, plan)
             if any(field not in target.get("write_fields", []) for field in plan["set"]):
                 raise ProductError(403, "field_forbidden", "Разрешение на запись изменилось.")

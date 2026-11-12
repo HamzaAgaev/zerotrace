@@ -1,17 +1,22 @@
+import { Compare, type ComparisonSelection } from './Compare';
+import { usePersistentState } from '../state';
 import { HttpMethod, HttpStatus } from '../components/HttpText';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import type { Client, ListPayload, TraceQuery } from '../api/types';
+import type { Client, ListPayload, TraceQuery, TraceSummary } from '../api/types';
+import { isUncertainResponse } from '../api/client';
+import { successWindowsMinutes } from '../api/types';
 import { Metrics } from '../components/Metrics';
 import { Select } from '../components/Select';
 import { Badge, Button, EmptyState, Field, Icon, LoadingState, Message, PageHeader, Panel, TableScroll, RetryButton } from '../components/ui';
-import { duration, outcomeLabels, traceHref, traceRequest } from '../lib';
+import { comparisonModeForHash, duration, outcomeLabels, traceHref, traceRequest } from '../lib';
+import { formatCount, formatPercent } from '../presentation';
 
 type TracePage = {
   client: Client; data: ListPayload; page: number; limit: number;
   findings?: Map<string, number>;
 };
-const formatCount = new Intl.NumberFormat('ru-RU');
+const successLabels = { 5: 'Успех за 5 минут', 30: 'Успех за 30 минут', 60: 'Успех за 1 час', 180: 'Успех за 3 часа' };
 const formatStart = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'medium' });
 
 function boundaryNs(value: string): string | undefined {
@@ -30,43 +35,83 @@ function traceStart(value: string): string {
 }
 
 export function TraceList({ client }: { client: Client }) {
-  const [query, setQuery] = useState('');
-  const [service, setService] = useState('');
-  const [status, setStatus] = useState('');
-  const [method, setMethod] = useState('');
-  const [sort, setSort] = useState('recent');
+  const [savedComparisonMode, saveComparisonMode] = usePersistentState('traces:compare-mode', false);
+  const comparisonMode = comparisonModeForHash(location.hash, savedComparisonMode);
+  const setComparisonMode = (enabled: boolean) => {
+    saveComparisonMode(enabled);
+    const params = new URLSearchParams(location.hash.split('?')[1]);
+    params.set('mode', enabled ? 'compare' : 'list');
+    location.hash = `#/traces?${params}`;
+  };
+  const [comparisonGroup, setComparisonGroup] = usePersistentState<'a'|'b'>('traces:compare-group', 'a');
+  const [selection, setSelection] = usePersistentState<ComparisonSelection>('traces:selection', {});
+  const [showComparison, setShowComparison] = usePersistentState('traces:compare-result', false);
+  const [selectionError, setSelectionError] = useState('');
+  const [query, setQuery] = usePersistentState('views/TraceList.tsx:query', '');
+  const [service, setService] = usePersistentState('views/TraceList.tsx:service', '');
+  const [status, setStatus] = usePersistentState('views/TraceList.tsx:status', '');
+  const [method, setMethod] = usePersistentState('views/TraceList.tsx:method', '');
+  const [sort, setSort] = usePersistentState('views/TraceList.tsx:sort', 'recent');
+  const [periodDraft, setPeriodDraft] = usePersistentState('traces:period-draft', {span_id:'',period_start:'',period_end:''});
   const searchForm = useRef<HTMLFormElement>(null);
-  const [appliedSearch, setAppliedSearch] = useState<Pick<TraceQuery, 'span_id' | 'start_from_ns' | 'start_to_ns'>>({});
+  const [appliedSearch, setAppliedSearch] = usePersistentState<Pick<TraceQuery, 'span_id' | 'start_from_ns' | 'start_to_ns'>>('traces:applied-search', {});
   const [searchError, setSearchError] = useState('');
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [page, setPage] = usePersistentState('views/TraceList.tsx:page', 1);
+  const [limit, setLimit] = usePersistentState('views/TraceList.tsx:limit', 10);
   const [reload, setReload] = useState(0);
   const [response, setResponse] = useState<TracePage | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
+  const [summaryError, setSummaryError] = useState(false);
   const requestedQuery = useRef('');
+  const filtersActive = !!(query.trim() || service || status || method
+    || appliedSearch.span_id || appliedSearch.start_from_ns || appliedSearch.start_to_ns);
 
   useEffect(() => {
     const controller = new AbortController();
     setBusy(true);
     setError('');
+    setSummaryError(false);
 
     async function load() {
       requestedQuery.current = query;
       const filters = { query, service, status, method, sort, limit, offset: (page - 1) * limit, ...appliedSearch };
+      const recentPage = sort === 'recent' && !filtersActive;
+      const summaryQuery = { ...filters, includeFindings: false, includeSuccessRates: true };
       try {
-        const data = await client.listTraces(controller.signal, {
-          ...filters, includeFindings: false,
-        });
+        const data = await client.listTraces(controller.signal, recentPage
+          ? { limit, offset: filters.offset, includeFindings: false }
+          : summaryQuery);
         if (controller.signal.aborted) return;
         const lastPage = Math.max(1, Math.ceil(data.total / limit));
         if (page > lastPage) {
           setPage(lastPage);
           return;
         }
-        const next = { client, data, page, limit };
+        let next: TracePage = { client, data, page, limit };
         setResponse(next);
         setBusy(false);
+        if (recentPage) {
+          try {
+            const summary = await client.listTraces(controller.signal, summaryQuery).catch(cause => {
+              if (!controller.signal.aborted && isUncertainResponse(cause)) {
+                return client.listTraces(controller.signal, summaryQuery);
+              }
+              throw cause;
+            });
+            if (controller.signal.aborted) return;
+            const first = next;
+            const enriched = { ...first, data: {
+              ...data, services: summary.services, methods: summary.methods,
+              outcomes: summary.outcomes, success_rates: summary.success_rates,
+            } };
+            next = enriched;
+            setResponse(current => current === first ? enriched : current);
+          } catch {
+            if (!controller.signal.aborted) setSummaryError(true);
+            return;
+          }
+        }
         if (data.items.length) {
           void client.listTraces(controller.signal, filters).then(audited => {
             if (controller.signal.aborted) return;
@@ -88,19 +133,20 @@ export function TraceList({ client }: { client: Client }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [client, query, service, status, method, sort, page, limit, reload, appliedSearch]);
+  }, [client, query, service, status, method, sort, page, limit, reload, appliedSearch, filtersActive]);
 
   const displayed = response?.client === client ? response : null;
   const result = displayed?.data;
   const rows = result?.items ?? [];
   const total = result?.total ?? 0;
-  const outcomes = result?.outcomes;
   const shownPage = displayed?.page ?? 1;
   const shownLimit = displayed?.limit ?? limit;
   const pages = Math.max(1, Math.ceil(total / shownLimit));
   const firstPageButton = Math.max(1, Math.min(shownPage - 2, pages - 4));
-  const filtersActive = !!(query.trim() || service || status || method
-    || appliedSearch.span_id || appliedSearch.start_from_ns || appliedSearch.start_to_ns);
+  const selectedItems = Object.values(selection);
+  const selectedA = selectedItems.filter(item => item.group === 'a').length;
+  const selectedB = selectedItems.filter(item => item.group === 'b').length;
+  const selectedCount = selectedItems.length;
 
   const change = (setter: (value: string) => void, value: string) => {
     setter(value);
@@ -112,7 +158,7 @@ export function TraceList({ client }: { client: Client }) {
     setService('');
     setStatus('');
     setMethod('');
-    searchForm.current?.reset();
+    setPeriodDraft({span_id:'',period_start:'',period_end:''});
     setAppliedSearch({});
     setSearchError('');
     setPage(1);
@@ -137,17 +183,110 @@ export function TraceList({ client }: { client: Client }) {
       setSearchError(cause instanceof Error ? cause.message : 'Проверьте фильтры.');
     }
   };
-  const count = (value: number | undefined) => value === undefined ? '—' : formatCount.format(value);
+  const addToCurrentGroup = (trace: TraceSummary) => {
+    const href = traceHref(trace.trace_ref);
+    setSelectionError('');
+    const existing = selection[href];
+    if (existing && existing.group !== comparisonGroup) {
+      setSelectionError(`Трейс уже выбран в группу ${existing.group.toUpperCase()}. Переместите его явно в составе групп.`);
+      return;
+    }
+    const other = selectedItems.find(item => traceHref(item.trace.trace_ref) !== href
+      && (item.trace.service !== trace.service || item.trace.operation !== trace.operation));
+    if (!existing && other) {
+      setSelectionError('Для сравнения выберите запросы одного сервиса и эндпоинта. Сбросьте группы, чтобы изменить эндпоинт.');
+      return;
+    }
+    if (!existing && selectedCount >= 200) {
+      setSelectionError('Можно сравнить до 200 трейсов.');
+      return;
+    }
+    setSelection(old => {
+      const next = { ...old };
+      if (existing) delete next[href];
+      else next[href] = { group: comparisonGroup, trace };
+      return next;
+    });
+    setShowComparison(false);
+  };
+  const moveToOtherGroup = (href: string) => {
+    const item = selection[href];
+    if (!item) return;
+    const group = item.group === 'a' ? 'b' : 'a';
+    setSelection(old => ({ ...old, [href]: { ...item, group } }));
+    setComparisonGroup(group);
+    setShowComparison(false);
+    setSelectionError('');
+  };
+  const splitByOutcome = () => {
+    if (!rows.length) {
+      setSelectionError('На этой странице нет трейсов для разделения.');
+      return;
+    }
+    // Do not assume the first row has both outcomes: pick the endpoint on this
+    // page that actually has successful and failed requests.
+    const groups = new Map<string, { sample: TraceSummary; traces: TraceSummary[]; failed: TraceSummary[]; succeeded: TraceSummary[] }>();
+    for (const trace of rows) {
+      const { method, endpoint } = traceRequest(trace);
+      const key = `${trace.service}\u0000${method ?? ''}\u0000${endpoint}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = { sample: trace, traces: [], failed: [], succeeded: [] };
+        groups.set(key, group);
+      }
+      group.traces.push(trace);
+      if (trace.outcome === 'error') group.failed.push(trace);
+      else if (trace.outcome === 'ok') group.succeeded.push(trace);
+    }
+    const candidate = [...groups.values()]
+      .filter(group => group.failed.length > 0 && group.succeeded.length > 0)
+      .sort((left, right) => right.traces.length - left.traces.length)[0];
+    if (!candidate) {
+      setSelectionError('На этой странице нет одновременно успешных запросов и запросов с ошибкой для одного эндпоинта.');
+      return;
+    }
+    const { method, endpoint } = traceRequest(candidate.sample);
+    const label = `${candidate.sample.service} · ${method ? `${method} ` : ''}${endpoint}`;
+    const unknown = candidate.traces.length - candidate.failed.length - candidate.succeeded.length;
+    const next: ComparisonSelection = {};
+    for (const trace of candidate.failed) next[traceHref(trace.trace_ref)] = { group: 'a', trace };
+    for (const trace of candidate.succeeded) next[traceHref(trace.trace_ref)] = { group: 'b', trace };
+    setSelection(next);
+    setComparisonGroup('a');
+    setShowComparison(false);
+    setSelectionError(`Разделено ${candidate.traces.length} запросов ${label}: с ошибкой — ${candidate.failed.length}, успешных — ${candidate.succeeded.length}.`
+      + (unknown > 0 ? ` Трейсы с неизвестным результатом не включены: ${unknown}.` : ''));
+  };
+  const count = (value: number | undefined) => formatCount(value);
 
   return <>
-    <PageHeader title="Трейсы" actions={<Button icon="refresh" onClick={refresh} disabled={busy}>Обновить</Button>}/>
-    <Metrics items={[
-      { label: 'Запросы', value: count(result?.total), info: 'Количество запросов во всей найденной выборке.' },
-      { label: 'Успешные', value: count(outcomes?.ok), tone: 'success', info: 'Входной запрос завершился успешно. Внутри трейса могли быть неудачные попытки.' },
-      { label: 'С ошибкой', value: count(outcomes?.error), tone: 'danger', info: 'Входной запрос завершился ошибкой.' },
-      { label: 'Неизвестно', value: count(outcomes?.unknown), info: 'Недостаточно данных для определения результата входного запроса.' },
-    ]}/>
+    <PageHeader title="Трейсы" actions={<><Button onClick={()=>setComparisonMode(!comparisonMode)}>{comparisonMode ? 'Завершить выбор' : 'Сравнить'}</Button><Button icon="refresh" onClick={refresh} disabled={busy}>Обновить</Button></>}/>
+    <Metrics items={successWindowsMinutes.map(minutes => {
+      const rate = result?.success_rates?.[minutes];
+      const tone = rate == null ? 'neutral' : rate >= 0.99 ? 'success' : rate >= 0.95 ? 'warning' : 'danger';
+      return { label: successLabels[minutes], value: formatPercent(rate), tone };
+    })}/>
+    {summaryError && <Message tone="warning" action={<RetryButton onClick={refresh}/>}>
+      Не удалось загрузить долю успешных запросов и варианты фильтров.
+    </Message>}
 
+    {comparisonMode && <Panel title="Сравнение групп запросов"><div className="lab-body">
+      <p>Сравните длительности и ошибки двух групп запросов одного эндпоинта. Один трейс может входить только в одну группу. Выбор сохраняется между страницами и после перезагрузки.</p>
+      <div className="comparison-actions">{(['a','b'] as const).map(group=><Button key={group} variant={comparisonGroup===group?'primary':'secondary'} onClick={()=>{setComparisonGroup(group);setShowComparison(false);}}>Выбирать в группу {group.toUpperCase()} · {group==='a'?selectedA:selectedB}</Button>)}</div>
+      <p className="comparison-status" role="status">Выбрано {selectedCount} из 200. Группа A — {selectedA}, группа B — {selectedB}. {selectedA > 0 && selectedB > 0 ? 'Можно показать сравнение.' : 'Для результата нужна хотя бы одна запись в каждой группе.'}</p>
+      {selectionError && <Message tone="warning">{selectionError}</Message>}
+      <div className="comparison-actions">
+        <Button disabled={!selectedA||!selectedB} onClick={()=>setShowComparison(v=>!v)}>{showComparison?'Вернуться к выбору':'Показать сравнение'}</Button>
+        <Button onClick={splitByOutcome}>Разделить по результату</Button>
+        <Button onClick={()=>{setSelection({});setShowComparison(false);setSelectionError('');}}>Сбросить группы</Button>
+      </div>
+      <p className="muted"><small>«Разделить по результату» использует запросы одного эндпоинта только с текущей страницы: с ошибкой — в группу A, успешные — в группу B. Если подходящих эндпоинтов несколько, выбирается тот, у которого больше запросов.</small></p>
+      <details><summary>Состав групп и удаление выбранных трейсов</summary>{selectedCount ? selectedItems.map(item => {
+        const href = traceHref(item.trace.trace_ref);
+        return <div className="selection-item" key={href}><span>Группа {item.group.toUpperCase()} · <a className="mono" href={href}>{item.trace.trace_id}</a><small className="cell-note">{item.trace.service} · {item.trace.operation}</small></span><span className="selection-actions"><Button variant="ghost" onClick={()=>moveToOtherGroup(href)}>Переместить в {item.group==='a'?'B':'A'}</Button><Button icon="close" aria-label={`Удалить ${item.trace.trace_id} из группы`} onClick={()=>{setSelection(old=>{const next={...old};delete next[href];return next;});setShowComparison(false);}}/></span></div>;
+      }) : <p className="muted">Группы пока пусты.</p>}</details>
+    </div></Panel>}
+    {comparisonMode && showComparison && <Compare client={client} selection={selection}/>}
     <Panel className="trace-table-panel">
       <div className="trace-toolbar" role="group" aria-label="Фильтры трейсов">
         <label className="search-field">
@@ -179,13 +318,13 @@ export function TraceList({ client }: { client: Client }) {
 
       <form ref={searchForm} className="trace-period-filter" aria-label="Фильтры по Span ID и периоду" onSubmit={applySearch}>
         <Field label="Span ID">
-          <input type="search" name="span_id" placeholder="16 шестнадцатеричных символов"/>
+          <input type="search" name="span_id" value={periodDraft.span_id} onChange={e=>setPeriodDraft(old=>({...old,span_id:e.target.value}))} placeholder="16 шестнадцатеричных символов"/>
         </Field>
         <Field label="Начало периода">
-          <input type="datetime-local" name="period_start" step="1"/>
+          <input type="datetime-local" name="period_start" value={periodDraft.period_start} onChange={e=>setPeriodDraft(old=>({...old,period_start:e.target.value}))} step="1"/>
         </Field>
         <Field label="Конец периода">
-          <input type="datetime-local" name="period_end" step="1"/>
+          <input type="datetime-local" name="period_end" value={periodDraft.period_end} onChange={e=>setPeriodDraft(old=>({...old,period_end:e.target.value}))} step="1"/>
         </Field>
         <Button type="submit">Применить</Button>
         {searchError && <div className="trace-period-error" role="alert">{searchError}</div>}
@@ -200,30 +339,35 @@ export function TraceList({ client }: { client: Client }) {
       <div aria-busy={busy}>
         {rows.length > 0 && <TableScroll><table className="trace-table" aria-label="Трейсы">
           <thead><tr>
-            <th scope="col" className="trace-method-column">Метод</th><th scope="col">Эндпоинт</th>
-            <th scope="col" className="trace-column-optional">Сервис</th><th scope="col" className="trace-result-column">Длительность</th>
-            <th scope="col" className="trace-result-column">Результат</th><th scope="col" className="trace-column-optional">Проблемы</th><th scope="col" className="trace-column-optional">Время запуска</th>
+            {comparisonMode && <th scope="col">Группа</th>}<th scope="col" className="trace-method-column">Метод</th><th scope="col">Эндпоинт</th>
+            <th scope="col" className="trace-column-optional">Сервис</th><th scope="col" className="trace-result-column">Длитель&#173;ность</th>
+            <th scope="col" className="trace-result-column">Резуль&#173;тат</th><th scope="col" className="trace-column-optional">Проблемы</th><th scope="col" className="trace-column-optional">Время запуска</th>
           </tr></thead>
           <tbody>{rows.map(trace => {
             const href = traceHref(trace.trace_ref);
             const { method: requestMethod, endpoint } = traceRequest(trace);
             const tone = trace.outcome === 'error' ? 'danger' : trace.outcome === 'ok' ? 'success' : 'neutral';
             const findingCount = displayed?.findings?.get(href);
-            return <tr key={href} onClick={event => {
+            return <tr key={href} className={selection[href] && comparisonMode ? 'is-selected' : ''} onClick={event => {
+              if (comparisonMode) return;
               if (!(event.target as Element).closest('a') && !window.getSelection()?.toString()) window.location.href = href;
             }}>
+              {comparisonMode && <td><label className="check-label"><input type="checkbox" aria-label={`Выбрать ${trace.trace_id} в группу ${comparisonGroup.toUpperCase()}`} checked={selection[href]?.group===comparisonGroup} onChange={event=>{
+                if (event.target.checked) addToCurrentGroup(trace);
+                else setSelection(old=>{const next={...old};delete next[href];return next;});
+              }}/>{selection[href]?.group.toUpperCase() ?? '—'}</label></td>}
               <td className="trace-method-column">{requestMethod
                 ? <HttpMethod method={requestMethod}/>
                 : <span className="quiet">—</span>}</td>
               <td>
-                <a className="trace-operation" href={href} title={endpoint}><span>{endpoint}</span></a>
+                <a className="trace-operation" href={href} title={endpoint}><span className="trace-method-inline">{requestMethod}</span><span>{endpoint}</span></a>
                 <small className="trace-service-mobile">{trace.service}</small>
                 <small className="mono trace-id">{trace.trace_id}</small>
               </td>
               <td className="trace-column-optional">{trace.service}</td>
               <td className="tabular">{duration(trace.duration_ns)}</td>
               <td>{trace.http_status === null ? <Badge tone={tone}>{outcomeLabels[trace.outcome]}</Badge> : <HttpStatus code={trace.http_status}/>}</td>
-              <td className="trace-column-optional">{findingCount ? <Badge tone="warning">{findingCount}</Badge> : <span className="quiet" title={findingCount === undefined ? 'Нет данных аудита для этой ревизии' : 'Аудит не обнаружил проблем'}>—</span>}</td>
+              <td className="trace-column-optional">{findingCount ? <Badge tone="warning">{findingCount}</Badge> : <span className="quiet" title={findingCount === undefined ? 'Нет данных аудита для этой версии трейса' : 'Аудит не обнаружил проблем'}>—</span>}</td>
               <td className="trace-column-optional tabular muted">{traceStart(trace.start_ns)}</td>
             </tr>;
           })}</tbody>

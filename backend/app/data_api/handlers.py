@@ -32,6 +32,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import time_ns
 from typing import Any, Protocol
 
 from contracts.base import TraceRef
@@ -39,13 +40,14 @@ from contracts.p2 import NormalizedSpan, TraceGraph
 from contracts.p7 import Envelope, TraceSummary
 from contracts.validate import SPAN_ID_RE, TRACE_ID_RE, ZERO_SPAN_ID, ZERO_TRACE_ID
 
-from .views import HTTP_METHOD_TOKEN, trace_detail, trace_summary
+from .views import HTTP_METHOD_TOKEN, TraceListEntry, trace_detail, trace_summary
 
 SCHEMA_TRACE_LIST = "zerotrace.trace-list"
 SCHEMA_TRACE = "zerotrace.trace"
 SCHEMA_VERSION = "1.0.0"
 PRODUCER_VERSION = "0.1.0"
 MAX_LIMIT = 100
+SUCCESS_WINDOWS_MINUTES = (5, 30, 60, 180)
 
 
 @dataclass(frozen=True)
@@ -120,6 +122,7 @@ def list_traces(
     *,
     graph_builder: GraphBuilder | None = None,
     read_summary: Callable[[TraceRef], TraceSummary | None] | None = None,
+    read_entries: Callable[[str], dict[TraceRef, TraceListEntry]] | None = None,
     query: str = "",
     service: str = "",
     status: str = "",
@@ -128,6 +131,7 @@ def list_traces(
     start_from_ns: int | None = None,
     start_to_ns: int | None = None,
     sort: str | None = None,
+    include_success_rates: bool = False,
     generated_at: str | None = None,
 ) -> dict[str, Any] | ApiError:
     if limit < 1 or limit > MAX_LIMIT:
@@ -162,19 +166,36 @@ def list_traces(
     span_matches = (
         store.trace_refs_for_span(environment_id, span_id) if span_id is not None else None
     )
-    items: list[TraceSummary] = []
+    scan_all = expanded or include_success_rates
+    entries = read_entries(environment_id) if scan_all and read_entries is not None else None
+
+    def load_summary(ref: TraceRef) -> TraceSummary | None:
+        if read_summary is not None:
+            return read_summary(ref)
+        spans = store.get_spans(ref)
+        return trace_summary(build(spans, ref)) if spans is not None else None
+
+    items: list[TraceSummary | TraceListEntry] = []
     services: set[str] = set()
     methods: set[str] = set()
     outcomes = {"ok": 0, "error": 0, "unknown": 0}
+    now_ns = time_ns() if include_success_rates else 0
+    cutoffs = {minutes: now_ns - minutes * 60_000_000_000
+               for minutes in SUCCESS_WINDOWS_MINUTES} if include_success_rates else {}
+    successes = dict.fromkeys(cutoffs, 0)
+    known = dict.fromkeys(cutoffs, 0)
     search = query.strip().casefold()
-    for meta in metas if expanded else metas[offset : offset + limit]:
-        if read_summary is None:
-            spans = store.get_spans(meta.trace_ref)
-            summary = trace_summary(build(spans, meta.trace_ref)) if spans is not None else None
-        else:
-            summary = read_summary(meta.trace_ref)
+    for meta in metas if scan_all else metas[offset : offset + limit]:
+        summary = (
+            entries.get(meta.trace_ref) if entries is not None else load_summary(meta.trace_ref)
+        )
         if summary is None:
             continue
+        if 0 < summary.start_ns <= now_ns and summary.outcome != "unknown":
+            for minutes, cutoff in cutoffs.items():
+                if summary.start_ns >= cutoff:
+                    known[minutes] += 1
+                    successes[minutes] += summary.outcome == "ok"
         if expanded:
             services.add(summary.service)
             if summary.http_method is not None:
@@ -199,12 +220,23 @@ def list_traces(
 
     if sort == "slow":
         items.sort(key=lambda item: (-item.duration_ns, item.trace_ref.trace_id))
-    page = items[offset : offset + limit] if expanded else items
-    payload: dict[str, Any] = {"items": [item.to_dict() for item in page], "total": len(metas)}
+    page = items[offset : offset + limit] if scan_all else items
+    summaries = [
+        item if isinstance(item, TraceSummary) else load_summary(item.trace_ref) for item in page
+    ]
+    payload: dict[str, Any] = {
+        "items": [summary.to_dict() for summary in summaries if summary is not None],
+        "total": len(metas),
+    }
     if expanded:
         payload.update(
             total=len(items), services=sorted(services), methods=sorted(methods), outcomes=outcomes
         )
+    if include_success_rates:
+        payload["success_rates"] = {
+            str(minutes): successes[minutes] / known[minutes] if known[minutes] else None
+            for minutes in SUCCESS_WINDOWS_MINUTES
+        }
     return _envelope(SCHEMA_TRACE_LIST, payload, generated_at)
 
 

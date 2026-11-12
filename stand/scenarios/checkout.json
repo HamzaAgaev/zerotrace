@@ -71,8 +71,8 @@
                                 "method": "POST",
                                 "route": "/orders"
                             },
-                            "timeout_ms": 1800,
-                            "max_attempts": 2,
+                            "timeout_ms": 700,
+                            "max_attempts": 1,
                             "backoff_ms": 50,
                             "retry_on": [
                                 "5xx",
@@ -179,7 +179,7 @@
                                 "method": "POST",
                                 "route": "/charge"
                             },
-                            "timeout_ms": 800,
+                            "timeout_ms": 250,
                             "max_attempts": 3,
                             "backoff_ms": 50,
                             "retry_on": [

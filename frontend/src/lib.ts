@@ -27,7 +27,7 @@ export function traceServiceColors(services: readonly string[]): Map<string, str
   return colors;
 }
 export function ms(value: string | null | undefined): number | null { if (value == null || !/^\d+$/.test(value)) return null; return Number(BigInt(value)) / 1e6; }
-export function duration(value: string | null | undefined): string { const n = ms(value); if (n === null) return 'Неизвестно'; return n >= 1000 ? `${(n / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} с` : `${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })} мс`; }
+export function duration(value: string | null | undefined): string { const n = ms(value); if (n === null) return 'Неизвестно'; return n >= 1000 ? `${(n / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}\u00A0с` : `${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}\u00A0мс`; }
 export function time(value: string): string { try { const date = new Date(Number(BigInt(value) / 1000000n)); return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return 'Неизвестно'; } }
 export function splitHttpOperation(operation: string, allowMethodOnly = false) {
   const match = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)(?: (.+))?$/i.exec(operation);
@@ -41,7 +41,6 @@ export function traceRequest(trace: TraceSummary): { method: string | null; endp
   return legacy ? { method: legacy.method.toUpperCase(), endpoint: legacy.endpoint }
     : { method: null, endpoint: trace.operation };
 }
-export function shortId(id: string): string { return `${id.slice(0, 8)}…${id.slice(-8)}`; }
 export function traceHref(ref: TraceRef | string): string {
   if (typeof ref === 'string') return `#/traces/${encodeURIComponent(ref)}`;
   const params = new URLSearchParams({
@@ -60,6 +59,9 @@ export function findingsForTrace(trace: TraceDetail, findings: Finding[]): Findi
 export function readRoute(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, '').split('?');
   const [page, traceId] = path.split('/');
+  if (page === 'services') return { page: new URLSearchParams(query).get('tab') === 'statistics' ? 'timings' : 'graph' };
+  if (page === 'policies') return { page: 'graph' };
+  if (page === 'compare') return { page: 'traces' };
   if (['audit', 'journal', 'sources', 'graph', 'timings', 'policies', 'compare', 'lab'].includes(page)) {
     return { page: page as 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'policies' | 'compare' | 'lab' };
   }
@@ -97,4 +99,23 @@ export function timelineRows(spans: Span[]): { span: Span; depth: number }[] {
   const map = new Map(spans.map(s => [s.span_id, s])); const visited = new Set<string>(); const output: { span: Span; depth: number }[] = [];
   const walk = (span: Span, depth: number) => { if (visited.has(span.span_id)) return; visited.add(span.span_id); output.push({ span, depth: Math.min(depth, 20) }); spans.filter(s => s.parent_span_id === span.span_id).sort((a,b) => Number(BigInt(a.start_offset_ns) - BigInt(b.start_offset_ns))).forEach(s => walk(s, depth + 1)); };
   spans.filter(s => !s.parent_span_id || !map.has(s.parent_span_id)).forEach(s => walk(s, 0)); spans.forEach(s => walk(s, 0)); return output;
+}
+
+/** Explicit links take precedence over the saved comparison draft. */
+export function comparisonModeForHash(hash: string, saved: boolean): boolean {
+  const [path, query] = hash.replace(/^#\/?/, '').split('?');
+  const mode = new URLSearchParams(query).get('mode');
+  if (path === 'compare' || mode === 'compare') return true;
+  if (mode === 'list') return false;
+  return saved;
+}
+
+export function serviceSurfaceForHash(hash: string, saved: 'graph' | 'table'): 'graph' | 'table' {
+  const [path, query] = hash.replace(/^#\/?/, '').split('?');
+  const params = new URLSearchParams(query);
+  if (path === 'graph' || path === 'policies' || params.has('finding')) return 'graph';
+  if (path === 'timings') return 'table';
+  if (params.get('tab') === 'statistics') return 'table';
+  if (params.get('tab') === 'graph') return 'graph';
+  return saved === 'table' ? 'table' : 'graph';
 }

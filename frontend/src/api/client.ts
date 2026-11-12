@@ -1,10 +1,48 @@
 import { filterTraces, traceRequest } from '../lib.js';
 import type { ApplyResult, AuditResult, Capabilities, ChangePlan, Client, ConfigSnapshot, Connection, Environment, JournalEntry, LabFault, LabRun, ListPayload, ManagedService, ManualChangeIntent, RunComparison, Stand, TraceDetail, TraceRef } from './types.js';
 import { demoAudit, demoCapabilities, demoDetail, demoJournal, demoPlan, demoTraces } from './fixtures.js';
-import type { BudgetFinding } from './types.js';
+import { successWindowsMinutes } from './types.js';
+import type { BudgetFinding, SuccessRates } from './types.js';
 
 export class ApiError extends Error {
   constructor(message: string, public status = 0, public code = 'unknown') { super(message); this.name = 'ApiError'; }
+}
+
+export function isUncertainResponse(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 0 || error.status >= 500
+    || (error.status >= 200 && error.status < 300 && error.code === 'invalid_json'));
+}
+
+export async function createOrRecoverStand(
+  client: Client, source?: TraceRef, onProgress?: (stand: Stand) => void,
+): Promise<Stand> {
+  const signal = AbortSignal.timeout(22_000);
+  let current: Stand | null = null;
+  try {
+    current = await (source ? client.createStandFromTrace(source, signal)
+      : client.createStand('checkout', signal));
+  } catch (error) {
+    if (!(error instanceof ApiError) || (error.status !== 0 && error.code !== 'stand_already_active'
+        && error.code !== 'stand_exists' && error.code !== 'invalid_json')) throw error;
+  }
+
+  while (!signal.aborted) {
+    if (current) {
+      const matches = source ? current.source && sameTraceRef(current.source, source)
+        : current.scenario_id === 'checkout' && !current.source;
+      if (!matches) throw new Error('Активен другой стенд. Откройте лабораторию, чтобы посмотреть его состояние.');
+      onProgress?.(current);
+      if (current.status === 'ready') return current;
+      if (current.status !== 'building') throw new Error(`Стенд в состоянии «${current.status}». Проверьте его в лаборатории.`);
+    }
+    try {
+      await pause(signal, 350);
+      current = await client.getActiveStand(signal);
+    } catch (error) {
+      if (!isUncertainResponse(error) && !signal.aborted) throw error;
+    }
+  }
+  throw new Error('Не удалось подтвердить сборку за 22 секунды. Проверьте состояние стенда в лаборатории.');
 }
 
 type PendingAudit = { status: 'pending'; job_id: string };
@@ -48,9 +86,31 @@ function validStand(value: unknown): boolean { return value === null || (obj(val
 function validRun(value: unknown): boolean { return obj(value) && str(value.run_id) && str(value.stand_id) && ['running', 'completed', 'failed'].includes(String(value.status)) && (str(value.seed) || num(value.seed)) && count(value.scenario_revision) && count(value.fault_revision) && obj(value.config_revisions) && count(value.request_count) && count(value.concurrency) && count(value.completed_requests) && obj(value.trace_collection) && ['waiting', 'ready', 'partial'].includes(String(value.trace_collection.status)) && count(value.trace_collection.expected_count) && count(value.trace_collection.received_count) && str(value.started_at); }
 function validFinding(value: unknown): boolean { if (!obj(value) || !obj(value.edge) || !obj(value.evidence) || !obj(value.recommendation)) return false; const edge = value.edge, evidence = value.evidence, recommendation = value.recommendation; const validEvidence = str(evidence.source) && ((evidence.kind === 'retry_budget' && value.basis === 'config_aware' && count(evidence.attempts) && ['timeout_ns', 'backoff_total_ns', 'required_ns', 'budget_ns'].every(key => nanos(evidence[key])) && str(evidence.config_revision)) || (evidence.kind === 'policy_observation' && value.basis === 'config_aware') || (evidence.kind === 'trace_observation' && ['observed', 'inferred'].includes(String(value.basis)))); return ['finding_id', 'occurrence_id', 'recommendation_id', 'rule_id', 'rule_version', 'title', 'explanation'].every(key => str(value[key])) && ['high', 'medium', 'low'].includes(String(value.severity)) && ['high', 'medium', 'low'].includes(String(value.confidence)) && ['config_aware', 'observed', 'inferred'].includes(String(value.basis)) && ['caller', 'callee', 'operation'].every(key => str(edge[key])) && count(value.affected_count) && count(value.denominator_count) && Array.isArray(value.exemplars) && value.exemplars.every(isTraceRef) && validEvidence && str(recommendation.text) && str(recommendation.why) && strings(recommendation.risks) && changes(recommendation.changes); }
 
+function validSuccessRates(value: unknown): boolean {
+  if (!obj(value)) return false;
+  return successWindowsMinutes.every(minutes => {
+    const rate = value[String(minutes)];
+    return rate === null || (num(rate) && rate >= 0 && rate <= 1);
+  });
+}
+
+function demoSuccessRates(): SuccessRates {
+  const now = BigInt(Date.now()) * 1_000_000n;
+  return Object.fromEntries(successWindowsMinutes.map(minutes => {
+    const cutoff = now - BigInt(minutes) * 60_000_000_000n;
+    const known = demoTraces.filter(trace => {
+      const start = BigInt(trace.start_ns);
+      return start > 0n && start >= cutoff && start <= now && trace.outcome !== 'unknown';
+    });
+    return [minutes, known.length ? known.filter(trace => trace.outcome === 'ok').length / known.length : null];
+  })) as SuccessRates;
+}
+
 export function validatePayload(kind: 'list' | 'trace' | 'audit' | 'capabilities' | 'journal' | 'journal-entry' | 'plan' | 'environments' | 'services' | 'config' | 'operation' | 'stand' | 'run' | 'runs' | 'comparison', value: unknown): void {
   let valid = false;
-  if (kind === 'list') valid = obj(value) && Array.isArray(value.items) && value.items.every(validSummary) && count(value.total) && (value.methods === undefined || strings(value.methods));
+  if (kind === 'list') valid = obj(value) && Array.isArray(value.items) && value.items.every(validSummary)
+    && count(value.total) && (value.methods === undefined || strings(value.methods))
+    && (value.success_rates === undefined || validSuccessRates(value.success_rates));
   if (kind === 'trace') valid = obj(value) && obj(value.summary) && validSummary(value.summary) && isTraceRef(value.trace_ref) && sameTraceRef(value.summary.trace_ref as TraceRef, value.trace_ref) && (value.finding_occurrence_ids === undefined || strings(value.finding_occurrence_ids)) && (value.compactable_client_spans === undefined || (obj(value.compactable_client_spans) && Object.entries(value.compactable_client_spans).every(([client, server]) => /^[a-f0-9]{16}$/.test(client) && str(server) && /^[a-f0-9]{16}$/.test(server)))) && strings(value.quality_issues) && Array.isArray(value.spans) && value.spans.every(span => obj(span) && str(span.span_id) && /^[a-f0-9]{16}$/.test(span.span_id) && (span.parent_span_id === null || str(span.parent_span_id)) && str(span.service) && str(span.name) && (span.kind === undefined || ['server', 'client', 'internal'].includes(String(span.kind))) && nanos(span.duration_ns) && nanos(span.start_offset_ns) && outcome(span.outcome) && http(span.http_status) && (span.error_type === null || str(span.error_type)) && (span.target === undefined || str(span.target)));
   if (kind === 'audit') valid = obj(value) && str(value.result_id) && str(value.generated_at) && Array.isArray(value.rule_evaluations) && value.rule_evaluations.every(rule => obj(rule) && str(rule.rule_id) && ['evaluated', 'not_implemented', 'insufficient_data', 'not_applicable'].includes(String(rule.status)) && count(rule.eligible_count)) && Array.isArray(value.findings) && value.findings.every(validFinding);
   if (kind === 'capabilities') valid = obj(value) && str(value.mode) && str(value.api_version) && str(value.source_name) && ['receiving', 'idle', 'unknown'].includes(String(value.source_state)) && typeof value.apply_enabled === 'boolean' && obj(value.limits) && count(value.limits.max_trace_spans);
@@ -83,8 +143,7 @@ function selectSpanFields(detail: TraceDetail, includeKind: boolean): TraceDetai
 export function createClient(connection: Connection, fetcher: typeof fetch = fetch): Client {
   const base = normalizeBaseUrl(connection.baseUrl), environmentId = connection.environmentId || 'shop';
   const scoped = (path: string, params: Record<string, string> = {}, environment = environmentId) => `${path}?${new URLSearchParams({ environment_id: environment, ...params })}`;
-  async function request<T>(path: string, kind: Parameters<typeof validatePayload>[0], signal?: AbortSignal, body?: unknown, method = 'GET'): Promise<T> {
-    const timeoutSeconds = 5;
+  async function request<T>(path: string, kind: Parameters<typeof validatePayload>[0], signal?: AbortSignal, body?: unknown, method = 'GET', timeoutSeconds = 5): Promise<T> {
     const timeout = AbortSignal.timeout(timeoutSeconds * 1000);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     const timeoutError = () => new ApiError(`Сервер не ответил за ${timeoutSeconds} секунд. Попробуйте ещё раз.`, 0, 'timeout');
@@ -123,13 +182,15 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     listTraces: (signal, query = {}) => request<ListPayload>(scoped('/api/v1/traces', {
       limit: String(query.limit ?? 100), offset: String(query.offset ?? 0),
       ...(query.includeFindings === false ? { include_findings: 'false' } : {}),
+      ...(query.includeSuccessRates ? { include_success_rates: 'true' } : {}),
       ...(query.sort ? { sort: query.sort } : {}), ...(query.query ? { query: query.query } : {}),
       ...(query.service ? { service: query.service } : {}), ...(query.status ? { status: query.status } : {}),
       ...(query.method ? { method: query.method } : {}),
       ...(query.span_id !== undefined ? { span_id: query.span_id } : {}),
       ...(query.start_from_ns !== undefined ? { start_from_ns: query.start_from_ns } : {}),
       ...(query.start_to_ns !== undefined ? { start_to_ns: query.start_to_ns } : {}),
-    }), 'list', signal),
+    }), 'list', signal, undefined, 'GET',
+    query.includeFindings === false && query.includeSuccessRates ? 10 : 5),
     async getTrace(ref, signal, options) {
       const id = typeof ref === 'string' ? ref : ref.trace_id;
       const environment = typeof ref === 'string' ? environmentId : ref.environment_id;
@@ -183,6 +244,7 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     const outcomes = { ok: 0, error: 0, unknown: 0 };
     for (const trace of filtered) outcomes[trace.outcome]++;
     return { items: filtered.slice(offset, offset + (query.limit ?? 100)), total: filtered.length,
-      services: [...new Set(demoTraces.map(trace => trace.service))], methods, outcomes };
+      services: [...new Set(demoTraces.map(trace => trace.service))], methods, outcomes,
+      ...(query.includeSuccessRates ? { success_rates: demoSuccessRates() } : {}) };
   }, getTrace: async (id, signal, options) => { await pause(signal); const detail = demoDetail(typeof id === 'string' ? id : id.trace_id); if (typeof id !== 'string' && !sameTraceRef(id, detail.trace_ref)) throw new ApiError('Эта ревизия трейса не найдена.', 404, 'trace_ref_not_found'); return selectSpanFields(detail, options?.includeSpanKind !== false); }, getAudit: async signal => { await pause(signal); return demoAudit; }, getCapabilities: async signal => { await pause(signal); return demoCapabilities; }, getJournal: async signal => { await pause(signal); return demoJournal; }, getJournalEntry: unsupported('История операций'), getJournalEntryForEnvironment: unsupported('История операций'), createPlan: async (finding: BudgetFinding, signal?: AbortSignal) => { await pause(signal); return demoPlan(finding); }, listEnvironments: unsupported('Список окружений'), listServices: unsupported('Список сервисов'), getConfig: unsupported('Конфигурация сервиса'), createManualPlan: unsupported('Ручное изменение'), applyPlan: unsupported('Применение плана'), getActiveStand: unsupported('Лаборатория'), createStand: unsupported('Лаборатория'), createStandFromTrace: unsupported('Лаборатория'), stopStand: unsupported('Лаборатория'), setFault: unsupported('Лаборатория'), clearFault: unsupported('Лаборатория'), startRun: unsupported('Лаборатория'), getRun: unsupported('Лаборатория'), listRuns: unsupported('Лаборатория'), compareRuns: unsupported('Сравнение прогонов') };
 }

@@ -1,56 +1,106 @@
+import { downloadJson } from '../analysis';
+import { usePersistentState } from '../state';
 import { HttpMethod, HttpOperation } from './HttpText';
 import { Select } from './Select';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangePlan, Client, ConfigSnapshot, RouteWork } from '../api/types';
 import { demoServiceCapabilities } from '../api/fixtures';
 import { Badge, Button, Field, LoadingState, Message } from './ui';
 import { PlanDialog } from './PlanDialog';
 
-export function ServiceConfig({ client, service, environmentId, demo = false, disabled = false, maxAttempts = 3, onSave = () => undefined, onChanged }: { client: Client; service: string; environmentId: string; demo?: boolean; disabled?: boolean; maxAttempts?: number; onSave?: (value: number) => void; onChanged?: () => void }) {
-  const [draft, setDraft] = useState(String(maxAttempts));
+type CallValues = { timeout: string; attempts: string; backoff: string; retry: string };
+type Draft = { revision: string; call?: CallValues; work?: RouteWork };
+export function ServiceConfig({ client, service, environmentId, demo = false, disabled = false, maxAttempts = 3, onSave = () => undefined, onChanged, initialCall }: { initialCall?: { callee:string; operation:string }; client: Client; service: string; environmentId: string; demo?: boolean; disabled?: boolean; maxAttempts?: number; onSave?: (value: number) => void; onChanged?: () => void }) {
+  const context = `config:${environmentId}:${service}`;
+  const [demoDraft, setDemoDraft] = usePersistentState(`${context}:demo`, String(maxAttempts));
   const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null);
   const [loading, setLoading] = useState(!demo);
   const [error, setError] = useState('');
-  const [plan, setPlan] = useState<ChangePlan | null>(null);
+  const [plan, setPlan] = useState<{value: ChangePlan; target: string} | null>(null);
   const [reload, setReload] = useState(0);
-  const [callDrafts, setCallDrafts] = useState<Record<string, { timeout: string; attempts: string; backoff: string; retry: string }>>({});
-  const [routeDrafts, setRouteDrafts] = useState<Record<string, RouteWork>>({});
+  const [selected, setSelected] = usePersistentState(`${context}:selected`, '');
+  const [drafts, setDrafts] = usePersistentState<Record<string,Draft>>(`${context}:drafts`, {});
+  const [budgets, setBudgets] = usePersistentState<Record<string,string>>(`${context}:budgets`, {});
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
   useEffect(() => {
     if (demo) return;
     const controller = new AbortController();
     setLoading(true); setError('');
     client.getConfig(service, environmentId, controller.signal).then(config => {
-      if (controller.signal.aborted) return;
-      setSnapshot(config);
-      setCallDrafts(Object.fromEntries(config.calls.map(call => [call.call_ref, { timeout: String(call.timeout_ms), attempts: String(call.max_attempts), backoff: String(call.backoff_ms), retry: call.retry_on.join(', ') }])));
-      setRouteDrafts(Object.fromEntries(config.routes.map(route => [route.route, route.work])));
-    }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Не удалось прочитать конфиг.'); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      if (!controller.signal.aborted) setSnapshot(config);
+    }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Не удалось прочитать настройки.'); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [client, demo, service, environmentId, reload]);
-  const capabilities = demo ? demoServiceCapabilities[service] : undefined;
-  if (demo) {
-    if (!capabilities) return <p className="muted">Сведения о доступе к конфигу отсутствуют.</p>;
-    if (!capabilities.read_config) return <p className="muted">Конфиг недоступен в демонстрационном наборе.</p>;
-    return <form className="service-config" onSubmit={event => { event.preventDefault(); const value = Number(draft); if (Number.isInteger(value) && value >= 1 && value <= 10) onSave(value); }}><Badge tone="warning">Локальная демонстрация</Badge><p>Вызов payment, <HttpOperation operation="POST /charge"/></p><Field label="Максимум попыток"><input type="number" required min="1" max="10" step="1" value={draft} onChange={event => setDraft(event.target.value)}/></Field><Button type="submit" disabled={Number(draft) === maxAttempts}>Сохранить в примере</Button></form>;
+  useEffect(()=>{if(!initialCall||!snapshot)return;const match=snapshot.calls.find(c=>c.target.service_id===initialCall.callee&&`${c.target.method} ${c.target.route}`===initialCall.operation);if(match)setSelected(`call:${match.call_ref}`);},[initialCall?.callee,initialCall?.operation,snapshot]);
+  const key = selected || (snapshot?.calls[0] ? `call:${snapshot.calls[0].call_ref}` : snapshot?.routes[0] ? `route:${snapshot.routes[0].route}` : '');
+  const call = snapshot?.calls.find(c=>`call:${c.call_ref}`===key);
+  const route = snapshot?.routes.find(r=>`route:${r.route}`===key);
+  const draft = drafts[key];
+  const values = draft?.call ?? (call ? {timeout:String(call.timeout_ms),attempts:String(call.max_attempts),backoff:String(call.backoff_ms),retry:call.retry_on.join(', ')} : undefined);
+  const work = draft?.work ?? route?.work;
+  const conflict = !!draft && draft.revision !== snapshot?.revision;
+  const updateCall = (field:keyof CallValues,value:string) => { if(snapshot&&values)setDrafts(old=>({...old,[key]:{revision:old[key]?.revision ?? snapshot.revision,call:{...values,[field]:value}}})); };
+  const updateWork = (value:RouteWork) => { if(snapshot)setDrafts(old=>({...old,[key]:{revision:old[key]?.revision ?? snapshot.revision,work:value}})); };
+  const removeDraft = (target:string) => setDrafts(old=>{const next={...old};delete next[target];return next;});
+  const changes: Record<string,string|number|string[]|RouteWork> = {};
+  if(call && values) {
+    if(Number(values.timeout)!==call.timeout_ms) changes.per_attempt_timeout_ns=String(Math.round(Number(values.timeout)*1e6));
+    if(Number(values.attempts)!==call.max_attempts) changes.max_attempts=Number(values.attempts);
+    if(Number(values.backoff)!==call.backoff_ms) changes.backoff_ms=Number(values.backoff);
+    const retry=values.retry.split(',').map(v=>v.trim()).filter(Boolean);
+    if(JSON.stringify(retry)!==JSON.stringify(call.retry_on)) changes.retry_on=retry;
   }
-  async function buildCallPlan(callRef: string) {
-    if (!snapshot) return;
-    const call = snapshot.calls.find(item => item.call_ref === callRef), values = callDrafts[callRef];
-    if (!call || !values) return;
-    const set: Record<string, string | number | string[]> = {};
-    if (Number(values.timeout) !== call.timeout_ms) set.per_attempt_timeout_ns = String(Math.round(Number(values.timeout) * 1e6));
-    if (Number(values.attempts) !== call.max_attempts) set.max_attempts = Number(values.attempts);
-    if (Number(values.backoff) !== call.backoff_ms) set.backoff_ms = Number(values.backoff);
-    const retry = values.retry.split(',').map(value => value.trim()).filter(Boolean);
-    if (JSON.stringify(retry) !== JSON.stringify(call.retry_on)) set.retry_on = retry;
-    if (!Object.keys(set).length) return;
-    try { setPlan(await client.createManualPlan({ environment_id: environmentId, service_id: service, expected_config_revision: snapshot.revision, call_ref: callRef, set })); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось построить план.'); }
+  if(route && work && JSON.stringify(work)!==JSON.stringify(route.work))changes.work=work;
+  const changed=Object.keys(changes).length>0;
+  async function prepare() {
+    if(!snapshot || !changed || conflict || inFlight.current)return;
+    inFlight.current=true;setPending(true);setError('');
+    try {
+      const value=await client.createManualPlan({environment_id:environmentId,service_id:service,expected_config_revision:draft?.revision ?? snapshot.revision,...(call?{call_ref:call.call_ref}:{route:route!.route}),set:changes});
+      setPlan({value,target:key});
+    } catch(cause){setError(cause instanceof Error?cause.message:'Не удалось подготовить план.');}
+    finally{inFlight.current=false;setPending(false);}
   }
-  async function buildRoutePlan(route: string) {
-    if (!snapshot) return;
-    const current = snapshot.routes.find(item => item.route === route), work = routeDrafts[route];
-    if (!current || !work || JSON.stringify(current.work) === JSON.stringify(work)) return;
-    try { setPlan(await client.createManualPlan({ environment_id: environmentId, service_id: service, expected_config_revision: snapshot.revision, route, set: { work } })); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось построить план.'); }
+  if(demo){
+    const capabilities=demoServiceCapabilities[service];
+    if(!capabilities?.read_config)return <p className="muted">Настройки недоступны в демонстрационном наборе.</p>;
+    return <form className="service-config" onSubmit={e=>{e.preventDefault();onSave(Number(demoDraft));}}><Badge tone="warning">Локальная демонстрация</Badge><Field label="Исходящий вызов"><Select value="payment" onChange={()=>undefined}><option value="payment">POST payment/charge</option></Select></Field><Field label="Всего попыток, включая первую"><input type="number" required min="1" max="10" value={demoDraft} onChange={e=>setDemoDraft(e.target.value)}/></Field><Button type="submit" disabled={Number(demoDraft)===maxAttempts}>Сохранить в примере</Button></form>;
   }
-  return <div className="service-config"><h3>Конфигурация сервиса</h3>{loading ? <LoadingState>Читаем действующую конфигурацию…</LoadingState> : error ? <Message tone="danger">{error}</Message> : !snapshot ? <p className="muted">Конфигурация недоступна.</p> : <><p className="muted">Ревизия {snapshot.revision}. Новые значения действуют для новых входящих запросов.</p>{snapshot.calls.map(call => { const values = callDrafts[call.call_ref]; const writable = call.write_fields.length > 0; return <form key={call.call_ref} onSubmit={event => { event.preventDefault(); void buildCallPlan(call.call_ref); }}><h4>{call.target.service_id} · <HttpMethod method={call.target.method}/> {call.target.route}</h4><Field label="Таймаут попытки, мс"><input type="number" min="1" value={values?.timeout ?? ''} disabled={disabled || !call.write_fields.includes('timeout_ms')} onChange={event => setCallDrafts(old => ({ ...old, [call.call_ref]: { ...old[call.call_ref], timeout: event.target.value } }))}/></Field><Field label="Максимум попыток"><input type="number" min="1" max="10" value={values?.attempts ?? ''} disabled={disabled || !call.write_fields.includes('max_attempts')} onChange={event => setCallDrafts(old => ({ ...old, [call.call_ref]: { ...old[call.call_ref], attempts: event.target.value } }))}/></Field><Field label="Пауза, мс"><input type="number" min="0" value={values?.backoff ?? ''} disabled={disabled || !call.write_fields.includes('backoff_ms')} onChange={event => setCallDrafts(old => ({ ...old, [call.call_ref]: { ...old[call.call_ref], backoff: event.target.value } }))}/></Field><Field label="Повторять при"><input value={values?.retry ?? ''} disabled={disabled || !call.write_fields.includes('retry_on')} onChange={event => setCallDrafts(old => ({ ...old, [call.call_ref]: { ...old[call.call_ref], retry: event.target.value } }))}/></Field>{writable && <Button type="submit" disabled={disabled}>Построить план</Button>}</form>; })}{snapshot.routes.map(route => { const work = routeDrafts[route.route]; return <form key={route.route} onSubmit={event => { event.preventDefault(); void buildRoutePlan(route.route); }}><h4>Входящий <HttpOperation operation={route.route}/></h4><Field label="Распределение"><Select value={work?.kind ?? 'fixed'} disabled={disabled || !route.write_fields.includes('work')} onChange={value => setRouteDrafts(old => ({ ...old, [route.route]: value === 'fixed' ? { kind: 'fixed', delay_ms: 1 } : { kind: 'lognormal', p50_ms: 1, p99_ms: 2 } }))}><option value="fixed">Фиксированное</option><option value="lognormal">Логнормальное</option></Select></Field>{work?.kind === 'fixed' ? <Field label="Собственная задержка, мс"><input type="number" min="0" value={work.delay_ms} disabled={disabled || !route.write_fields.includes('work')} onChange={event => setRouteDrafts(old => ({ ...old, [route.route]: { kind: 'fixed', delay_ms: Number(event.target.value) } }))}/></Field> : <><Field label="p50, мс"><input type="number" min="1" value={work?.p50_ms ?? ''} disabled={disabled || !route.write_fields.includes('work')} onChange={event => setRouteDrafts(old => ({ ...old, [route.route]: { kind: 'lognormal', p50_ms: Number(event.target.value), p99_ms: (old[route.route] as Extract<RouteWork, { kind: 'lognormal' }>).p99_ms } }))}/></Field><Field label="p99, мс"><input type="number" min="1" value={work?.p99_ms ?? ''} disabled={disabled || !route.write_fields.includes('work')} onChange={event => setRouteDrafts(old => ({ ...old, [route.route]: { kind: 'lognormal', p50_ms: (old[route.route] as Extract<RouteWork, { kind: 'lognormal' }>).p50_ms, p99_ms: Number(event.target.value) } }))}/></Field></>}{route.write_fields.includes('work') && <Button type="submit" disabled={disabled}>Построить план</Button>}</form>; })}</>}{plan && <PlanDialog key={plan.plan_id} client={client} plan={plan} canApply={plan.apply_enabled} onClose={() => setPlan(null)} onApplied={() => { setPlan(null); setSnapshot(null); setReload(value => value + 1); onChanged?.(); }} />}</div>;
+  return <div className="service-config">
+    <h3>Настройки вызовов</h3>
+    {error&&<Message tone="danger" action={<Button onClick={()=>setReload(v=>v+1)}>Обновить настройки</Button>}>{error}</Message>}
+    {loading?<LoadingState>Читаем настройки…</LoadingState>:!snapshot?<p>Настройки недоступны.</p>:<>
+      <p className="muted">Версия конфигурации {snapshot.revision}. Изменения действуют для новых запросов.</p>
+      {!snapshot.calls.length&&!snapshot.routes.length?<Message>У сервиса нет доступных настроек эндпоинтов.</Message>:<Field label="Тип настройки и эндпоинт"><Select aria-label="Тип настройки и эндпоинт" value={key} onChange={setSelected}>
+        {snapshot.calls.map(c=><option key={`call:${c.call_ref}`} value={`call:${c.call_ref}`}>{`Исходящий вызов · ${c.target.method} ${c.target.service_id}${c.target.route}`}</option>)}
+        {snapshot.routes.map(r=><option key={`route:${r.route}`} value={`route:${r.route}`}>{`Входящий эндпоинт · ${r.route}`}</option>)}
+      </Select></Field>}
+      {selected&&!call&&!route&&<Message>Выбранный эндпоинт больше недоступен. Выберите другой.</Message>}
+      {draft&&<Badge tone="warning">Есть несохранённые изменения</Badge>}
+      {conflict&&<Message tone="warning">Конфигурация на сервере изменилась. Черновик сохранён. Сверьте новые значения перед подготовкой плана.</Message>}
+      {(call||route)&&<form onSubmit={e=>{e.preventDefault();void prepare();}}>
+        {call&&values&&<>
+          <p className="muted">Настройки исходящего вызова хранятся в сервисе {service}.</p>
+          <h4><HttpMethod method={call.target.method}/> {call.target.service_id}{call.target.route}</h4>
+          <Field label="Таймаут попытки, мс"><input required type="number" min="1" value={values.timeout} disabled={disabled||!call.write_fields.includes('timeout_ms')} onChange={e=>updateCall('timeout',e.target.value)}/></Field>
+          <Field label="Всего попыток, включая первую"><input required type="number" min="1" max="10" value={values.attempts} disabled={disabled||!call.write_fields.includes('max_attempts')} onChange={e=>updateCall('attempts',e.target.value)}/></Field>
+          <Field label="Пауза между попытками, мс"><input required type="number" min="0" value={values.backoff} disabled={disabled||!call.write_fields.includes('backoff_ms')} onChange={e=>updateCall('backoff',e.target.value)}/></Field>
+          <Field label="Условия повтора (через запятую)"><input value={values.retry} disabled={disabled||!call.write_fields.includes('retry_on')} onChange={e=>updateCall('retry',e.target.value)}/></Field>
+          <details><summary>Расчёт времени попыток</summary><p>При фиксированной паузе: таймаут × число попыток + пауза × (число попыток − 1).</p><p>Расчётное время: {Number(values.timeout)>0&&Number(values.attempts)>0&&Number(values.backoff)>=0?(Number(values.timeout)*Number(values.attempts)+Number(values.backoff)*(Number(values.attempts)-1)).toLocaleString('ru-RU')+' мс':'укажите корректные значения'}.</p><Field label="Доступное время ожидания, мс (для проверки)"><input type="number" min="1" value={budgets[key] ?? ''} placeholder="Укажите, если известно" onChange={e=>setBudgets(old=>({...old,[key]:e.target.value}))}/></Field>{Number(budgets[key])>0&&<p>Запас времени: {(Number(budgets[key])-(Number(values.timeout)*Number(values.attempts)+Number(values.backoff)*(Number(values.attempts)-1))).toLocaleString('ru-RU')} мс. Отрицательное значение означает превышение доступного времени.</p>}<Button type="button" onClick={()=>downloadJson('zerotrace-call-draft.json',{kind:'configuration-preview',environment_id:environmentId,service,call_ref:call.call_ref,expected_revision:draft?.revision??snapshot.revision,values,available_time_ms:budgets[key]||null,applied:false})}>Скачать черновик</Button><p className="muted">Это верхняя оценка для фиксированных пауз. Она не гарантирует успешный ответ и не определяет время ожидания вызывающего сервиса.</p></details>
+        </>}
+        {route&&work&&<>
+          <h4>Входящий эндпоинт: <HttpOperation operation={route.route}/></h4>
+          <Field label="Время обработки запроса"><Select value={work.kind} disabled={disabled||!route.write_fields.includes('work')} onChange={v=>updateWork(v==='fixed'?{kind:'fixed',delay_ms:1}:{kind:'lognormal',p50_ms:1,p99_ms:2})}><option value="fixed">Постоянное</option><option value="lognormal">Меняется от запроса к запросу</option></Select></Field>
+          {work.kind==='fixed'?<Field label="Время обработки, мс"><input required type="number" min="0" value={work.delay_ms} disabled={disabled||!route.write_fields.includes('work')} onChange={e=>updateWork({...work,delay_ms:Number(e.target.value)})}/></Field>:<>
+            <Field label="Медиана, мс"><input required type="number" min="1" value={work.p50_ms} disabled={disabled||!route.write_fields.includes('work')} onChange={e=>updateWork({...work,p50_ms:Number(e.target.value)})}/></Field>
+            <Field label="99-й перцентиль, мс"><input required type="number" min={work.p50_ms} value={work.p99_ms} disabled={disabled||!route.write_fields.includes('work')} onChange={e=>updateWork({...work,p99_ms:Number(e.target.value)})}/></Field><p className="muted">99% запросов обрабатываются за время 99-го перцентиля или быстрее. Используется логнормальное распределение.</p>
+          </>}
+        </>}
+        <Button type="submit" disabled={disabled||pending||conflict||!changed}>{pending?'Готовим план…':'Подготовить план'}</Button>
+      </form>}
+      {draft&&<><Button onClick={()=>removeDraft(key)}>Сбросить черновик выбранного эндпоинта</Button>{conflict&&<><details><summary>Текущие значения на сервере</summary><pre>{JSON.stringify(call?{таймаут_мс:call.timeout_ms,попытки:call.max_attempts,пауза_мс:call.backoff_ms,условия_повтора:call.retry_on}:route?.work,null,2)}</pre></details><Button onClick={()=>setDrafts(old=>({...old,[key]:{...old[key],revision:snapshot.revision}}))}>Значения проверены — использовать текущую версию</Button></>}</>}
+    </>}
+    {plan&&<PlanDialog key={plan.value.plan_id} client={client} plan={plan.value} canApply={plan.value.apply_enabled} onClose={()=>setPlan(null)} onApplied={entry=>{if(entry?.status==='applied'||entry?.status==='no_op'){removeDraft(plan.target);setPlan(null);setReload(v=>v+1);onChanged?.();}}}/>}
+  </div>;
 }

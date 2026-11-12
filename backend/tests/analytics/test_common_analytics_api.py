@@ -89,6 +89,62 @@ def test_trace_sample_can_skip_audit_and_config_reads(app, monkeypatch):
     assert "finding_occurrence_ids" not in detail
 
 
+def test_telemetry_list_builds_graphs_only_for_the_page(app, monkeypatch):
+    ok, = ingest(app, "1" * 32, method=b"PROPFIND")
+    error, = ingest(app, "2" * 32)
+    store = app.extensions["telemetry"]
+    for ref, status in ((ok, 200), (error, 503)):
+        meta = store.resolve_trace("shop", ref["trace_id"])
+        source = store.get_spans(meta.trace_ref)[0]
+        # The earlier root owns the method and outcome. An even earlier span
+        # from another clock must not set the trace's start.
+        root = replace(source, span_id="e" * 16, parent_span_id=None, kind="server",
+                       start_ns=1_000, end_ns=1_010, duration_ns=10,
+                       otel_status="unset", http_status=status)
+        child = replace(root, span_id="f" * 16, parent_span_id=root.span_id,
+                        start_ns=1, end_ns=11, clock_domain="other")
+        store.ingest(NormalizedBatch([root, child]), SourceBinding("src", "p:shop", "shop"), 2000)
+
+    monkeypatch.setattr("app.data_api.handlers.time_ns", lambda: 2_000)
+    original = store.get_spans
+    reads = []
+
+    def get_spans(ref):
+        reads.append(ref.trace_id)
+        return original(ref)
+
+    monkeypatch.setattr(store, "get_spans", get_spans)
+    client = app.test_client()
+    query = ("?include_findings=false&include_success_rates=true&sort=slow&limit=1"
+             "&method=PROPFIND&start_from_ns=1000&start_to_ns=1001")
+    page = payload(client.get("/api/v1/traces" + query))
+    assert page["total"] == 1 and page["methods"] == ["GET", "PROPFIND"]
+    assert page["outcomes"] == {"ok": 1, "error": 0, "unknown": 0}
+    assert page["success_rates"] == dict.fromkeys(("5", "30", "60", "180"), 0.5)
+    assert reads == [ok["trace_id"]]
+    detail = payload(client.get("/api/v1/traces/" + ok["trace_id"] + "?include_findings=false"))
+    assert page["items"] == [detail["summary"]]
+
+    scan = store.trace_list_spans
+    scans = []
+
+    def trace_list_spans(environment_id, metas):
+        scans.append([meta.trace_ref.trace_id for meta in metas])
+        return scan(environment_id, metas)
+
+    monkeypatch.setattr(store, "trace_list_spans", trace_list_spans)
+    assert payload(client.get("/api/v1/traces" + query)) == page
+    assert scans == []
+    meta = store.resolve_trace("shop", error["trace_id"])
+    new_root = replace(original(meta.trace_ref)[0], span_id="d" * 16, parent_span_id=None,
+                       start_ns=500, end_ns=510, http_status=200)
+    store.ingest(NormalizedBatch([new_root]), SourceBinding("src", "p:shop", "shop"), 3000)
+    updated = payload(client.get("/api/v1/traces" + query))
+    assert updated["success_rates"] == dict.fromkeys(("5", "30", "60", "180"), 1)
+    assert updated["items"] == page["items"]
+    assert scans == [[error["trace_id"]]]
+
+
 def test_trace_card_can_omit_span_kind_without_changing_analytics_payload(app):
     ref, = ingest(app, "1" * 32)
     client = app.test_client()

@@ -8,7 +8,7 @@ from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from contracts import NormalizedSpan, QualityIssue, SourceBinding, TraceRef
 from contracts.p2 import AssemblyState
@@ -98,6 +98,20 @@ class TraceMeta:
     assembly_state: AssemblyState
     span_count: int
     forced_reason: str | None = None
+
+
+class TraceListSpan(NamedTuple):
+    span_id: str
+    start_ns: int
+    end_ns: str
+    clock_domain: str | None
+    is_root: bool
+    service: str
+    operation: str
+    kind: str
+    otel_status: str
+    http_status: int | None
+    operation_observed: bool | None
 
 
 @dataclass(frozen=True)
@@ -567,7 +581,7 @@ class SpanStore:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT project_id, trace_id, generation, revision, first_received_at_ns, "
-                "last_received_at_ns, assembly_state, "
+                "last_received_at_ns, assembly_state, forced_reason, "
                 "(SELECT COUNT(*) FROM spans s WHERE s.project_id = t.project_id "
                 "AND s.trace_id = t.trace_id AND s.generation = t.generation) "
                 "FROM traces t WHERE environment_id = ? "
@@ -583,6 +597,7 @@ class SpanStore:
             first_received,
             last_received,
             state,
+            reason,
             span_count,
         ) in rows:
             metas.append(
@@ -598,9 +613,61 @@ class SpanStore:
                     last_received_at_ns=int(last_received),
                     assembly_state=str(state),  # type: ignore[arg-type]
                     span_count=int(span_count),
+                    forced_reason=reason,
                 )
             )
         return metas
+
+    def trace_list_spans(
+        self, environment_id: str, metas: list[TraceMeta],
+    ) -> Iterator[tuple[TraceRef, list[TraceListSpan]]]:
+        """Read list fields for the requested current revisions in the pinned snapshot."""
+        keys = json.dumps([
+            (meta.project_id, meta.trace_ref.trace_id, meta.trace_ref.generation,
+             meta.trace_ref.revision)
+            for meta in metas
+        ])
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                SELECT json_group_array(json_array(
+                    json_extract(m.value, '$[1]'),
+                    json_extract(m.value, '$[2]'),
+                    json_extract(m.value, '$[3]'),
+                    json((
+                        SELECT json_group_array(json_array(
+                            s.span_id, s.start_ns,
+                            json_extract(s.payload, '$.end_ns'),
+                            json_extract(s.payload, '$.clock_domain'),
+                            json_extract(s.payload, '$.parent_span_id') IS NULL,
+                            json_extract(s.payload, '$.service'),
+                            json_extract(s.payload, '$.operation'),
+                            json_extract(s.payload, '$.kind'),
+                            json_extract(s.payload, '$.otel_status'),
+                            json_extract(s.payload, '$.http_status'),
+                            json_extract(s.payload, '$.field_coverage.operation')
+                        ))
+                        FROM spans s
+                        WHERE s.project_id = json_extract(m.value, '$[0]')
+                          AND s.trace_id = json_extract(m.value, '$[1]')
+                          AND s.generation = json_extract(m.value, '$[2]')
+                    ))
+                ))
+                FROM json_each(?) m GROUP BY m.key / 128
+                """,
+                (keys,),
+            )
+            try:
+                # Batch SQLite-to-Python transfers so an audit thread cannot
+                # contend with the list thread on every trace row.
+                for (batch,) in cursor:
+                    for trace_id, generation, revision, rows in json.loads(batch):
+                        if not rows:
+                            continue
+                        ref = TraceRef(environment_id, trace_id, generation, revision)
+                        yield ref, [TraceListSpan(*row) for row in rows]
+            finally:
+                cursor.close()
 
     def last_received_at_ns(self, environment_id: str) -> int:
         with self._lock:
@@ -711,7 +778,7 @@ class SpanStore:
                 )
         return self._row_to_sample(run_id, row)
 
-    def finalize_collection(self, run_id: str, now_ns: int) -> RunSample | None:
+    def finalize_collection(self, run_id: str, now_ns: int, *, force=False) -> RunSample | None:
         with self._lock:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
@@ -733,7 +800,7 @@ class SpanStore:
                 resolved_status: Literal["waiting", "ready", "partial"]
                 if received >= int(expected_count):
                     resolved_status = "ready"
-                elif now_ns >= int(deadline_at_ns):
+                elif force or now_ns >= int(deadline_at_ns):
                     resolved_status = "partial"
                 else:
                     resolved_status = "waiting"

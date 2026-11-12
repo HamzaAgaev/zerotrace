@@ -251,6 +251,8 @@ def validate_run_collections(*runs):
             raise AnalyticsError("invalid_run", "Unsupported run or collection status")
         if not isinstance(collection.get("trace_refs"), list):
             raise AnalyticsError("invalid_run_sample", "Expected a list of frozen trace references")
+    if any(not run["trace_collection"]["trace_refs"] for run in runs):
+        raise AnalyticsError("insufficient_traces", "Cannot compare an empty sample")
 
 
 def compare_runs(before, after, expected_change=None):

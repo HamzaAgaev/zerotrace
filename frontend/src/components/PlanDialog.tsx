@@ -1,13 +1,21 @@
-import { HttpTarget } from './HttpText';
+import { fieldLabel } from '../presentation';
+import { HttpOperation, HttpTarget } from './HttpText';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import type { ChangePlan, Client, Finding, JournalEntry } from '../api/types';
 import { RuleLabel } from './RuleLabel';
 import { Badge, Button, Message, TableScroll } from './ui';
 
-export function PlanDialog({ plan, finding, demo = false, canApply, client, onApplied, onStaleRecommendation, onClose }: {
+function targetParts(target: string) {
+  const index = target.indexOf(' / ');
+  if (index < 0) return { service: '', operation: target };
+  return { service: target.slice(0, index), operation: target.slice(index + 3) };
+}
+
+export function PlanDialog({ plan, finding, demo = false, canApply, client, onApplied, onStaleRecommendation, onClose, showRuleInfo = true }: {
   plan: ChangePlan;
   finding?: Finding;
+  showRuleInfo?: boolean;
   demo?: boolean;
   canApply: boolean;
   client: Client;
@@ -21,6 +29,14 @@ export function PlanDialog({ plan, finding, demo = false, canApply, client, onAp
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const { service, operation } = targetParts(plan.target);
+  const applyBlocked = demo
+    ? 'Демонстрационный план нельзя применить: изменения не отправляются на сервер.'
+    : !canApply
+      ? 'Применение недоступно: подключите сервер и выберите окружение sandbox.'
+      : !plan.apply_enabled
+        ? 'Сервер не разрешает применить этот план. Причина указана в предупреждениях.'
+        : '';
 
   useEffect(() => {
     const element = dialog.current;
@@ -87,25 +103,39 @@ export function PlanDialog({ plan, finding, demo = false, canApply, client, onAp
     <div className="dialog-content">
       <header>
         <div>
-          {finding && <div className="eyebrow"><RuleLabel id={finding.rule_id}/></div>}
+          {finding && <div className="eyebrow"><RuleLabel id={finding.rule_id} version={finding.rule_version} showInfo={showRuleInfo} /></div>}
           <h2 id={titleId}>План изменения настроек</h2>
         </div>
-        <Button variant="ghost" aria-label="Закрыть план" icon="close" onClick={close} disabled={busy}/>
+        <Button variant="ghost" aria-label="Закрыть план" icon="close" onClick={close} disabled={busy} />
       </header>
       <div className="dialog-body">
         {error && <Message tone="warning">{error}</Message>}
         <div className="plan-target">
-          <div><span>Цель</span><strong><HttpTarget target={plan.target}/></strong></div>
-          <Badge tone="accent">Ревизия {plan.expected_revision}</Badge>
+          <div><span>Сервис</span><strong>{service || 'Не указан'}</strong></div>
+          <div><span>Вызов</span><strong><HttpOperation operation={operation} /></strong></div>
+          <Badge tone="accent">Версия конфигурации {plan.expected_revision}</Badge>
         </div>
         <TableScroll className="plan-table">
           <table>
             <thead><tr><th scope="col">Параметр</th><th scope="col">Было</th><th scope="col">Станет</th></tr></thead>
-            <tbody>{plan.changes.map(change => <tr key={change.field}>
-              <td>{change.field}</td><td className="muted">{change.before}</td><td className="proposed-value">{change.after}</td>
+            <tbody>{plan.changes.map((change, index) => <tr key={`${change.field}-${index}`}>
+              <td>{fieldLabel(change.field)}</td>
+              <td className="muted">{change.before}</td>
+              <td className="proposed-value">{change.after}</td>
             </tr>)}</tbody>
           </table>
         </TableScroll>
+        <details className="plan-technical">
+          <summary>Технические подробности плана</summary>
+          <dl>
+            <div><dt>Цель</dt><dd><HttpTarget target={plan.target} /></dd></div>
+            <div><dt>Идентификатор плана</dt><dd className="mono">{plan.plan_id}</dd></div>
+            <div><dt>Хеш плана</dt><dd className="mono">{plan.plan_hash}</dd></div>
+            {finding && <div><dt>Идентификатор проблемы</dt><dd className="mono">{finding.occurrence_id}</dd></div>}
+            {plan.environment_id && <div><dt>Окружение</dt><dd className="mono">{plan.environment_id}</dd></div>}
+            <div><dt>План действует до</dt><dd>{new Date(plan.expires_at).toLocaleString('ru-RU')}</dd></div>
+          </dl>
+        </details>
         {finding && <div className="plan-rationale">
           <h3>Почему это предлагается</h3>
           <p>{finding.recommendation.why}</p>
@@ -117,10 +147,10 @@ export function PlanDialog({ plan, finding, demo = false, canApply, client, onAp
         {plan.warnings.map(warning => <p className="plan-warning" key={warning}>{warning}</p>)}
       </div>
       <footer>
-        <span>{demo ? 'Демонстрационный план' : canApply ? 'Результат будет доступен в журнале.' : 'Предпросмотр рекомендации'}</span>
+        <span>{applyBlocked || 'Применение изменит настройки на сервере. Результат будет доступен в журнале.'}</span>
         <div className="page-actions">
           <Button onClick={close} disabled={busy}>Закрыть</Button>
-          {canApply && <Button variant="primary" onClick={() => void apply()} disabled={busy || !plan.apply_enabled}>
+          {canApply && <Button variant="primary" onClick={() => void apply()} disabled={busy || !plan.apply_enabled} title={!plan.apply_enabled ? 'Сервер не разрешает применить этот план' : undefined}>
             {busy ? 'Применяем…' : 'Применить'}
           </Button>}
         </div>

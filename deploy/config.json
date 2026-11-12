@@ -102,13 +102,8 @@
       "service_id": "payment",
       "environment_id": "shop",
       "display_name": "payment",
-      "control_url": "http://payment:8080",
-      "write_fields": [
-        "timeout_ms",
-        "max_attempts",
-        "backoff_ms",
-        "retry_on"
-      ]
+      "control_url": null,
+      "write_fields": []
     },
     {
       "service_id": "fraud",

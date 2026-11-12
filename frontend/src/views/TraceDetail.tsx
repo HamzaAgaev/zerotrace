@@ -1,8 +1,10 @@
+import { CopyId } from '../components/CopyId';
+import { usePersistentState, usePersistentTab } from '../state';
 import { HttpMethod, HttpStatus, SpanOperation, httpCodeLabel } from '../components/HttpText';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AuditResult, Finding, TraceDetail as TraceDetailData } from '../api/types';
-import { MetricInfo, Metrics } from '../components/Metrics';
+import { Metrics } from '../components/Metrics';
 import { Tabs } from '../components/Tabs';
 import { Button, Icon, LoadingState, Message, Panel, PageHeader, RetryButton } from '../components/ui';
 import { WhatIf } from '../components/WhatIf';
@@ -18,33 +20,6 @@ export function BackToTraces() {
   </a>;
 }
 
-function CopyId({ label, value }: { label: 'Trace ID' | 'Span ID'; value: string }) {
-  const [copiedAt, setCopiedAt] = useState<number>();
-  const copied = copiedAt !== undefined;
-
-  useEffect(() => {
-    if (copiedAt === undefined) return;
-    const timer = window.setTimeout(() => setCopiedAt(undefined), 1600);
-    return () => window.clearTimeout(timer);
-  }, [copiedAt]);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedAt(Date.now());
-    } catch {
-      setCopiedAt(undefined);
-    }
-  }
-
-  return <span className="trace-copy-id">
-    <code className="mono">{value}</code>
-    <Button type="button" className="trace-copy-button" icon={copied ? 'check' : 'copy'}
-      aria-label={`Скопировать ${label}`} title={copied ? 'Скопировано' : `Скопировать ${label}`}
-      onClick={() => void copy()}/>
-    <span className="sr-only" role="status">{copied ? `${label} скопирован` : ''}</span>
-  </span>;
-}
 
 export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAudit, demo, onPlan, pending, onExport, onBuild }: {
   trace: TraceDetailData;
@@ -58,11 +33,13 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
   onExport: () => void;
   onBuild?: () => void;
 }) {
-  const [tab, setTab] = useState('timeline');
-  const [selected, setSelected] = useState<string>();
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [zoom, setZoom] = useState(1);
-  const [showAllSpans, setShowAllSpans] = useState(false);
+  const [tab, setTab] = usePersistentTab(`trace:${JSON.stringify(trace.trace_ref)}:tab`, 'timeline', ['timeline','audit','whatif']);
+  const [selected, setSelected] = usePersistentState<string | undefined>(`trace:${JSON.stringify(trace.trace_ref)}:span`, undefined);
+  const [collapsedIds, setCollapsedIds] = usePersistentState<string[]>(`trace:${JSON.stringify(trace.trace_ref)}:collapsed`, []);
+  const collapsed = new Set(collapsedIds);
+  const setCollapsed = (action: Set<string> | ((old: Set<string>) => Set<string>)) => setCollapsedIds(old => [...(typeof action === 'function' ? action(new Set(old)) : action)]);
+  const [zoom, setZoom] = usePersistentState(`trace:${JSON.stringify(trace.trace_ref)}:zoom`, 1);
+  const [showAllSpans, setShowAllSpans] = usePersistentState(`trace:${JSON.stringify(trace.trace_ref)}:all`, false);
   const [baseRulerWidth, setBaseRulerWidth] = useState(0);
   const timelineScroll = useRef<HTMLDivElement>(null);
   const timelineRuler = useRef<HTMLDivElement>(null);
@@ -93,6 +70,20 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
   const tickCount = zoom * 4;
   const zoomExtraWidth = baseRulerWidth * (zoom - 1);
   const axisTicks = total ? Array.from({ length: tickCount + 1 }, (_, index) => index / tickCount) : [0];
+  const traceAuditEmpty = (() => {
+    if (!audit) return { title: 'Проверка пока недоступна', description: 'Результат аудита ещё не получен.' };
+    if (trace.finding_occurrence_ids === undefined && !demo) {
+      return { title: 'Результаты аудита для этой версии трейса недоступны', description: 'Обновите аудит, чтобы проверить именно эту версию трейса.' };
+    }
+    const evaluated = audit.rule_evaluations.filter(rule => rule.status === 'evaluated').length;
+    const limited = audit.rule_evaluations.filter(rule => rule.status === 'insufficient_data' || rule.status === 'not_applicable').length;
+    if (!evaluated && audit.rule_evaluations.some(rule => rule.status === 'not_implemented')) {
+      return { title: 'Проверка пока недоступна', description: 'Сервер ещё не выполняет проверки для этого трейса.' };
+    }
+    if (!evaluated) return { title: 'Недостаточно данных', description: 'Проверки не смогли оценить данные этого трейса. Отсутствие проблем не подтверждено.' };
+    if (limited) return { title: 'Проблем не обнаружено, но данных недостаточно', description: 'Часть проверок не смогла оценить данные этого трейса.' };
+    return { title: 'Проблем не обнаружено', description: 'Аудит не нашёл проблем, связанных с этим трейсом.' };
+  })();
 
   useLayoutEffect(() => {
     if (tab !== 'timeline') return;
@@ -150,9 +141,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
       { label: summary.http_status === null ? 'Результат' : httpCodeLabel,
         value: summary.http_status === null ? outcomeLabels[summary.outcome] : <HttpStatus code={summary.http_status}/>,
         tone: summary.http_status !== null ? 'neutral' : summary.outcome === 'error' ? 'danger' : summary.outcome === 'ok' ? 'success' : 'neutral' },
-      { label: 'Длительность', value: duration(summary.duration_ns),
-        info: 'Время выполнения входного запроса, включая ожидание дочерних вызовов.' },
-      { label: 'Спаны', value: spans.length, info: 'Спан описывает отдельную операцию внутри трейса.' },
+      { label: 'Длительность', value: duration(summary.duration_ns) },
       { label: 'Сервисы', value: services.length },
     ]}/>
 
@@ -160,7 +149,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
     <Tabs label="Разделы трейса" value={tab} onChange={setTab} fullWidth items={[
       { value: 'timeline', label: 'Выполнение', panelId: 'timeline-panel' },
       { value: 'audit', label: <>Аудит {findings.length > 0 && <span>{findings.length}</span>}</>, panelId: 'audit-panel' },
-      { value: 'whatif', label: 'Что если', panelId: 'whatif-panel' },
+      { value: 'whatif', label: 'Прогноз ускорения', panelId: 'whatif-panel' },
     ]}/>
 
     {tab === 'timeline' && <div id="timeline-panel" role="tabpanel" aria-labelledby="timeline-panel-tab">
@@ -179,12 +168,6 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
             <Button type="button" aria-label="Увеличить масштаб" disabled={zoom === maxTimelineZoom}
               onClick={() => changeZoom(zoom * 2)}>+</Button>
           </div>}
-          <MetricInfo label="Как читать шкалу вызовов">
-            Левый край полосы показывает, когда началась операция относительно начала трейса.
-            Длина полосы показывает, сколько операция длилась.
-            Если полосы перекрываются по времени, операции выполнялись одновременно.
-            {compactSpans.length < spans.length && !showAllSpans && ' Для успешных вызовов с парой спанов показано время обработки на стороне получателя.'}
-          </MetricInfo>
         </div>}>
           <div ref={timelineScroll} className="timeline-scroll" tabIndex={0} role="region" aria-label="Шкала вызовов">
             <div className="timeline-canvas" style={{ '--timeline-zoom-extra': `${zoomExtraWidth}px`, '--timeline-tick-step': `${100 / tickCount}%` } as CSSProperties}>
@@ -231,11 +214,9 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
         </Panel>
         <Panel className="trace-inspector" title="Выбранный спан">
           {selectedSpan && <div className="inspector">
-            <span className="service-name"><i style={{ background: colors.get(selectedSpan.service) }}/>{selectedSpan.service}</span>
-            <h3><SpanOperation span={selectedSpan}/></h3>
-            <dl>
+            <dl><div><dt>Сервис</dt><dd className="service-name"><i style={{ background: colors.get(selectedSpan.service) }}/>{selectedSpan.service}</dd></div><div><dt>{/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/.test(selectedSpan.name) ? 'Эндпоинт' : 'Операция'}</dt><dd><SpanOperation span={selectedSpan}/></dd></div>
               <div><dt>Длительность</dt><dd>{duration(selectedSpan.duration_ns)}</dd></div>
-              <div><dt>Начало от трейса</dt><dd>{duration(selectedSpan.start_offset_ns)}</dd></div>
+              <div><dt>Время от начала трейса</dt><dd>{duration(selectedSpan.start_offset_ns)}<small className="field-note">Через сколько после начала трейса начался этот спан</small></dd></div>
               <div><dt>{httpCodeLabel}</dt><dd>{selectedSpan.http_status === null ? 'Не наблюдался' : <HttpStatus code={selectedSpan.http_status}/>}</dd></div>
               {selectedSpan.error_type && <div><dt>Тип ошибки</dt><dd className="text-danger">{selectedSpan.error_type}</dd></div>}
               <div><dt>Span ID</dt><dd><CopyId key={selectedSpan.span_id} label="Span ID" value={selectedSpan.span_id}/></dd></div>
@@ -251,10 +232,8 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
         : findings.length ? findings.map(finding => <FindingCard key={finding.occurrence_id} finding={finding} onPlan={onPlan} pending={pending}/>)
         : <Panel><div className="inline-empty">
           <Icon name="audit"/>
-          <h2>{audit && (demo || trace.finding_occurrence_ids?.length === 0)
-            ? 'Аудит не обнаружил нарушений для этого трейса'
-            : 'Результаты аудита для этой ревизии недоступны'}</h2>
-          <a href="#/audit">Посмотреть покрытие проверок</a>
+          <h2>{traceAuditEmpty.title}</h2>
+          <p>{traceAuditEmpty.description}</p>
         </div></Panel>}
     </div>}
 

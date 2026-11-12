@@ -15,10 +15,13 @@ Derivation rules:
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
+from contracts.base import TraceRef
 from contracts.p2 import CallModel, NormalizedSpan, TraceGraph
 from contracts.p7 import SpanView, TraceDetail, TraceSummary, UiOutcome, UiSpanKind
 from core.calls import parse_operation
+from repository.store import TraceListSpan
 
 HTTP_METHOD_TOKEN = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 HTTP_SERVER_ERROR_MIN = 500
@@ -26,13 +29,17 @@ FINDING_HYPOTHESES = frozenset({"retry", "hedge"})
 
 
 def span_outcome(span: NormalizedSpan) -> UiOutcome:
-    if span.otel_status == "error":
+    return _outcome(span.otel_status, span.kind, span.http_status)
+
+
+def _outcome(otel_status: str, kind: str, http_status: int | None) -> UiOutcome:
+    if otel_status == "error":
         return "error"
-    if span.kind == "server" and span.http_status is not None:
-        if span.http_status >= HTTP_SERVER_ERROR_MIN:
+    if kind == "server" and http_status is not None:
+        if http_status >= HTTP_SERVER_ERROR_MIN:
             return "error"
         return "ok"
-    if span.otel_status == "ok":
+    if otel_status == "ok":
         return "ok"
     return "unknown"
 
@@ -116,6 +123,53 @@ def finding_count(call_model: CallModel | None) -> int:
     return sum(1 for call in call_model.calls if call.hypothesis in FINDING_HYPOTHESES)
 
 
+def _operation_parts(operation: str, observed_http: bool) -> tuple[str | None, str]:
+    method, endpoint = parse_operation(operation)
+    if method is None and observed_http:
+        prefix, _, path = operation.partition(" ")
+        if HTTP_METHOD_TOKEN.fullmatch(prefix) and path.startswith("/"):
+            return prefix.upper(), path.strip()
+    return method, endpoint
+
+
+@dataclass(frozen=True)
+class TraceListEntry:
+    trace_ref: TraceRef
+    operation: str
+    service: str
+    start_ns: int
+    duration_ns: int
+    outcome: UiOutcome
+    http_method: str | None
+
+    @property
+    def trace_id(self) -> str:
+        return self.trace_ref.trace_id
+
+
+def trace_list_entry(ref: TraceRef, spans: list[TraceListSpan]) -> TraceListEntry:
+    """Project the fields needed before pagination without constructing a graph."""
+    root = min((span for span in spans if span.is_root), key=_span_start, default=None)
+    reference = root if root is not None else min(spans, key=_span_start)
+    compatible = [span for span in spans if span.clock_domain == reference.clock_domain]
+    start_ns = min(span.start_ns for span in compatible)
+    duration_ns = max(int(span.end_ns) for span in compatible) - start_ns
+    if root is None:
+        return TraceListEntry(ref, "unknown", "unknown", start_ns, duration_ns, "unknown", None)
+    operation = root.operation or "unknown"
+    method, _ = _operation_parts(
+        operation, root.http_status is not None or bool(root.operation_observed),
+    )
+    return TraceListEntry(
+        ref, operation, root.service or "unknown", start_ns, duration_ns,
+        _outcome(root.otel_status, root.kind, root.http_status), method,
+    )
+
+
+def _span_start(span: TraceListSpan) -> tuple[int, str]:
+    return span.start_ns, span.span_id
+
+
 def trace_summary(graph: TraceGraph, call_model: CallModel | None = None) -> TraceSummary:
     root = root_span(graph)
     compatible = compatible_spans(graph)
@@ -128,16 +182,9 @@ def trace_summary(graph: TraceGraph, call_model: CallModel | None = None) -> Tra
         duration_ns = 0
     service_count = len({s.service for s in graph.spans if s.service})
     operation = (root.operation or "unknown") if root is not None else "unknown"
-    method, endpoint = parse_operation(operation)
-    if method is None and root is not None:
-        prefix, _, path = operation.partition(" ")
-        # Recognize extension methods on observed HTTP routes.
-        if (
-            HTTP_METHOD_TOKEN.fullmatch(prefix)
-            and path.startswith("/")
-            and (root.http_status is not None or root.field_coverage.get("operation"))
-        ):
-            method, endpoint = prefix.upper(), path.strip()
+    method, endpoint = _operation_parts(operation, root is not None and (
+        root.http_status is not None or bool(root.field_coverage.get("operation"))
+    ))
     return TraceSummary(
         trace_ref=graph.trace_ref,
         operation=operation,

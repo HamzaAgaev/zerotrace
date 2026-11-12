@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createClient } from '../src/api/client.js';
+import { ApiError, createClient, createOrRecoverStand } from '../src/api/client.js';
+import type { Client, Stand } from '../src/api/types.js';
 import { labSourceTrace } from '../src/api/fixtures.js';
 import { comparisonIssue, initialLab, labReducer, retryBudget } from '../src/api/labFixture.js';
 
@@ -9,6 +10,28 @@ const building = labReducer(initialLab, { type: 'build', source, id: 'stand' });
 const ready = labReducer(building, { type: 'ready', id: 'stand' });
 const faulted = labReducer(ready, { type: 'fault', enabled: true });
 const versions = { scenarioRevision: 1, faultRevision: 1, configRevision: '12' };
+
+test('build recovers the matching revision after losing the POST response', async () => {
+  const active: Stand = {
+    stand_id: 'stand', scenario_id: 'generated', status: 'building', source,
+    scenario_revision: 1, fault_revision: 0, config_revisions: {}, services: [], faults: [],
+  };
+  const client = createClient({ mode: 'demo', baseUrl: '' });
+  let calls = 0;
+  const lostResponse: Client = {
+    ...client,
+    async createStandFromTrace() {
+      throw new ApiError('Timeout', 0, 'timeout');
+    },
+    async getActiveStand() {
+      return { ...active, status: ++calls === 1 ? 'building' : 'ready' };
+    },
+  };
+  assert.equal((await createOrRecoverStand(lostResponse, source)).status, 'ready');
+  assert.equal(calls, 2);
+  await assert.rejects(createOrRecoverStand(lostResponse, { ...source, revision: source.revision + 1 }),
+    /Активен другой стенд/);
+});
 
 test('one stand holds its slot during build and stop, tied to the full trace reference', async () => {
   const changed = { ...source, revision: source.revision + 1 };

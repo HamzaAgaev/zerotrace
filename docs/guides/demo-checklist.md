@@ -1,12 +1,10 @@
 # Демо-чеклист первого показа
 
-Сценарий проверен сквозным прогоном 2026-11-11 на чистом стенде (записано Мишей,
-зона B). Время полного прохода — ~5 минут. UI доступен на `http://127.0.0.1:8000`.
+Сценарий P11 для чистого checkout. UI доступен на `http://127.0.0.1:8000`.
 
 ## Подготовка (за 10 минут до показа)
 
 ```sh
-docker compose --profile demo down -v      # чистая база и токены
 docker compose --profile demo up --build -d
 docker compose ps                          # все 11 контейнеров healthy
 curl -s http://127.0.0.1:8000/healthz      # {"status":"ok"}
@@ -17,7 +15,7 @@ curl -s http://127.0.0.1:8000/healthz      # {"status":"ok"}
 
 ## Шаг 1. Внешняя система (окружение shop)
 
-**UI:** Трейсы — живой список; Граф сервисов — 9 узлов, связи с количеством вызовов.
+**UI:** Трейсы — живой список; Сервисы → «Граф» — 9 узлов и связи с количеством вызовов.
 **API (опционально):**
 
 ```sh
@@ -26,21 +24,24 @@ curl -s "http://127.0.0.1:8000/api/v1/audit?environment_id=shop&view=full" \
 print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['findings']])"
 ```
 
-Ожидается: находки R4 на рёбрах `payment -> bank-api` (внешний callee виден
-по исходящему спану). Рекомендации есть, `can_prepare_plan: false` — внешнее
-окружение только на чтение.
+В `shop` граф строится из реальных трейсов. `orders` поддерживает ручное
+изменение разрешённых полей, `payment` доступен для наблюдения. Применение
+рекомендаций доступно в `sandbox`.
 
 ## Шаг 2. Сборка лаборатории (окружение sandbox)
 
-**UI:** Лаборатория → «Создать стенд» (scenario checkout, 9 сервисов, статус ready).
+**UI:** Лаборатория → «Создать стенд оформления заказа» (сценарий checkout, 9 сервисов, состояние «Готов»).
 Или API: `POST /api/v1/lab/stands {"scenario_id":"checkout"}` → запомнить
 `stand_id`, `config_revisions` (все `"1"`).
 
 ## Шаг 3. Сбой и baseline-прогон
 
-**UI:** Лаборатория → форма «Сбой входящего маршрута»: сервис `payment`,
-маршрут `POST /charge`, вероятность `1`, код `503`, задержка `0`,
-точка «До исходящих вызовов» → «Применить сбой».
+**UI:** Лаборатория → форма «Сбой входящего вызова»: сервис `payment`,
+входящий вызов `POST /charge`, вероятность ошибки `100`, код `503`,
+дополнительная задержка `0`, точка «До исходящих вызовов» → «Сохранить сбой».
+
+**UI:** Запросов 30, одновременных запросов 1, число для воспроизведения
+запуска 42 → «Запустить прогон».
 
 **API-прогон:** `POST /api/v1/lab/stands/{stand_id}/runs` с телом:
 
@@ -51,21 +52,22 @@ print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['find
   "expected_fault_revision": 1,
   "config_revisions": {"gateway":"1","orders":"1","inventory":"1","pricing":"1",
     "delivery":"1","payment":"1","fraud":"1","bank-api":"1","notifications":"1"},
-  "request_count": 8, "concurrency": 4, "seed": 42
+  "request_count": 30, "concurrency": 1, "seed": 42
 }
 ```
 
 Ожидается: `status: completed`, `trace_collection.status: ready`,
-`received_count: 8` (опрос `GET /api/v1/lab/runs/{run_id}`). Запомнить `run_id`.
+`received_count: 30` (опрос `GET /api/v1/lab/runs/{run_id}`). Запомнить `run_id`.
 
 ## Шаг 4. Аудит и рекомендация
 
-**UI:** Аудит (переключить окружение на «Лаборатория») — находка R4
-`orders -> payment`: «Требуется 2,5 с > Бюджет 1,8 с», рекомендация
-«Установить максимум 2 попыток». Кнопка плана из рекомендации.
+**UI:** Аудит (окружение sandbox) — проблема R4 `orders → payment`:
+«Требуется 850 мс при доступном времени ожидания 700 мс», рекомендация
+«Установить максимум 2 попыток, включая первую». Кнопка «Посмотреть план» в проблеме.
 
 **API:** `GET /api/v1/audit?environment_id=sandbox&view=full` → finding с
-`evidence.required_ns = "2500000000"`, `budget_ns = "1800000000"`,
+`evidence.required_ns = "850000000"`, `budget_ns = "700000000"`,
+`recommended_required_ns = "550000000"`,
 `recommendation.can_prepare_plan = true`.
 
 ## Шаг 5. План → применение → журнал
@@ -75,8 +77,9 @@ print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['find
 план (`changes: max_attempts 3→2`); затем `POST /api/v1/change-plans/{plan_id}/apply`
 с `plan_hash` и стабильным `request_id`.
 
-Ожидается: операция `applied`, конфиг orders → `max_attempts: 2`, revision `2`.
-**UI:** Журнал — операция с before/after; конфиг сервиса orders обновлён.
+Ожидается: операция `applied`, настройки orders → `max_attempts: 2`, версия конфигурации `2`.
+**UI:** Журнал — статус «Настройки применены» и изменения «Было → Станет»;
+настройки сервиса orders обновлены. Проверка проблемы показана отдельно.
 
 ## Шаг 6. Повторный прогон и сравнение
 
@@ -87,15 +90,16 @@ print([(f['rule_id'], f['edge']['caller'], f['edge']['callee']) for f in d['find
 {"baseline_run_id":"<run-1>", "candidate_run_id":"<run-2>"}
 ```
 
-Ожидается: `attempts_per_input` уменьшилось (было ~6, станет ~4),
-`http_status_counts` неизменны (`503: 8`), `change` опознан автоматически
-(`max_attempts 3→2, charge-payment, orders`).
+Ожидается по 30 из 30 трейсов. Число попыток на запрос снижается с 3 до 2.
+В каждом прогоне `http_status_counts` содержит `503: 30`, а `change` указывает
+на изменение `max_attempts` у `orders / charge-payment`.
 
-**UI:** «Сравнение групп» — дельта попыток на вход.
+**UI:** «Лаборатория» → «Сравнение прогонов» → выбрать прогоны до и после изменения.
 
 ## Шаг 7. Замыкание цикла
 
-Повторный аудит sandbox: находка R4 `orders -> payment` **исчезла**.
+Повторный аудит sandbox: проблема R4 `orders → payment` больше не обнаруживается.
+Проверка в журнале показывает, сохраняется ли исходная проблема.
 
 ## Резервные номера (если спрашивают)
 

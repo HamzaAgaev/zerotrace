@@ -14,6 +14,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 from stand.scenario import load_scenario
@@ -33,27 +34,19 @@ class Laboratory:
         self.processes: dict[str, subprocess.Popen] = {}
         self.directory = Path(config.get("state_directory", "/data"))
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.stand = self.records.get("lab", "active")
-        if self.stand:
-            self.stand.update(status="stopped", stopped_at=timestamp())
-            self.records.put("lab", "active", self.stand)
-            self.stand = None
+        previous = records.get("lab", "active")
+        self.stand = previous if previous and previous["status"] != "stopped" else None
+        self._recovering = self.stand is not None
         for run in records.items("run"):
             if run["status"] == "running":
                 run.update(status="failed", error="server_restart", finished_at=timestamp())
                 records.put("run", run["run_id"], run)
-        # PIDs alone are not a safe ownership proof. After a server restart,
-        # terminate only services whose health response carries our stand ID.
-        previous = records.get("lab", "active")
-        if previous:
-            for service in previous.get("service_registry", {}).values():
-                try:
-                    health = remote_json(service, "GET", "/_health", timeout=0.3)
-                    if health.get("stand_id") == previous["stand_id"]:
-                        remote_json(service, "POST", "/_shutdown", timeout=0.5)
-                except ProductError:
-                    continue
-        self._finalize_recovered_collections()
+        if self._recovering:
+            # Keep the slot in stopping when ownership or exit cannot be confirmed.
+            with suppress(ProductError):
+                self._cleanup()
+        else:
+            self._finalize_recovered_collections()
 
     def _save(self):
         self.records.put("lab", "active", self.stand)
@@ -88,7 +81,10 @@ class Laboratory:
     def create(self, body: dict) -> dict:
         with self.lock:
             if self.stand:
-                raise ProductError(409, "stand_exists", "Стенд уже запущен.")
+                raise ProductError(
+                    409, "stand_already_active", "Стенд уже запущен.",
+                    {"stand_id": self.stand["stand_id"]},
+                )
             if body.get("source"):
                 scenario, origins = from_trace(self.telemetry, body["source"])
             else:
@@ -159,8 +155,11 @@ class Laboratory:
                 "source": body.get("source"),
                 "created_at": timestamp(),
                 "config_snapshots": {},
+                "active_run_id": None,
+                "latest_run_id": None,
             }
             self._save()
+            deadline = time.monotonic() + self.config.get("build_timeout_s", 20)
             try:
                 for name, url in urls.items():
                     port = int(url.rsplit(":", 1)[1])
@@ -211,7 +210,6 @@ class Laboratory:
             except Exception:
                 self._cleanup()
                 raise
-        deadline = time.monotonic() + self.config.get("build_timeout_s", 20)
         pending = set(services)
         try:
             while pending and time.monotonic() < deadline:
@@ -222,7 +220,11 @@ class Laboratory:
                         )
                     try:
                         health = remote_json(services[name], "GET", "/_health", timeout=0.2)
-                        if health.get("ready", True):
+                        if (
+                            health.get("ready") is True
+                            and health.get("stand_id") == stand_id
+                            and health.get("service_id") == name
+                        ):
                             pending.remove(name)
                     except ProductError:
                         continue
@@ -235,11 +237,6 @@ class Laboratory:
                     "Истёк срок запуска стенда.",
                     {"services": sorted(pending)},
                 )
-            self.stand["status"] = "ready"
-            self.stand["config_snapshots"] = self._snapshots()
-            self.stand["config_revisions"] = {
-                name: item["revision"] for name, item in self.stand["config_snapshots"].items()
-            }
             for name, definition in scenario["services"].items():
                 if definition.get("initial_fault") and not restoring:
                     current = read_config(services[name])
@@ -261,11 +258,20 @@ class Laboratory:
                         expected_fault_revision=current.get("fault_revision", 0),
                     )
                     remote_json(services[service_id], "PUT", "/_chaos", payload)
-            self._sync_all_faults(self._snapshots(), bump_revision=False)
-            if not restoring and self.stand["faults"]:
-                self.stand["fault_revision"] = 1
-            self._save()
-            self._probe()
+            self._probe(deadline)
+            snapshots = self._snapshots()
+            with self.lock:
+                if time.monotonic() >= deadline:
+                    raise ProductError(503, "stand_build_timeout", "Истёк срок запуска стенда.")
+                self._sync_all_faults(snapshots, bump_revision=False)
+                if not restoring and self.stand["faults"]:
+                    self.stand["fault_revision"] = 1
+                self.stand["config_snapshots"] = snapshots
+                self.stand["config_revisions"] = {
+                    name: item["revision"] for name, item in snapshots.items()
+                }
+                self.stand["status"] = "ready"
+                self._save()
             return self.active()
         except Exception:
             with self.lock:
@@ -357,11 +363,9 @@ class Laboratory:
                     )
                 return self.active()
             self.guard_edit()
-            if (
-                body.get("expected_fault_revision", self.stand["fault_revision"])
-                != self.stand["fault_revision"]
-            ):
-                raise ProductError(409, "stale_revision", "Настройки сбоя изменились.")
+            expected = body.get("expected_fault_revision", self.stand["fault_revision"])
+            current = self.stand["fault_revision"]
+            self._check_revision("fault", expected, current, request_id)
             service_id = body.get("service_id")
             services = self.stand["service_registry"]
             if clear and service_id is None:
@@ -517,12 +521,12 @@ class Laboratory:
         return ProductError(exc.status, exc.code, str(exc), details)
 
     def _finalize_recovered_collections(self) -> None:
-        """Freeze old run samples after verified prior-stand shutdown attempts."""
+        """Freeze old run samples once the prior stand has stopped."""
         for run in self.records.items("run"):
             collection = run.get("trace_collection", {})
             if collection.get("status") != "waiting":
                 continue
-            sample = self.telemetry.finalize_collection(run["run_id"], time.time_ns() + 10**15)
+            sample = self.telemetry.finalize_collection(run["run_id"], time.time_ns(), force=True)
             if sample is None:
                 continue
             run["trace_collection"] = {
@@ -533,6 +537,15 @@ class Laboratory:
             }
             run["trace_refs"] = run["trace_collection"]["trace_refs"]
             self.records.put("run", run["run_id"], run)
+
+    @staticmethod
+    def _check_revision(resource, expected, current, request_id, **details):
+        if expected != current or type(expected) is not type(current):
+            raise ProductError(
+                409, "stale_revision", "Настройки стенда изменились.",
+                {"resource": resource, "expected": expected, "current": current, **details},
+                request_id=request_id,
+            )
 
     def run(self, stand_id: str, body: dict) -> dict:
         request_id = body.get("request_id")
@@ -556,25 +569,34 @@ class Laboratory:
                     and self.get_run(item["run_id"])["trace_collection"]["status"] == "waiting"
                 ):
                     raise ProductError(
-                        409, "traces_pending", "Ожидаем телеметрию предыдущего прогона."
+                        409, "traces_pending", "Ожидаем телеметрию предыдущего прогона.",
+                        {"run_id": item["run_id"]}, request_id=request_id,
                     )
             if any(
                 item["environment_id"] == "sandbox" and item["status"] == "applying"
                 for item in self.records.items("operation")
             ):
                 raise ProductError(409, "operation_pending", "Конфигурация ещё применяется.")
+            self._check_revision(
+                "scenario", body.get("scenario_revision"), self.stand["scenario_revision"],
+                request_id,
+            )
+            self._check_revision(
+                "fault", body.get("expected_fault_revision"), self.stand["fault_revision"],
+                request_id,
+            )
             snapshots = self._snapshots()
             revisions = {name: item["revision"] for name, item in snapshots.items()}
-            if (
-                body.get("scenario_revision") != self.stand["scenario_revision"]
-                or body.get("expected_fault_revision") != self.stand["fault_revision"]
-                or body.get("config_revisions") != revisions
-            ):
-                raise ProductError(
-                    409,
-                    "stale_revision",
-                    "Настройки стенда изменились.",
-                    {"config_revisions": revisions},
+            expected = body.get("config_revisions")
+            if isinstance(expected, dict):
+                for name in sorted(revisions.keys() | expected.keys()):
+                    self._check_revision(
+                        "config", expected.get(name), revisions.get(name), request_id,
+                        service_id=name, config_revisions=revisions,
+                    )
+            else:
+                self._check_revision(
+                    "config", expected, revisions, request_id, config_revisions=revisions,
                 )
             count = integer(body.get("request_count", 30), "request_count", 1, 1000)
             concurrency = integer(body.get("concurrency", 1), "concurrency", 1, 32)
@@ -636,35 +658,60 @@ class Laboratory:
         base = self.stand["service_registry"][entry["service_id"]]["control_url"]
         return method, base + path
 
-    def _probe(self):
+    def _probe(self, deadline):
         method, url = self._entry()
-        with suppress(requests.RequestException):
-            requests.request(method, url, headers={"X-ZeroTrace-Probe": "true"}, timeout=5)
-        self._flush()
+        timeout = min(5, deadline - time.monotonic())
+        if timeout <= 0:
+            raise ProductError(503, "stand_build_timeout", "Истёк срок запуска стенда.")
+        try:
+            requests.request(
+                method, url, headers={"X-ZeroTrace-Probe": "true"}, timeout=timeout,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            if time.monotonic() >= deadline:
+                raise ProductError(
+                    503, "stand_build_timeout", "Истёк срок запуска стенда.",
+                ) from exc
+            raise ProductError(
+                503, "stand_probe_failed", "Проверочный запрос к стенду не завершился."
+            ) from exc
+        self._flush(min(3, deadline - time.monotonic()))
 
-    def _flush(self):
-        if not self.stand:
+    def _flush(self, timeout=3):
+        if not self.stand or timeout <= 0:
             return
-        for service in self.stand["service_registry"].values():
-            try:
-                remote_json(service, "POST", "/_flush", timeout=3)
-            except ProductError:
-                continue
+
+        def flush(service):
+            with suppress(ProductError):
+                remote_json(service, "POST", "/_flush", timeout=timeout)
+
+        with ThreadPoolExecutor(max_workers=9) as pool:
+            list(pool.map(flush, self.stand["service_registry"].values()))
 
     def _wait_idle(self, timeout: float) -> bool:
         """Timed-out callers can leave downstream work running on the stand."""
         deadline = time.monotonic() + timeout
-        while self.stand and time.monotonic() < deadline:
-            idle = True
-            for service in self.stand["service_registry"].values():
-                try:
-                    health = remote_json(service, "GET", "/_health", timeout=0.5)
-                    idle = idle and health.get("active_requests", 0) == 0
-                except ProductError:
-                    idle = False
-            if idle:
-                return True
-            time.sleep(0.1)
+        if not self.stand:
+            return False
+
+        def idle(service):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                health = remote_json(service, "GET", "/_health", timeout=min(0.5, remaining))
+                return health.get("active_requests") == 0
+            except ProductError:
+                return False
+
+        services = list(self.stand["service_registry"].values())
+        with ThreadPoolExecutor(max_workers=9) as pool:
+            while time.monotonic() < deadline:
+                states = list(pool.map(idle, services))
+                if all(states):
+                    return True
+                time.sleep(0.1)
         return False
 
     def _load(self, run_id: str):
@@ -697,36 +744,39 @@ class Laboratory:
             }
 
         try:
+            next_update = time.monotonic() + 0.25
             with ThreadPoolExecutor(max_workers=run["concurrency"]) as pool:
                 futures = [pool.submit(perform, index) for index in range(run["request_count"])]
                 for future in as_completed(futures):
                     run["results"].append(future.result())
                     run["completed_requests"] += 1
-                    self.records.put("run", run_id, run)
+                    if time.monotonic() >= next_update:
+                        self.records.put("run", run_id, run)
+                        next_update = time.monotonic() + 0.25
             run.update(status="completed", finished_at=timestamp())
         except Exception as exc:
             run.update(status="failed", error=type(exc).__name__, finished_at=timestamp())
         self.records.put("run", run_id, run)
+        deadline = time.monotonic() + 20
         # A timed-out request may still execute nested calls. Wait for those
         # spans to finish before asking B to freeze an exact revision.
         if not self._wait_idle(20):
             run.update(status="failed", error="stand_drain_timeout")
             self.records.put("run", run_id, run)
         # All child processes flush before B freezes exact revisions.
-        self._flush()
-        time.sleep(0.3)
-        deadline = time.monotonic() + 20
+        self._flush(min(3, deadline - time.monotonic()))
         while time.monotonic() < deadline:
             self.telemetry.advance_assembly(time.time_ns(), quiet_after_ns=200_000_000)
             sample = self.telemetry.finalize_collection(run_id, time.time_ns())
-            if sample.status != "waiting":
+            if sample is None or sample.status != "waiting":
                 break
             time.sleep(0.25)
         else:
-            self.telemetry.finalize_collection(run_id, time.time_ns() + 10**15)
-        if self.stand and self.stand.get("active_run_id") == run_id:
-            self.stand["active_run_id"] = None
-            self._save()
+            self.telemetry.finalize_collection(run_id, time.time_ns(), force=True)
+        with self.lock:
+            if self.stand and self.stand.get("active_run_id") == run_id:
+                self.stand["active_run_id"] = None
+                self._save()
 
     def get_run(self, run_id: str):
         run = self.records.get("run", run_id)
@@ -753,6 +803,9 @@ class Laboratory:
 
     def stop(self, stand_id: str):
         with self.lock:
+            receipt = self.records.get("stopped_stand", stand_id)
+            if receipt is not None:
+                return receipt
             if self.stand is None:
                 previous = self.records.get("lab", "active")
                 if (
@@ -774,9 +827,7 @@ class Laboratory:
                         )
                 with suppress(ProductError):
                     self.stand["config_snapshots"] = self._snapshots()
-            stopped = copy.deepcopy(self.stand)
-            self._cleanup()
-            return self._stopped_view(stopped)
+            return self._cleanup()
 
     @staticmethod
     def _stopped_view(stand):
@@ -786,6 +837,32 @@ class Laboratory:
         value.pop("service_registry", None)
         value.pop("scenario_path", None)
         return value
+
+    @staticmethod
+    def _port_released(service):
+        url = urlsplit(service["control_url"])
+        try:
+            with socket.create_connection((url.hostname, url.port), timeout=0.2):
+                return False
+        except ConnectionRefusedError:
+            return True
+        except OSError:
+            return False
+
+    def _recover_service(self, service):
+        with suppress(ProductError):
+            health = remote_json(service, "GET", "/_health", timeout=0.3)
+            owner = health.get("stand_id")
+            if owner == self.stand["stand_id"]:
+                remote_json(service, "POST", "/_shutdown", timeout=0.5)
+            elif owner:
+                return True
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if self._port_released(service):
+                return True
+            time.sleep(0.1)
+        return False
 
     def _cleanup(self):
         if self.stand:
@@ -800,7 +877,9 @@ class Laboratory:
             service = services.get(name)
             if service:
                 with suppress(ProductError):
-                    remote_json(service, "POST", "/_shutdown", timeout=0.5)
+                    health = remote_json(service, "GET", "/_health", timeout=0.3)
+                    if health.get("stand_id") == self.stand["stand_id"]:
+                        remote_json(service, "POST", "/_shutdown", timeout=0.5)
             try:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
@@ -811,6 +890,16 @@ class Laboratory:
                     process.kill()
                     process.wait(timeout=1)
 
+        if self._recovering:
+            with ThreadPoolExecutor(max_workers=9) as pool:
+                stopped = list(pool.map(self._recover_service, services.values()))
+            if not all(stopped):
+                raise ProductError(
+                    503, "stand_stop_unconfirmed",
+                    "Не удалось подтвердить остановку стенда. Повторите остановку.",
+                )
+            self._finalize_recovered_collections()
+            self._recovering = False
         if self.processes:
             try:
                 with ThreadPoolExecutor(max_workers=min(32, len(self.processes))) as pool:
@@ -821,11 +910,17 @@ class Laboratory:
                     "Не удалось подтвердить остановку стенда. Повторите остановку.",
                 ) from error
         self.processes.clear()
+        receipt = None
         if self.stand:
-            self.stand["status"] = "stopped"
-            self._save()
+            self.stand.update(status="stopped", stopped_at=timestamp())
+            receipt = self._stopped_view(self.stand)
+            self.records.put_many([
+                ("lab", "active", self.stand),
+                ("stopped_stand", self.stand["stand_id"], receipt),
+            ])
         self.stand = None
         self.registry.remove_lab()
+        return receipt
 
     def shutdown(self):
         with self.lock:

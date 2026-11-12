@@ -4,11 +4,15 @@ import requests
 
 
 class ProductError(Exception):
-    def __init__(self, status: int, code: str, message: str, details: dict | None = None):
+    def __init__(
+        self, status: int, code: str, message: str, details: dict | None = None,
+        *, request_id: str | None = None,
+    ):
         super().__init__(message)
         self.status = status
         self.code = code
         self.details = details or {}
+        self.request_id = request_id
 
 
 def remote_json(

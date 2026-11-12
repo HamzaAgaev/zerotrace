@@ -11,7 +11,7 @@ from app.data_api import (
     get_trace,
     list_traces,
 )
-from app.data_api.views import trace_detail
+from app.data_api.views import trace_detail, trace_summary
 from contracts import TraceRef, TraceSummary
 from contracts.p2 import NormalizedSpan, Quality, TraceGraph
 from contracts.p7 import SpanView, TraceDetail
@@ -141,6 +141,32 @@ def rekey_graph(
 
 def make_store() -> StubStore:
     return StubStore([load_graph("s00_healthy"), load_graph("s01_retry")])
+
+
+def test_success_rates_use_known_outcomes_and_ignore_table_filters(monkeypatch) -> None:
+    now = 20_000_000_000_000
+    minute = 60_000_000_000
+    monkeypatch.setattr("app.data_api.handlers.time_ns", lambda: now)
+    base = load_graph("s00_healthy")
+    samples = [(5, "ok"), (10, "error"), (35, "ok"), (120, "error"),
+               (2, "unknown"), (-1, "ok"), (181, "ok")]
+    graphs = [rekey_graph(base, f"{index:032x}") for index in range(1, len(samples) + 1)]
+    summaries = {
+        graph.trace_ref: dataclasses.replace(
+            trace_summary(graph), start_ns=now - age * minute, outcome=outcome,
+        )
+        for graph, (age, outcome) in zip(graphs, samples)
+    }
+    result = list_traces(StubStore(graphs), "shop", limit=1, status="error",
+                         include_success_rates=True, read_summary=summaries.get)
+    assert not isinstance(result, ApiError)
+    assert result["payload"]["total"] == 2
+    assert len(result["payload"]["items"]) == 1
+    assert result["payload"]["success_rates"] == {"5": 1, "30": .5, "60": 2 / 3, "180": .5}
+
+    empty = list_traces(StubStore([]), "shop", include_success_rates=True)
+    assert not isinstance(empty, ApiError)
+    assert empty["payload"]["success_rates"] == dict.fromkeys(("5", "30", "60", "180"))
 
 
 def test_list_envelope_shape_matches_frontend_fixture() -> None:

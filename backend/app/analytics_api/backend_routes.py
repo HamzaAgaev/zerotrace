@@ -51,15 +51,22 @@ class BackendApp(AnalyticsApp):
                     include_span_kind=include_span_kind == "true",
                 )
             else:
+                include_success_rates = query.get("include_success_rates", "false")
+                if include_success_rates not in {"true", "false"}:
+                    raise AnalyticsError(
+                        "invalid_include_success_rates", "include_success_rates must be true or false", 400
+                    )
                 response = list_traces(
                     store, environment, _integer(query, "limit", MAX_LIMIT),
                     _integer(query, "offset", 0),
                     read_summary=lambda ref: view.trace_summary(ref, summary_only=include_findings == "false"),
+                    read_entries=view.trace_list_entries if include_findings == "false" else None,
                     query=query.get("query", ""), service=query.get("service", ""),
                     status=query.get("status", ""), method=query.get("method", ""), sort=query.get("sort"),
                     span_id=query.get("span_id"),
                     start_from_ns=_integer(query, "start_from_ns"),
                     start_to_ns=_integer(query, "start_to_ns"),
+                    include_success_rates=include_success_rates == "true",
                 )
             if isinstance(response, ApiError):
                 raise AnalyticsError(response.code, response.message, response.status)

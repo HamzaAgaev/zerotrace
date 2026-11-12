@@ -5,7 +5,7 @@ from math import sqrt
 from analytics_support import percentile_ns
 from core.timing import same_clock
 
-from core.model import build_edge_policy, is_current_policy, sourced_value, trusted_int
+from core.model import EdgeRetrySamples, build_edge_policy, is_current_policy, sourced_value, trusted_int
 from .common import Assessment, asref, integer, trace_evidence
 from .context import attempt_error, quality_issue
 
@@ -165,9 +165,8 @@ def retry_paths(ctx, limits_by_edge):
     return results
 
 
-def retry_checks(ctx, edge, policy, limits):
+def retry_checks(ctx, edge, policy, limits, samples: EdgeRetrySamples):
     pauses, writes, status = (Assessment(rule, edge) for rule in ("R5", "R6", "R7"))
-    gaps = defaultdict(list)
     risk, forbidden = [], []
     for group in ctx.groups[edge]:
         if group.reason or group.data["hypothesis"] != "retry":
@@ -191,7 +190,7 @@ def retry_checks(ctx, edge, policy, limits):
                 elif value is None:
                     pauses.reject("unknown_serial_gaps")
                 else:
-                    gaps[i].append((key, value))
+                    samples.add_gap(key, i, value)
         method = g.get("method") or group.attempts[0].get("method")
         client_span = ctx.spans.get((key, group.attempts[0]["attempt_id"]), {})
         op = client_span.get("operation")
@@ -238,7 +237,7 @@ def retry_checks(ctx, edge, policy, limits):
             if hit and len(forbidden) < 5:
                 forbidden.append(dict(**span_ref(key, attempt), status=code, policy=basis, protocol=protocol))
     gap_evidence = []
-    for index, entries in sorted(gaps.items()):
+    for index, entries in sorted(samples.gaps_by_index.items()):
         if len(entries) < limits.min_cases:
             pauses.reject("small_gap_sample")
             continue

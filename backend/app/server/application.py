@@ -88,6 +88,7 @@ def create_app(config: dict) -> Flask:
                     "message": str(exc),
                     "details": exc.details,
                     "retryable": exc.status >= 500,
+                    **({"request_id": exc.request_id} if exc.request_id is not None else {}),
                 }
             }
         ), exc.status
@@ -369,8 +370,6 @@ def create_app(config: dict) -> Flask:
             raise ProductError(400, "invalid_request", "Укажите идентификаторы обоих прогонов.")
         left = lab.get_run(value["baseline_run_id"])
         right = lab.get_run(value["candidate_run_id"])
-        if any(item["trace_collection"]["status"] == "waiting" for item in (left, right)):
-            raise ProductError(409, "traces_pending", "Ожидаем телеметрию прогонов.")
         return jsonify(envelope(analytics.compare_runs(left, right), "comparison"))
 
     @app.get("/")

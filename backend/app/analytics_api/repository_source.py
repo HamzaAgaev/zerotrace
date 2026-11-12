@@ -9,7 +9,7 @@ from copy import deepcopy
 from pathlib import Path
 from threading import Lock
 
-from app.data_api.views import trace_summary
+from app.data_api.views import TraceListEntry, trace_list_entry, trace_summary
 from contracts import IngestLimits, TraceRef
 from contracts.p7 import TraceSummary
 from core.calls import DEFAULT_GROUPING_VERSION, OPERATION_NORMALIZATION_VERSION, derive_calls
@@ -30,6 +30,7 @@ class _TraceCache:
     def __init__(self):
         self.entries: OrderedDict[TraceMeta, tuple[TraceSummary, dict]] = OrderedDict()
         self.summaries: OrderedDict[TraceMeta, TraceSummary] = OrderedDict()
+        self.list_entries: OrderedDict[TraceMeta, TraceListEntry] = OrderedDict()
         self.spans = 0
         self.lock = Lock()
         self.build_locks = tuple(Lock() for _ in range(64))
@@ -71,6 +72,22 @@ class _TraceCache:
                 self.summaries[meta] = summary
                 if len(self.summaries) > self.max_entries:
                     self.summaries.popitem(last=False)
+
+    def get_list_entries(self, metas: list[TraceMeta]) -> dict[TraceRef, TraceListEntry]:
+        with self.lock:
+            entries = {}
+            for meta in metas:
+                entry = self.list_entries.get(meta)
+                if entry is not None:
+                    entries[meta.trace_ref] = entry
+                    self.list_entries.move_to_end(meta)
+            return entries
+
+    def put_list_entries(self, entries: dict[TraceMeta, TraceListEntry]) -> None:
+        with self.lock:
+            self.list_entries.update(entries)
+            while len(self.list_entries) > self.max_entries:
+                self.list_entries.popitem(last=False)
 
 
 class RepositorySource:
@@ -225,6 +242,20 @@ class RepositoryView:
             return summary
         entry = self._derived(meta)
         return entry[0] if entry is not None else None
+
+    def trace_list_entries(self, environment_id: str) -> dict[TraceRef, TraceListEntry]:
+        metas = self.current_metas(environment_id)
+        entries = self._trace_cache.get_list_entries(metas)
+        missing = [meta for meta in metas if meta.trace_ref not in entries]
+        if missing:
+            by_ref = self._current_by_ref[environment_id]
+            fresh = {
+                by_ref[ref]: trace_list_entry(ref, spans)
+                for ref, spans in self.span_store.trace_list_spans(environment_id, missing)
+            }
+            self._trace_cache.put_list_entries(fresh)
+            entries.update((meta.trace_ref, entry) for meta, entry in fresh.items())
+        return entries
 
     def _adapt(self, meta):
         ref = meta.trace_ref

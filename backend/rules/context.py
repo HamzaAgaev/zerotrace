@@ -3,6 +3,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 from analytics_support import AnalyticsError
+from contracts.p3 import ratio
+from core.model import EdgeRetrySamples
 
 from .common import digest, integer, refkey
 
@@ -219,24 +221,24 @@ class Context:
                             if a.get("config_revision") is not None)
         return not declarations or declarations == {str(revision)}
 
-    def observations(self, edge, result):
+    def observations(self, edge, result, samples: EdgeRetrySamples):
         calls = self.groups[edge]
         missing = sum((key, a["attempt_id"]) not in self.by_id for key, a in self.by_edge[edge])
-        retry_calls, attempt_count = 0, 0
         for group in calls:
             if group.reason:
                 result.reject(group.reason)
                 continue
             retry = group.data["hypothesis"] == "retry"
             result.consider([group.key], retry)
-            retry_calls += retry
-            attempt_count += len(group.attempts)
+            samples.add_call(group.key, len(group.attempts), retry=retry)
         if not calls:
             result.reject("missing_call_model")
-        summary = dict(edge_id=edge, eligible_calls=result.count, retry_calls=retry_calls,
-                       observed_attempts=attempt_count, attempts_without_confirmed_group=missing,
-                       excluded_by_reason=dict(result.excluded), eligible_traces=len(result.refs),
-                       retry_ratio=retry_calls / result.count if result.count else None)
+        summary = dict(
+            edge_id=edge, eligible_calls=samples.eligible_calls, retry_calls=samples.retry_calls,
+            observed_attempts=samples.grouped_attempts, attempts_without_confirmed_group=missing,
+            excluded_by_reason=dict(result.excluded), eligible_traces=len(samples.trace_refs),
+            retry_ratio=ratio(samples.retry_calls, samples.eligible_calls),
+        )
         return summary
 
     def normalized_identity(self):

@@ -16,7 +16,7 @@ const rules: Record<string, { name: string; description: ReactNode }> = {
     description: 'Повторы на нескольких уровнях цепочки умножают число запросов к нижележащим сервисам.',
   },
   R4: {
-    name: 'Бюджет повторных запросов',
+    name: 'Время на повторные запросы',
     description: 'Сумма таймаутов всех попыток и пауз между ними сравнивается с доступным временем ожидания.',
   },
   R5: {
@@ -36,7 +36,7 @@ const rules: Record<string, { name: string; description: ReactNode }> = {
     description: 'Сравнивается время ожидания связанных сервисов. Нижележащий сервис может ждать дольше, чем готов ждать вызывающий.',
   },
   D1: {
-    name: 'Соответствие конфига наблюдениям',
+    name: 'Соответствие настроек наблюдениям',
     description: 'Заявленные настройки сравниваются с наблюдениями с учётом версии, нагрузки и свежести данных.',
   },
 };
@@ -45,13 +45,13 @@ export function ruleName(id: string) {
   return rules[id]?.name ?? 'Дополнительная проверка';
 }
 
-export function RuleLabel({ id, version }: { id: string; version?: string }) {
+export function RuleLabel({ id, version, showInfo = true }: { id: string; version?: string; showInfo?: boolean }) {
   const rule = rules[id];
   return <span className="rule-label">
     <span>{ruleName(id)}</span>
-    <MetricInfo label={`О проверке «${ruleName(id)}»`}>
+    {showInfo && <MetricInfo label={`О проверке «${ruleName(id)}»`}>
       {rule?.description ?? 'Название этой проверки пока отсутствует в справочнике.'}
       <small>Код проверки {id}{version && `, версия ${version}`}</small>
-    </MetricInfo>
+    </MetricInfo>}
   </span>;
 }

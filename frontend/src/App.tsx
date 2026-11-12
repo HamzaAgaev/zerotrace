@@ -1,7 +1,9 @@
+import { ViewMemory } from './components/ViewMemory';
+import { StateScope } from './state';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadJson } from './analysis';
 import { isBudgetFinding } from './api/types';
-import { ApiError, createClient, normalizeBaseUrl, sameTraceRef } from './api/client';
+import { ApiError, createClient, createOrRecoverStand, normalizeBaseUrl } from './api/client';
 import type { AuditResult, Capabilities, ChangePlan, Connection, Finding, JournalEntry, TraceDetail as TraceData, TraceSummary } from './api/types';
 import { Badge, Button, Icon, Message, LoadingState, RetryButton } from './components/ui';
 import type { IconName } from './components/ui';
@@ -13,13 +15,34 @@ import { Audit } from './views/Audit';
 import { Journal } from './views/Journal';
 import { ConnectionView } from './views/Connection';
 import { Services } from './views/Services';
-import { Policies } from './views/Policies';
 import { Lab, useLabFixture } from './views/Lab';
-import { Compare } from './views/Compare';
-const nav: { id: 'traces' | 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'policies' | 'compare' | 'lab'; label: string; icon: IconName }[] = [{ id: 'traces', label: 'Трейсы', icon: 'traces' }, { id: 'lab', label: 'Лаборатория', icon: 'compare' }, { id: 'graph', label: 'Граф сервисов', icon: 'graph' }, { id: 'timings', label: 'Время сервисов', icon: 'clock' }, { id: 'policies', label: 'Таймауты и повторы', icon: 'filter' }, { id: 'compare', label: 'Сравнение групп', icon: 'compare' }, { id: 'audit', label: 'Аудит', icon: 'audit' }, { id: 'journal', label: 'Журнал', icon: 'journal' }, { id: 'sources', label: 'Подключение', icon: 'plug' }];
+
+const nav: { id: 'traces' | 'audit' | 'journal' | 'sources' | 'graph' | 'lab'; label: string; icon: IconName }[] = [
+  { id: 'traces', label: 'Трейсы', icon: 'traces' },
+  { id: 'graph', label: 'Сервисы', icon: 'graph' },
+  { id: 'audit', label: 'Аудит', icon: 'audit' },
+  { id: 'lab', label: 'Лаборатория', icon: 'compare' },
+  { id: 'journal', label: 'Журнал изменений', icon: 'journal' },
+  { id: 'sources', label: 'Настройки подключения', icon: 'plug' },
+];
+const pageTitles: Record<string, string> = {
+  traces: 'Трейсы', graph: 'Сервисы', timings: 'Сервисы', audit: 'Аудит', lab: 'Лаборатория',
+  journal: 'Журнал изменений', sources: 'Настройки подключения', policies: 'Сервисы', compare: 'Сравнение трейсов',
+};
+function documentTitle(route: ReturnType<typeof readRoute>, hash: string): string {
+  if (route.page === 'traces' && route.traceId) return `Трейс ${route.traceId} · ZeroTrace`;
+  const path = hash.replace(/^#\/?/, '').split('?')[0];
+  if (path === 'compare' || new URLSearchParams(hash.split('?')[1]).get('mode') === 'compare') return 'Сравнение трейсов · ZeroTrace';
+  return `${pageTitles[route.page] ?? 'Трейсы'} · ZeroTrace`;
+}
 function initialConnection(): Connection { try { const raw = JSON.parse(localStorage.getItem('zerotrace.connection') ?? 'null'); if (raw && ['live', 'demo'].includes(raw.mode) && typeof raw.baseUrl === 'string') return { mode: raw.mode, baseUrl: normalizeBaseUrl(raw.baseUrl), environmentId: typeof raw.environmentId === 'string' ? raw.environmentId : undefined }; } catch { /* A broken saved setting must not prevent opening settings. */ } return { mode: 'live', baseUrl: '', environmentId: 'shop' }; }
 export default function App() {
-  const [route, setRoute] = useState(() => readRoute(location.hash)); const [connection, setConnection] = useState<Connection>(initialConnection);
+  const [connection, setConnection] = useState<Connection>(initialConnection);
+  const scope = `${connection.mode}:${connection.baseUrl}:${connection.environmentId}`;
+  return <StateScope.Provider key={scope} value={scope}><ConnectedApp connection={connection} setConnection={setConnection}/></StateScope.Provider>;
+}
+function ConnectedApp({ connection, setConnection }: { connection: Connection; setConnection: (value: Connection) => void }) {
+  const [route, setRoute] = useState(() => readRoute(location.hash));
   const lab = useLabFixture();
   const client = useMemo(() => createClient(connection), [connection]);
   const [traces, setTraces] = useState<TraceSummary[]>([]); const [total, setTotal] = useState(0); const [audit, setAudit] = useState<AuditResult | null>(null); const [capabilities, setCapabilities] = useState<Capabilities | null>(null); const [journal, setJournal] = useState<JournalEntry[]>([]);
@@ -31,8 +54,11 @@ export default function App() {
   const [membershipBusy, setMembershipBusy] = useState(false);
   const [journalBusy, setJournalBusy] = useState(true);
   useEffect(() => { const update = () => setRoute(readRoute(location.hash)); window.addEventListener('hashchange', update); return () => window.removeEventListener('hashchange', update); }, []);
-  useEffect(() => { document.title = `ZeroTrace: ${nav.find(n => n.id === route.page)?.label ?? 'Трейсы'}`; }, [route.page]);
+  useEffect(() => { document.title = documentTitle(route, location.hash); }, [route]);
   const needsTraceSample = route.page === 'graph' || route.page === 'timings' || route.page === 'compare';
+  const needsAudit = route.page === 'audit' || route.page === 'policies'
+    || route.page === 'graph' || route.page === 'timings'
+    || (route.page === 'traces' && !!route.traceId);
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -71,6 +97,10 @@ export default function App() {
     return () => controller.abort();
   }, [client, refreshKey, needsTraceSample]);
   useEffect(() => {
+    if (!needsAudit) {
+      setAudit(null);
+      return;
+    }
     const controller = new AbortController();
     const { signal } = controller;
     setAuditBusy(true);
@@ -84,8 +114,8 @@ export default function App() {
       if (!signal.aborted) setAuditBusy(false);
     });
     return () => controller.abort();
-  }, [client, refreshKey, auditRefreshKey]);
-  const pageBusy = busy || ((route.page === 'audit' || route.page === 'policies') && auditBusy)
+  }, [client, refreshKey, auditRefreshKey, needsAudit]);
+  const pageBusy = busy || (route.page === 'audit' && auditBusy)
     || (route.page === 'journal' && journalBusy);
   const selectedId = route.page === 'traces' ? route.traceId : undefined;
   const selectedRef = route.page === 'traces' ? route.traceRef : undefined;
@@ -129,33 +159,11 @@ export default function App() {
   const changeConnection = (value: Connection) => { setPlanError(''); setConnection(value); try { localStorage.setItem('zerotrace.connection', JSON.stringify(value)); } catch { /* Current connection still works if persistence is unavailable. */ } };
   async function buildLabFromTrace(source: TraceData['trace_ref']) {
     setStandBuildError('');
-    const matches = (value: TraceData['trace_ref'] | null | undefined) => !!value && sameTraceRef(value, source);
-    const waitForStand = async (initial: Awaited<ReturnType<typeof client.getActiveStand>>) => {
-      let current = initial;
-      const deadline = Date.now() + 6500;
-      while (current && matches(current.source) && current.status === 'building' && Date.now() < deadline) {
-        await new Promise(resolve => window.setTimeout(resolve, 300));
-        current = await client.getActiveStand();
-      }
-      return current && matches(current.source) ? current : null;
-    };
     try {
-      const existing = await client.getActiveStand();
-      const current = matches(existing?.source) ? existing : await client.createStandFromTrace(source);
-      const resolved = await waitForStand(current);
-      if (!resolved) throw new Error('Не удалось подтвердить состояние сборки. Откройте лабораторию и обновите стенд.');
-      if (resolved.status === 'failed' || resolved.status === 'unavailable') throw new Error(`Сборка стенда завершилась со статусом «${resolved.status}».`);
+      await createOrRecoverStand(client, source);
       location.hash = '#/lab';
     } catch (cause) {
-      try {
-        const recovered = await waitForStand(await client.getActiveStand());
-        if (recovered) {
-          if (recovered.status === 'failed' || recovered.status === 'unavailable') throw new Error(`Сборка стенда завершилась со статусом «${recovered.status}».`);
-          location.hash = '#/lab';
-          return;
-        }
-      } catch (recoveryError) { if (recoveryError instanceof Error && !recoveryError.message.includes('Сервер')) cause = recoveryError; }
-      setStandBuildError(cause instanceof Error ? cause.message : 'Не удалось собрать стенд по трейсу. Проверьте сервер и попробуйте ещё раз.');
+      setStandBuildError(cause instanceof Error ? cause.message : 'Не удалось собрать стенд по трейсу.');
     }
   }
   function refreshStaleRecommendation() {
@@ -192,12 +200,12 @@ export default function App() {
       ...(connection.mode === 'demo' ? { limitations: ['Все значения — демонстрационные fixtures.'] } : {}),
     }, { schema: 'zerotrace.frontend-report', producerVersion: 'frontend-0.2.0' });
   }
-  return <div className="app-shell"><a className="skip-link" href="#main-content">Перейти к содержимому</a><aside className="sidebar"><a className="brand" href="#/traces" aria-label="ZeroTrace — главная"><span className="brand-mark"><i/><i/><i/></span>ZeroTrace</a><nav aria-label="Основная навигация">{nav.filter(n=>['traces','graph','audit','policies','lab'].includes(n.id)).map(n => <a key={n.id} href={`#/${n.id}`} className={`nav-link ${route.page === n.id ? 'is-active' : ''}`} aria-current={route.page === n.id ? 'page' : undefined}><Icon name={n.icon}/><span>{n.label}</span>{n.id === 'audit' && audit?.findings.length ? <small>{audit.findings.length}</small> : null}</a>)}</nav><details className="nav-more" key={route.page} open={['timings','compare','journal','sources'].includes(route.page)}><summary>Ещё <Icon name="chevron" size={13}/></summary><nav aria-label="Дополнительные разделы">{nav.filter(n=>['timings','compare','journal','sources'].includes(n.id)).map(n=><a key={n.id} href={`#/${n.id}`} className={`nav-link ${route.page===n.id?'is-active':''}`} aria-current={route.page===n.id?'page':undefined}><Icon name={n.icon}/>{n.label}</a>)}</nav></details></aside><div className="main-shell"><main id="main-content" tabIndex={-1}>
+  return <><ViewMemory route={location.hash}/><div className="app-shell"><a className="skip-link" href="#main-content">Перейти к содержимому</a><aside className="sidebar"><a className="brand" href="#/traces" aria-label="ZeroTrace — главная"><span className="brand-mark"><i/><i/><i/></span>ZeroTrace</a><nav aria-label="Основная навигация">{nav.filter(n=>['traces','graph','audit','lab'].includes(n.id)).map(n => <a key={n.id} href={n.id === 'graph' ? '#/services' : `#/${n.id}`} className={`nav-link ${(route.page === n.id || (n.id === 'graph' && route.page === 'timings')) ? 'is-active' : ''}`} aria-current={route.page === n.id ? 'page' : undefined}><Icon name={n.icon}/><span>{n.label}</span>{n.id === 'audit' && audit?.findings.length ? <small>{audit.findings.length}</small> : null}</a>)}</nav><details className="nav-more" key={route.page} open={['journal','sources'].includes(route.page)}><summary>Ещё <Icon name="chevron" size={13}/></summary><nav aria-label="Дополнительные разделы">{nav.filter(n=>['journal','sources'].includes(n.id)).map(n=><a key={n.id} href={n.id === 'graph' ? '#/services' : `#/${n.id}`} className={`nav-link ${route.page===n.id?'is-active':''}`} aria-current={route.page===n.id?'page':undefined}><Icon name={n.icon}/>{n.label}</a>)}</nav></details></aside><div className="main-shell"><main id="main-content" tabIndex={-1}>
     {planError && <Message tone="danger" action={<Button variant="ghost" onClick={() => setPlanError('')} aria-label="Закрыть ошибку" icon="close"/>}>{planError}</Message>}
     {standBuildError && <Message tone="danger">{standBuildError} <a href="#/lab">Открыть лабораторию</a></Message>}
-    {route.page === 'sources' ? <ConnectionView connection={connection} capabilities={capabilities} onChange={changeConnection}/> : route.page === 'lab' ? <Lab lab={lab} demo={connection.mode === 'demo'} client={client}/> : error ? <div className="connection-error"><Message tone="danger">{error}</Message><div className="error-actions"><RetryButton onClick={refresh}/><a className="button button--primary" href="#/sources">Настроить подключение</a></div><p className="muted">Демонстрационные данные не подставляются вместо ответа сервера.</p></div> : pageBusy ? <LoadingState>Загружаем данные…</LoadingState> : route.page === 'graph' || route.page === 'timings' ? <>{auditError&&<Message tone="warning">Аудит недоступен: {auditError}. Проблемные связи могут быть показаны не полностью.</Message>}<Services client={client} environmentId={connection.environmentId || 'shop'} traces={traces} total={total} audit={audit} view={route.page} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/></> : route.page === 'policies' ? auditError ? <Message tone="danger">Конфигурации недоступны: {auditError}</Message> : <Policies audit={audit} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/> : route.page === 'compare' ? <Compare traces={traces} demo={connection.mode === 'demo'}/> : route.page === 'audit' ? auditError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Аудит недоступен: {auditError}</Message> : <Audit audit={audit} onPlan={openPlan} pending={planBusy}/> : route.page === 'journal' ? journalError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Журнал недоступен: {journalError}</Message> : <Journal entries={journal}/> : selectedId ? traceError ? <Message tone="danger" action={<>
+    {route.page === 'sources' ? <ConnectionView connection={connection} capabilities={capabilities} onChange={changeConnection}/> : route.page === 'lab' ? <Lab lab={lab} demo={connection.mode === 'demo'} client={client}/> : error ? <div className="connection-error"><Message tone="danger">{error}</Message><div className="error-actions"><RetryButton onClick={refresh}/><a className="button button--primary" href="#/sources">Настроить подключение</a></div><p className="muted">Демонстрационные данные не подставляются вместо ответа сервера.</p></div> : pageBusy ? <LoadingState>Загружаем данные…</LoadingState> : route.page === 'graph' || route.page === 'timings' ? <>{auditError&&<Message tone="warning">Аудит недоступен: {auditError}. Проблемные связи могут быть показаны не полностью.</Message>}<Services client={client} environmentId={connection.environmentId || 'shop'} traces={traces} total={total} audit={audit} view={route.page} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/></> : route.page === 'audit' ? auditError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Аудит недоступен: {auditError}</Message> : <Audit audit={audit} onPlan={openPlan} pending={planBusy}/> : route.page === 'journal' ? journalError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Журнал недоступен: {journalError}</Message> : <Journal entries={journal}/> : selectedId ? traceError ? <Message tone="danger" action={<>
       <RetryButton onClick={refresh}/>
       <BackToTraces/>
     </>}>{traceError}</Message> : traceBusy || !trace ? <LoadingState>Открываем трейс…</LoadingState> : <TraceDetail key={`${trace.trace_ref.environment_id}-${trace.trace_ref.trace_id}-${trace.trace_ref.generation}-${trace.trace_ref.revision}`} trace={trace} audit={audit} auditLoading={auditBusy || membershipBusy} auditError={auditError} onRetryAudit={() => setAuditRefreshKey(key => key + 1)} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy} onExport={exportReport} onBuild={connection.mode === 'demo' ? () => lab.build(trace.trace_ref) : () => void buildLabFromTrace(trace.trace_ref)}/> : <TraceList client={client}/>}
-  </main></div>{plan && <PlanDialog key={plan.plan.plan_id} plan={plan.plan} finding={plan.finding} demo={connection.mode === 'demo'} canApply={connection.mode === 'live' && connection.environmentId === 'sandbox' && plan.plan.apply_enabled} client={client} onApplied={refresh} onStaleRecommendation={refreshStaleRecommendation} onClose={() => setPlan(null)}/>}</div>;
+  </main></div>{plan && <PlanDialog key={plan.plan.plan_id} plan={plan.plan} finding={plan.finding} showRuleInfo={!selectedId} demo={connection.mode === 'demo'} canApply={connection.mode === 'live' && connection.environmentId === 'sandbox' && plan.plan.apply_enabled} client={client} onApplied={refresh} onStaleRecommendation={refreshStaleRecommendation} onClose={() => setPlan(null)}/>}</div></>;
 }
