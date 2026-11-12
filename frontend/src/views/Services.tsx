@@ -54,10 +54,10 @@ export function Services({ client, environmentId, audit, view, onPlan, pending, 
     if(requestedFindingNode)setSurface('graph');
   },[requestedFinding,audit,data,requestedFindingNode?.id]);
   const findings = edge ? findingsOnEdge(edge).filter(isBudgetFinding) : [];
-  if(surface==='table')return <><PageHeader title="Сервисы" actions={<><EnvironmentScenario client={client} environmentId={environmentId}/><Button icon="refresh" onClick={()=>setReload(v=>v+1)}>Обновить</Button></>}/>
+  if(surface==='table')return <><PageHeader title="Сервисы" actions={<>{!demo && <EnvironmentScenario client={client} environmentId={environmentId}/>}<Button icon="refresh" onClick={()=>setReload(v=>v+1)}>Обновить</Button></>}/>
     <Tabs label="Представление сервисов" value={surface} onChange={value=>{setSurface(value);location.hash=`#/services?tab=${value==='graph'?'graph':'statistics'}`;}} items={[{value:'graph',label:'Граф'},{value:'table',label:'Статистика'}]}/>
     <ServiceStatistics client={client} reload={reload} onRetry={()=>setReload(v=>v+1)}/></>;
-  return <><PageHeader title="Сервисы" actions={<><EnvironmentScenario client={client} environmentId={environmentId}/><PeriodSelect value={period} onChange={setPeriod}/><Button icon="refresh" onClick={()=>setReload(v=>v+1)} loading={loading}>Обновить</Button></>}/>
+  return <><PageHeader title="Сервисы" actions={<>{!demo && <EnvironmentScenario client={client} environmentId={environmentId}/>}<PeriodSelect value={period} onChange={setPeriod}/><Button icon="refresh" onClick={()=>setReload(v=>v+1)} loading={loading}>Обновить</Button></>}/>
       <Tabs label="Представление сервисов" value={surface} onChange={value => { setSurface(value); location.hash = `#/services?tab=${value === 'graph' ? 'graph' : 'statistics'}`; }} items={[{value:'graph',label:'Граф'},{value:'table',label:'Статистика'}]}/>
     {!loading && <div>
       <Metrics items={[

@@ -11,7 +11,7 @@ const monitoringTraces: TraceSummary[] = Array.from({ length: 18 }, (_, i) => ({
   duration_ns: ns(i >= 5 && i % 5 === 4 ? 126 + i : i < 5 ? 2015 + i * 8 : 245 + i * 19),
   span_count: i < 5 ? 10 : 6, service_count: i < 5 ? 3 : 3,
   outcome: i === 8 ? 'unknown' : i < 5 ? 'error' : 'ok', http_status: i === 8 ? null : i < 5 ? 504 : 200,
-  finding_count: i < 5 ? 1 : 0, quality_issues: i === 8 ? ['Отсутствует родитель одного спана. Результат запроса неизвестен.'] : [],
+  finding_count: i < 5 ? 1 : 0, quality_issues: [],
 }));
 const makeSpan = (id: number, parent: number | null, service: string, name: string, kind: Span['kind'], start: number, duration: number, outcome: Span['outcome'] = 'ok', status: number | null = 200, error: string | null = null): Span => ({ span_id: id.toString(16).padStart(16, '0'), parent_span_id: parent === null ? null : parent.toString(16).padStart(16, '0'), service, name, kind, start_offset_ns: ns(start), duration_ns: ns(duration), outcome, http_status: status, error_type: error });
 const labSourceId = '0000000000000000000000004bf92012';
@@ -57,8 +57,8 @@ export function demoDetail(id: string): TraceDetail {
     makeSpan(5, 4, 'pricing', 'GET /quote', 'server', 35, duration * .57),
     makeSpan(6, 1, summary.service, 'serialize response', 'internal', duration - 15, 12),
   ];
-  if (summary.outcome === 'unknown') spans[spans.length-1].parent_span_id = 'ffffffffffffffff';
-  return { summary, trace_ref: summary.trace_ref, spans, quality_issues: [...summary.quality_issues, ...(bad ? ['Часть серверных операций продолжается после завершения входного запроса. Шкала включает весь полученный трейс.'] : [])] };
+  // Work continuing after an upstream timeout is valid trace data, not missing telemetry.
+  return { summary, trace_ref: summary.trace_ref, spans, quality_issues: [...summary.quality_issues] };
 }
 export const demoFinding: BudgetFinding = {
   finding_id: 'r4-orders-payment', occurrence_id: 'occ-demo-001', recommendation_id: 'rec-demo-001', rule_id: 'R4', rule_version: '1.0.0',

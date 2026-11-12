@@ -144,3 +144,19 @@ test('product and guide routes preserve the existing default and versioned trace
   const ref = { environment_id: 'shop', trace_id: 'abc', generation: 2, revision: 3 };
   assert.deepEqual(readRoute(traceHref(ref)), { page: 'traces', traceId: 'abc', traceRef: ref });
 });
+
+test('demo graph has complete span ancestry and no telemetry quality warnings', async () => {
+  for (const summary of demoTraces) {
+    const detail = demoDetail(summary.trace_id);
+    const ids = new Set(detail.spans.map(span => span.span_id));
+    assert.equal(detail.spans.filter(span => span.parent_span_id === null).length, 1);
+    for (const span of detail.spans) {
+      assert.ok(span.parent_span_id === null || ids.has(span.parent_span_id));
+    }
+    assert.deepEqual(detail.quality_issues, []);
+  }
+  const graph = await createClient({ mode: 'demo', baseUrl: '' }).getServiceGraph(30);
+  assert.equal(graph.quality_count, 0);
+  assert.deepEqual(graph.quality_traces, []);
+  assert.ok(graph.edges.some(edge => edge.errors > 0), 'Demo still includes genuine service errors');
+});
