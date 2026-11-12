@@ -12,7 +12,7 @@ test -f "$config"
 grep -q 'server_name mhs.dmitriy.space;' "$config"
 grep -q 'include /etc/nginx/snippets/folio.conf;' "$config"
 
-docker compose -f compose.yaml -f deploy/apelsin.compose.yaml --profile demo up -d --build --wait --wait-timeout 180
+docker compose -f deploy/apelsin.compose.yaml up -d --build --remove-orphans --wait --wait-timeout 180
 curl --fail --silent http://127.0.0.1:8000/healthz
 
 backup="${config}.zerotrace-backup-$(date +%Y%m%d%H%M%S)"

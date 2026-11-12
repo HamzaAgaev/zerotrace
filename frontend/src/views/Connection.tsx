@@ -1,3 +1,4 @@
+import { demoOnly } from '../deployment';
 import { Input } from '../components/ui';
 import { usePersistentState } from '../state';
 import { useEffect, useRef, useState } from 'react';
@@ -16,6 +17,7 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
 
   async function connect(event: React.FormEvent) {
     event.preventDefault();
+    if (demoOnly) return;
     setError('');
     setTesting(true);
     request.current?.abort();
@@ -37,9 +39,9 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
   }
 
   return <>
-    <PageHeader title="Настройки подключения" />
+    <PageHeader title={demoOnly ? "Демонстрационная версия" : "Настройки подключения"} />
     <div className="connection-grid">
-      <Panel title="Сервер ZeroTrace" meta={<Badge tone={connection.mode === 'live' ? 'success' : 'neutral'}>{connection.mode === 'live' ? 'Выбран' : 'Доступен'}</Badge>}>
+      {!demoOnly && <Panel title="Сервер ZeroTrace" meta={<Badge tone={connection.mode === 'live' ? 'success' : 'neutral'}>{connection.mode === 'live' ? 'Выбран' : 'Доступен'}</Badge>}>
         <form className="connection-form" onSubmit={connect}>
           <Field label="Адрес сервера">
             <Input id="server-url" type="url" required value={url} onChange={event => setUrl(event.target.value)} placeholder="http://127.0.0.1:8000" />
@@ -50,7 +52,7 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
           {error && <Message tone="danger">{error} Подключение не изменено.</Message>}
           <Button icon="plug" variant="primary" type="submit" loading={testing}>{testing ? 'Проверяем сервер…' : 'Проверить и подключить'}</Button>
         </form>
-      </Panel>
+      </Panel>}
       <Panel title="Демонстрационный набор" meta={<Badge tone={connection.mode === 'demo' ? 'success' : 'neutral'}>{connection.mode === 'demo' ? 'Выбран' : 'Доступен'}</Badge>}>
         <div className="connection-form">
           <p>Готовые примеры запросов, проблем и тестовых стендов. Подключение к серверу не требуется.</p>

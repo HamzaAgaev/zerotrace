@@ -1,3 +1,4 @@
+import { demoOnly, demoConnection } from './deployment';
 import { Landing } from './views/Landing';
 import { Guide } from './views/Guide';
 import { RequestActivity } from './components/RequestActivity';
@@ -36,7 +37,7 @@ function documentTitle(route: ReturnType<typeof readRoute>): string {
   if (route.page === 'traces' && route.traceId) return `Трейс ${route.traceId} — ZeroTrace`;
   return `${pageTitles[route.page] ?? 'Трейсы'} — ZeroTrace`;
 }
-function initialConnection(): Connection { try { const raw = JSON.parse(localStorage.getItem('zerotrace.connection') ?? 'null'); if (raw && ['live', 'demo'].includes(raw.mode) && typeof raw.baseUrl === 'string') return { mode: raw.mode, baseUrl: normalizeBaseUrl(raw.baseUrl), environmentId: typeof raw.environmentId === 'string' ? raw.environmentId : undefined }; } catch { /* A broken saved setting must not prevent opening settings. */ } return { mode: 'live', baseUrl: import.meta.env.BASE_URL === '/' ? '' : new URL(import.meta.env.BASE_URL, location.origin).href.replace(/\/$/, ''), environmentId: 'shop' }; }
+function initialConnection(): Connection { if (demoOnly) return demoConnection(); try { const raw = JSON.parse(localStorage.getItem('zerotrace.connection') ?? 'null'); if (raw && ['live', 'demo'].includes(raw.mode) && typeof raw.baseUrl === 'string') return { mode: raw.mode, baseUrl: normalizeBaseUrl(raw.baseUrl), environmentId: typeof raw.environmentId === 'string' ? raw.environmentId : undefined }; } catch { /* A broken saved setting must not prevent opening settings. */ } return { mode: 'live', baseUrl: import.meta.env.BASE_URL === '/' ? '' : new URL(import.meta.env.BASE_URL, location.origin).href.replace(/\/$/, ''), environmentId: 'shop' }; }
 export default function App() {
   const [connection, setConnection] = useState<Connection>(initialConnection);
   const scope = `${connection.mode}:${connection.baseUrl}:${connection.environmentId}`;
@@ -154,7 +155,7 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
   }, [client, connection.mode, loadedTraceRef, auditRefreshKey, audit, auditBusy]);
   useEffect(() => () => planRequest.current?.abort(), []);
   const refresh = useCallback(() => setRefreshKey(v => v + 1), []);
-  const changeConnection = (value: Connection) => { setPlanError(''); setConnection(value); try { localStorage.setItem('zerotrace.connection', JSON.stringify(value)); } catch { /* Current connection still works if persistence is unavailable. */ } };
+  const changeConnection = (requested: Connection) => { const value = demoOnly ? demoConnection() : requested; setPlanError(''); setConnection(value); try { localStorage.setItem('zerotrace.connection', JSON.stringify(value)); } catch { /* Current connection still works if persistence is unavailable. */ } };
   function refreshStaleRecommendation() {
     setPlanError('Рекомендация устарела. Обновляем аудит. Откройте актуальный план, если он доступен.');
     refresh();

@@ -1,6 +1,22 @@
+name: zerotrace
 services:
   zerotrace:
     build:
+      context: ..
+      dockerfile: Dockerfile
+      target: demo
       args:
         VITE_BASE_PATH: /zerotrace/
+        VITE_DEMO_ONLY: "true"
+    image: zerotrace:public-demo
+    ports:
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
