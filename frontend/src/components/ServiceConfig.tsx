@@ -92,7 +92,7 @@ export function ServiceConfig({ client, service, environmentId, localOnly = fals
             <Field label="99-й перцентиль, мс"><input required type="number" min={work.p50_ms} value={work.p99_ms} disabled={disabled||!route.write_fields.includes('work')} onChange={e=>updateWork({...work,p99_ms:Number(e.target.value)})}/></Field><p className="muted">99% запросов обрабатываются за время 99-го перцентиля или быстрее. Используется логнормальное распределение.</p>
           </>}
         </>}
-        <Button type="submit" disabled={disabled||pending||conflict||!changed}>{pending?'Готовим план…':'Подготовить план'}</Button>
+        <Button type="submit" loading={pending} disabled={disabled||pending||conflict||!changed}>{pending?'Готовим план…':'Подготовить план'}</Button>
       </form>}
       {draft&&<><Button onClick={()=>removeDraft(key)}>Сбросить черновик выбранного эндпоинта</Button>{conflict&&<><section className="form-section"><h3>Текущие значения на сервере</h3><dl className="technical-grid">{call ? <><div><dt>Таймаут попытки</dt><dd>{call.timeout_ms} мс</dd></div><div><dt>Всего попыток</dt><dd>{call.max_attempts}</dd></div><div><dt>Пауза между попытками</dt><dd>{call.backoff_ms} мс</dd></div><div><dt>Условия повтора</dt><dd>{call.retry_on.join(', ') || 'Без повторов'}</dd></div></> : route?.work.kind === 'fixed' ? <div><dt>Время обработки</dt><dd>{route.work.delay_ms} мс</dd></div> : route && <><div><dt>Медиана</dt><dd>{route.work.p50_ms} мс</dd></div><div><dt>99-й перцентиль</dt><dd>{route.work.p99_ms} мс</dd></div></>}</dl></section><Button onClick={()=>setDrafts(old=>({...old,[key]:{...old[key],revision:snapshot.revision}}))}>Значения проверены — использовать текущую версию</Button></>}</>}
     </>}

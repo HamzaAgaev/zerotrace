@@ -1,3 +1,4 @@
+import { trackRequest } from './activity.js';
 import { calculatePeriodMetrics, validPeriod } from './periodMetrics.js';
 import { createDemoLab } from './demoLab.js';
 import { filterTraces, traceRequest } from '../lib.js';
@@ -157,7 +158,7 @@ function selectSpanFields(detail: TraceDetail, includeKind: boolean): TraceDetai
   return detail;
 }
 
-export function createClient(connection: Connection, fetcher: typeof fetch = fetch): Client {
+function createClientAdapter(connection: Connection, fetcher: typeof fetch = fetch): Client {
   const base = normalizeBaseUrl(connection.baseUrl), environmentId = connection.environmentId || 'shop';
   const scoped = (path: string, params: Record<string, string> = {}, environment = environmentId) => `${path}?${new URLSearchParams({ environment_id: environment, ...params })}`;
   async function request<T>(path: string, kind: Parameters<typeof validatePayload>[0], signal?: AbortSignal, body?: unknown, method = 'GET', timeoutSeconds = 5): Promise<T> {
@@ -287,4 +288,13 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
       services: [...new Set(demoTraces.flatMap(trace => demoDetail(trace.trace_id).spans.map(s=>s.service)))].sort(), methods, outcomes,
       ...(query.includeSuccessRates ? { success_rates: demoSuccessRates() } : {}) };
   }, getTrace: async (id, signal, options) => { await pause(signal); const detail = demoDetail(typeof id === 'string' ? id : id.trace_id); if (typeof id !== 'string' && !sameTraceRef(id, detail.trace_ref)) throw new ApiError('Эта версия трейса не найдена.', 404, 'trace_ref_not_found'); return selectSpanFields({ ...detail, finding_occurrence_ids: demoAudit.findings.filter(f => f.exemplars.some(ref => sameTraceRef(ref, detail.trace_ref))).map(f => f.occurrence_id) }, options?.includeSpanKind !== false); }, getAudit: async signal => { await pause(signal); return demoAudit; }, getCapabilities: async signal => { await pause(signal); return demoCapabilities; }, createPlan: async (finding: BudgetFinding, signal?: AbortSignal) => { await pause(signal); return demoPlan(finding); }, listEnvironments: unsupported('Список окружений'), listServices: unsupported('Список сервисов'), ...createDemoLab(typeof localStorage === 'undefined' ? undefined : localStorage) };
+}
+
+/** Track the whole operation, including background-job polling, in both adapters. */
+export function createClient(connection: Connection, fetcher: typeof fetch = fetch): Client {
+  const adapter=createClientAdapter(connection,fetcher);
+  return new Proxy(adapter,{get(target,key: keyof Client){
+    const method=target[key];
+    return typeof method==='function' ? (...args: unknown[])=>trackRequest(()=>Reflect.apply(method,target,args)) : method;
+  }});
 }

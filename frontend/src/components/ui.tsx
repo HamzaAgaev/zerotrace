@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import type { Tone } from '../api/types';
 export type IconName = 'graph' | 'clock' | 'compare' | 'traces' | 'audit' | 'journal' | 'plug' | 'search' | 'refresh' | 'chevron' | 'arrow' | 'download' | 'close' | 'check' | 'copy' | 'info' | 'external' | 'filter';
@@ -20,7 +21,22 @@ const paths: Record<IconName, ReactNode> = {
   filter: <path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z"/>,
 };
 export function Icon({ name, size = 18, className = '' }: { name: IconName; size?: number; className?: string }) { return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>; }
-export function Button({ children, variant = 'secondary', icon, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost'; icon?: IconName }) { return <button className={`button button--${variant} ${className}`} {...props}>{icon && <Icon name={icon} size={16}/>} {children}</button>; }
+export function Button({ children, variant = 'secondary', icon, loading = false, className = '', onClick, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost'; icon?: IconName; loading?: boolean }) {
+  const [working,setWorking]=useState(false);
+  const [actionError,setActionError]=useState('');
+  const inFlight=useRef(false);
+  const busy=loading||working;
+  return <><button className={`button button--${variant} ${className}`} {...props} disabled={disabled||busy} aria-busy={busy||undefined} onClick={event=>{
+    if(inFlight.current||loading)return;
+    setActionError('');
+    const result=onClick?.(event) as unknown;
+    if(result && typeof (result as PromiseLike<unknown>).then==='function') {
+      inFlight.current=true;setWorking(true);
+      const finish=()=>{inFlight.current=false;setWorking(false);};
+      Promise.resolve(result).then(finish,error=>{finish();setActionError(error instanceof Error ? error.message : 'Не удалось выполнить действие.');});
+    }
+  }}>{busy ? <span className="spinner button-spinner" aria-hidden="true"/> : icon && <Icon name={icon} size={16}/>} {children}</button>{actionError && <span role="alert" className="button-error">{actionError}</span>}</>;
+}
 export function RetryButton({ onClick }: Pick<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>) {
   return <Button type="button" className="button--retry" icon="refresh" onClick={onClick}>Повторить</Button>;
 }

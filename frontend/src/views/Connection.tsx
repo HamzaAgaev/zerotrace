@@ -47,7 +47,7 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
             <input id="environment-id" required value={environmentId} onChange={event => setEnvironmentId(event.target.value)} placeholder="shop" />
           </Field>
           {error && <Message tone="danger">{error} Подключение не изменено.</Message>}
-          <Button icon="plug" variant="primary" type="submit" disabled={testing}>{testing ? 'Проверяем сервер…' : 'Проверить и подключить'}</Button>
+          <Button icon="plug" variant="primary" type="submit" loading={testing}>{testing ? 'Проверяем сервер…' : 'Проверить и подключить'}</Button>
         </form>
       </Panel>
       <Panel title="Демонстрационный набор" meta={<Badge tone={connection.mode === 'demo' ? 'success' : 'neutral'}>{connection.mode === 'demo' ? 'Выбран' : 'Доступен'}</Badge>}>

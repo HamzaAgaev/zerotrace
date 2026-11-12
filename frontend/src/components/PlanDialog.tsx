@@ -144,7 +144,7 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
         <span>{applyBlocked || (localOnly ? 'Изменения сохранятся только в демонстрационном наборе.' : 'Изменения будут применены на сервере.')}</span>
         <div className="page-actions">
           <Button onClick={close} disabled={busy}>Закрыть</Button>
-          {canApply && <Button variant="primary" onClick={() => void apply()} disabled={busy || !plan.apply_enabled} title={!plan.apply_enabled ? 'Сервер не разрешает применить этот план' : undefined}>
+          {canApply && <Button variant="primary" loading={busy} onClick={() => apply()} disabled={busy || !plan.apply_enabled} title={!plan.apply_enabled ? 'Сервер не разрешает применить этот план' : undefined}>
             {busy ? 'Применяем…' : 'Применить'}
           </Button>}
         </div>

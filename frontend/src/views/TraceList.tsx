@@ -1,3 +1,4 @@
+import { SelectedFilters } from '../components/SelectedFilters';
 import { usePersistentState } from '../state';
 import { HttpMethod, HttpStatus } from '../components/HttpText';
 import { useEffect, useRef, useState } from 'react';
@@ -134,7 +135,7 @@ export function TraceList({ client }: { client: Client }) {
   const count = (value: number | undefined) => formatCount(value);
 
   return <>
-    <PageHeader title="Трейсы" actions={<><Button icon="refresh" onClick={refresh} disabled={busy}>Обновить</Button></>}/>
+    <PageHeader title="Трейсы" actions={<><Button icon="refresh" onClick={refresh} loading={busy}>Обновить</Button></>}/>
     <PeriodSummary client={client} reload={reload} onRetry={refresh}/>
 
     <Panel className="trace-table-panel">
@@ -170,6 +171,12 @@ export function TraceList({ client }: { client: Client }) {
         {filtersActive && <Button variant="ghost" onClick={resetFilters}>Сбросить</Button>}
       </div>
 
+      <SelectedFilters groups={[
+        {label:'Сервис',values:service,name:value=>value,onChange:values=>{setService(values);setPage(1);}},
+        {label:'Метод',values:method,name:value=>value,onChange:values=>{setMethod(values);setPage(1);}},
+        {label:'Результат',values:status,name:value=>outcomeLabels[value as keyof typeof outcomeLabels] ?? value,onChange:values=>{setStatus(values);setPage(1);}},
+        {label:'Правило',values:rules,name:ruleName,onChange:values=>{setRules(values);setPage(1);}},
+      ]}/>
       <form ref={searchForm} className="trace-period-filter" aria-label="Фильтры по Span ID и периоду" onSubmit={applySearch}>
         <Field label="Span ID">
           <input type="search" name="span_id" value={periodDraft.span_id} onChange={e=>setPeriodDraft(old=>({...old,span_id:e.target.value}))} placeholder="16 шестнадцатеричных символов"/>
@@ -191,6 +198,7 @@ export function TraceList({ client }: { client: Client }) {
       </div>}
 
       <div aria-busy={busy}>
+        {busy && rows.length > 0 && <LoadingState>Обновляем результаты…</LoadingState>}
         {rows.length > 0 && <TableScroll><table className="trace-table" aria-label="Трейсы">
           <thead><tr>
             <th scope="col" className="trace-method-column">Метод</th><th scope="col">Эндпоинт</th>
