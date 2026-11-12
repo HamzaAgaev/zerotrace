@@ -32,7 +32,7 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
   const [error, setError] = useState('');
   const { service, operation } = targetParts(plan.target);
   const applyBlocked = demo
-    ? 'Демонстрационный план нельзя применить: изменения не отправляются на сервер.'
+    ? 'Это демонстрационный план. Для применения подключите сервер.'
     : !canApply
       ? 'Применение недоступно: подключите сервер и выберите окружение sandbox.'
       : !plan.apply_enabled
@@ -141,7 +141,7 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
         {plan.warnings.map(warning => <p className="plan-warning" key={warning}>{warning}</p>)}
       </div>
       <footer>
-        <span>{applyBlocked || (localOnly ? 'Изменения сохранятся только в демонстрационном наборе.' : 'Изменения будут применены на сервере.')}</span>
+        <span>{applyBlocked || (localOnly ? 'Изменения сохранятся только в браузере.' : 'Изменения будут применены на сервере.')}</span>
         <div className="page-actions">
           <Button onClick={close} disabled={busy}>Закрыть</Button>
           {canApply && <Button variant="primary" loading={busy} onClick={() => apply()} disabled={busy || !plan.apply_enabled} title={!plan.apply_enabled ? 'Сервер не разрешает применить этот план' : undefined}>

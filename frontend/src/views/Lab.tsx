@@ -163,7 +163,7 @@ export function Lab({ client, demo = false }: { client: Client | null; demo?: bo
   const displayedRuns = stand ? runs.filter(run=>run.stand_id===stand.stand_id) : runs;
   if(client&&refreshing&&!stand&&!runs.length)return <><PageHeader title="Тестовый стенд"/><LoadingState>Загружаем стенд…</LoadingState></>;
   return <><PageHeader title="Тестовый стенд" actions={<><Button icon="refresh" onClick={() => refresh()} disabled={busy}>Обновить</Button></>}/>
-    <p className="stand-purpose">Изолированные мок-сервисы по вашей конфигурации. Реальные сервисы не изменяются.</p>
+    {!demo && <p className="stand-purpose">Изолированные мок-сервисы по вашей конфигурации. Реальные сервисы не изменяются.</p>}
     {error && <Message tone="danger">{error}</Message>}
     {!client ? <Message tone="warning">Подключите сервер на странице «Настройки подключения».</Message> : !stand ? <Panel title="Создание стенда"><div className="lab-body scenario-upload">
       <p>Загрузите JSON с описанием сервисов и их вызовов.</p>
