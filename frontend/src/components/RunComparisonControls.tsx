@@ -15,13 +15,13 @@ export function RunComparisonControls({
   allowClear?: boolean;
   children?: ReactNode;
 }) {
-  return <div className="lab-actions">
+  return <div className="form-grid run-comparison-controls">
     {[
       { label: 'До изменения', value: baseline, onChange: onBaselineChange },
       { label: 'После изменения', value: candidate, onChange: onCandidateChange },
     ].map(({ label, value, onChange }) => <Field key={label} label={label}>
       <Select aria-label={label} value={value} onChange={onChange} disabled={!options.length}>
-        <option value="" disabled={!allowClear}>Выберите прогон</option>
+        <option value="" disabled={!allowClear}>Выберите тест</option>
         {options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
       </Select>
     </Field>)}

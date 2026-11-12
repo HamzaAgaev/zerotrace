@@ -314,7 +314,7 @@ def test_get_trace_detail_spans_and_offsets() -> None:
         assert SpanView.from_dict(raw_span).span_id
 
 
-def test_only_successful_client_with_one_server_child_can_be_hidden() -> None:
+def test_paired_client_is_compacted_regardless_of_status() -> None:
     source = make_store().get_spans(TraceRef("shop", "a" * 32, 1, 1))
     assert source is not None
     root, original_client = source
@@ -327,7 +327,11 @@ def test_only_successful_client_with_one_server_child_can_be_hidden() -> None:
     assert detail.compactable_client_spans == {client.span_id: server.span_id}
     assert len(detail.spans) == 3
     failed = dataclasses.replace(client, otel_status="error")
-    assert trace_detail(stub_build_graph([root, failed, server], ref)).compactable_client_spans is None
+    assert trace_detail(stub_build_graph([root, failed, server], ref)).compactable_client_spans == {client.span_id: server.span_id}
+    timed_out = dataclasses.replace(client, http_status=504, otel_status="error", error_type="timeout")
+    assert trace_detail(stub_build_graph([root, timed_out, server], ref)).compactable_client_spans == {client.span_id: server.span_id}
+    second = dataclasses.replace(server, span_id="e" * 16)
+    assert trace_detail(stub_build_graph([root, client, server, second], ref)).compactable_client_spans is None
     assert trace_detail(stub_build_graph([root, client], ref)).compactable_client_spans is None
 
 

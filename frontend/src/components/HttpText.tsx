@@ -64,5 +64,10 @@ export function endpointLabel(service: string, operation: string) {
   const request = splitHttpOperation(operation, true);
   const path = request?.endpoint ?? operation;
   const target = /^(\S+)\s+(\/.*)$/.exec(path);
-  return [request?.method, target ? target[1]+target[2] : path.startsWith('/') ? service + path : `${service} · ${path || 'Путь не указан'}`].filter(Boolean).join(' ');
+  return [request?.method, target ? target[1]+target[2] : path.startsWith('/') ? service + path : `${service} — ${path || 'Путь не указан'}`].filter(Boolean).join(' ');
+}
+
+/** Identical endpoint presentation in selectors, cards and forms. */
+export function Endpoint({ service, operation }: { service: string; operation: string }) {
+  return <HttpOperation operation={endpointLabel(service, operation)}/>;
 }

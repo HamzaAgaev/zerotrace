@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkBudget, percentile, summarize, unionLength } from '../src/analysis.js';
+import { percentile, summarize, unionLength } from '../src/analysis.js';
 import { demoDetail, demoTraces } from '../src/api/fixtures.js';
 import { readRoute } from '../src/lib.js';
 import type { Span, TraceDetail } from '../src/api/types.js';
@@ -33,6 +33,4 @@ test('client-only calls show the target without inventing server timings', () =>
   assert.notEqual(paired.edges[0].to.id, observed.to.id);
   assert.equal(paired.services.find(s => s.name === 'payment')?.median, 16);
 });
-test('policy budget includes first attempt and n-1 pauses',()=>{assert.deepEqual(checkBudget({timeout:800,attempts:2,backoff:50,budget:2000}),{valid:true,required:1650,reserve:350});assert.equal(checkBudget({timeout:1000,attempts:3,backoff:75,budget:2000}).reserve,-1150);assert.equal(checkBudget({timeout:800,attempts:1,backoff:999,budget:900}).required,800);});
-test('invalid drafts cannot be exported as calculated budgets',()=>{for(const draft of [{timeout:0,attempts:2,backoff:50,budget:2000},{timeout:800,attempts:2.5,backoff:50,budget:2000},{timeout:800,attempts:2,backoff:NaN,budget:2000},{timeout:Infinity,attempts:2,backoff:50,budget:2000}]) assert.equal(checkBudget(draft).required,null);});
 test('legacy navigation opens the consolidated sections',()=>{assert.deepEqual(readRoute('#/policies?finding=x'),{page:'graph'});assert.deepEqual(readRoute('#/compare'),{page:'traces'});assert.deepEqual(readRoute('#/services?tab=statistics'),{page:'timings'});assert.deepEqual(readRoute('#/services?tab=graph'),{page:'graph'});});

@@ -1,9 +1,9 @@
 import { usePersistentState, usePersistentTab } from '../state';
 import { ServiceCall } from '../components/HttpText';
 import type { AuditResult, Finding } from '../api/types';
-import { Badge, Button, EmptyState, Icon, Panel, PageHeader } from '../components/ui';
+import { Badge, Button, EmptyState, Icon, Panel, TableScroll, PageHeader } from '../components/ui';
 import { Metrics } from '../components/Metrics';
-import { RuleLabel, ruleName } from '../components/RuleLabel';
+import { RuleLabel, ruleName, ruleImpact } from '../components/RuleLabel';
 import { Tabs } from '../components/Tabs';
 import { duration, traceHref } from '../lib';
 
@@ -49,7 +49,7 @@ export function FindingCard({ finding: f, onPlan, pending }: { finding: Finding;
         ]} />
         <div className="finding-summary">
           <section><h3>Что не так</h3><p>{explanation || f.title}</p></section>
-          <section><h3>На что влияет</h3><p>{`Проблема обнаружена в ${f.affected_count} из ${f.denominator_count} проверенных трейсов.`}</p></section>
+          <section><h3>На что влияет</h3><p>{ruleImpact(f.rule_id)}</p></section>
           <section>
             <h3>Что изменить</h3>
             <p>{f.recommendation.text}</p>
@@ -59,13 +59,12 @@ export function FindingCard({ finding: f, onPlan, pending }: { finding: Finding;
         {evidence.kind === 'retry_budget' && f.recommendation.can_prepare_plan !== false && <div className="recommendation-bottom">
           <Button variant="primary" icon="external" disabled={pending} onClick={() => onPlan(f)}>{pending ? 'Готовим план…' : 'Посмотреть план'}</Button>
         </div>}
-      </div> : tab === 'evidence' ? <details className="finding-evidence" open>
-        <summary>Технические подробности</summary>
+      </div> : tab === 'evidence' ? <div className="finding-evidence">
         <dl className="technical-grid">
           <div><dt>Код проверки</dt><dd className="mono">{f.rule_id}</dd></div>
           <div><dt>Версия проверки</dt><dd>{f.rule_version}</dd></div>
           <div><dt>Основание</dt><dd>{basisLabel[f.basis]}; уверенность — {confidenceLabel[f.confidence]}</dd></div>
-          {evidence.kind === 'retry_budget' && <div><dt>Версия конфигурации</dt><dd>{evidence.config_revision}</dd></div>}
+          {evidence.kind === 'retry_budget' && <div><dt>Версия настроек</dt><dd>{evidence.config_revision}</dd></div>}
         </dl>
         <div className="finding-rationale">
           {rationale.map(text => <p key={text}>{text}</p>)}
@@ -86,12 +85,11 @@ export function FindingCard({ finding: f, onPlan, pending }: { finding: Finding;
           <h3>Что проверить перед изменением</h3>
           <ul className="risk-list">{f.recommendation.risks.map(risk => <li key={risk}>{risk}</li>)}</ul>
         </div>}
-      </details> : <div className="example-links">
+      </div> : <div className="example-links">
         {f.exemplars.map(ref => {
           const href = traceHref(ref);
           return <a className="button" key={href} href={href}>
             <span className="tabular">{ref.trace_id}</span>
-            <small className="cell-note">Окружение {ref.environment_id} · поколение {ref.generation} · версия {ref.revision}</small>
             <Icon name="arrow" size={16} />
           </a>;
         })}
@@ -128,13 +126,11 @@ export function Audit({ audit, onPlan, pending }: { audit: AuditResult | null; o
         : <Panel><EmptyState icon="audit" title={noProblems.title} description={noProblems.description}
           action={<Button onClick={() => setTab('rules')}>Посмотреть проверки</Button>} /></Panel>}
     </div> : <Panel title="Проверки">
-      {rules.length ? <div className="rule-list">{rules.map(rule => <div className="rule-item" key={rule.rule_id}>
-        <RuleLabel id={rule.rule_id} />
-        <Badge tone={rule.status === 'evaluated' ? 'success' : rule.status === 'not_implemented' || rule.status === 'insufficient_data' ? 'warning' : 'neutral'}>
-          {ruleStatusLabel[rule.status]}
-        </Badge>
-        {rule.status === 'evaluated' && <small>Доступно трейсов: {rule.eligible_count}</small>}
-      </div>)}</div> : <p className="muted">Список проверок ещё не получен.</p>}
+      {rules.length ? <TableScroll><table><thead><tr><th>Проверка</th><th>Результат</th><th>Трейсов для проверки</th></tr></thead><tbody>{rules.map(rule => <tr key={rule.rule_id}>
+        <td><RuleLabel id={rule.rule_id}/></td>
+        <td><Badge tone={rule.status === 'evaluated' ? 'success' : rule.status === 'not_implemented' || rule.status === 'insufficient_data' ? 'warning' : 'neutral'}>{ruleStatusLabel[rule.status]}</Badge></td>
+        <td>{rule.status === 'evaluated' ? rule.eligible_count : '—'}</td>
+      </tr>)}</tbody></table></TableScroll> : <p className="panel-note">Список проверок ещё не получен.</p>}
       {limited.length > 0 && <p className="panel-note">«Недостаточно данных» означает, что проверка не смогла сделать вывод, а не что проблема отсутствует.</p>}
       {unavailable.length > 0 && <p className="panel-note">«Проверка пока недоступна» означает, что правило ещё не реализовано на сервере.</p>}
     </Panel>}

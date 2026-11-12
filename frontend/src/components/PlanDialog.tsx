@@ -12,11 +12,12 @@ function targetParts(target: string) {
   return { service: target.slice(0, index), operation: target.slice(index + 3) };
 }
 
-export function PlanDialog({ plan, finding, demo = false, canApply, client, onApplied, onStaleRecommendation, onClose, showRuleInfo = true }: {
+export function PlanDialog({ plan, finding, demo = false, localOnly = false, canApply, client, onApplied, onStaleRecommendation, onClose, showRuleInfo = true }: {
   plan: ChangePlan;
   finding?: Finding;
   showRuleInfo?: boolean;
   demo?: boolean;
+  localOnly?: boolean;
   canApply: boolean;
   client: Client;
   onApplied: (entry: JournalEntry | null) => void;
@@ -113,7 +114,7 @@ export function PlanDialog({ plan, finding, demo = false, canApply, client, onAp
         <div className="plan-target">
           <div><span>Сервис</span><strong>{service || 'Не указан'}</strong></div>
           <div><span>Вызов</span><strong><HttpOperation operation={operation} /></strong></div>
-          <Badge tone="accent">Версия конфигурации {plan.expected_revision}</Badge>
+          <Badge tone="accent">Версия настроек {plan.expected_revision}</Badge>
         </div>
         <TableScroll className="plan-table">
           <table>
@@ -125,17 +126,10 @@ export function PlanDialog({ plan, finding, demo = false, canApply, client, onAp
             </tr>)}</tbody>
           </table>
         </TableScroll>
-        <details className="plan-technical">
-          <summary>Технические подробности плана</summary>
-          <dl>
-            <div><dt>Цель</dt><dd><HttpTarget target={plan.target} /></dd></div>
-            <div><dt>Идентификатор плана</dt><dd className="mono">{plan.plan_id}</dd></div>
-            <div><dt>Хеш плана</dt><dd className="mono">{plan.plan_hash}</dd></div>
-            {finding && <div><dt>Идентификатор проблемы</dt><dd className="mono">{finding.occurrence_id}</dd></div>}
-            {plan.environment_id && <div><dt>Окружение</dt><dd className="mono">{plan.environment_id}</dd></div>}
-            <div><dt>План действует до</dt><dd>{new Date(plan.expires_at).toLocaleString('ru-RU')}</dd></div>
-          </dl>
-        </details>
+        <dl className="context-values">
+          {plan.environment_id && <div><dt>Окружение</dt><dd>{plan.environment_id}</dd></div>}
+          <div><dt>Действует до</dt><dd>{new Date(plan.expires_at).toLocaleString('ru-RU')}</dd></div>
+        </dl>
         {finding && <div className="plan-rationale">
           <h3>Почему это предлагается</h3>
           <p>{finding.recommendation.why}</p>
@@ -147,7 +141,7 @@ export function PlanDialog({ plan, finding, demo = false, canApply, client, onAp
         {plan.warnings.map(warning => <p className="plan-warning" key={warning}>{warning}</p>)}
       </div>
       <footer>
-        <span>{applyBlocked || 'Применение изменит настройки на сервере. Результат будет доступен в журнале.'}</span>
+        <span>{applyBlocked || (localOnly ? 'Изменения сохранятся только в демонстрационном наборе.' : 'Изменения будут применены на сервере.')}</span>
         <div className="page-actions">
           <Button onClick={close} disabled={busy}>Закрыть</Button>
           {canApply && <Button variant="primary" onClick={() => void apply()} disabled={busy || !plan.apply_enabled} title={!plan.apply_enabled ? 'Сервер не разрешает применить этот план' : undefined}>

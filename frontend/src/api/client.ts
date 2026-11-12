@@ -1,6 +1,7 @@
+import { createDemoLab } from './demoLab.js';
 import { filterTraces, traceRequest } from '../lib.js';
 import type { ApplyResult, AuditResult, Capabilities, ChangePlan, Client, ConfigSnapshot, Connection, Environment, JournalEntry, LabFault, LabRun, ListPayload, ManagedService, ManualChangeIntent, ProjectionResult, RunComparison, Stand, TraceCohortComparison, TraceDetail, TraceRef } from './types.js';
-import { demoAudit, demoCapabilities, demoDetail, demoJournal, demoPlan, demoTraces } from './fixtures.js';
+import { demoAudit, demoCapabilities, demoDetail, demoPlan, demoTraces } from './fixtures.js';
 import { successWindowsMinutes } from './types.js';
 import type { BudgetFinding, SuccessRates } from './types.js';
 
@@ -72,7 +73,7 @@ const http = (value: unknown) => value === null || (count(value) && value >= 100
 const changes = (value: unknown) => Array.isArray(value) && value.every(change => obj(change) && str(change.field) && str(change.before) && str(change.after));
 
 export function unwrap(value: unknown): unknown {
-  if (!obj(value) || typeof value.schema_version !== 'string' || !/^1\./.test(value.schema_version) || !('payload' in value)) throw new ApiError('Формат ответа не соответствует API v1. Проверьте контракт подключения.', 0, 'schema_mismatch');
+  if (!obj(value) || typeof value.schema_version !== 'string' || !/^1\./.test(value.schema_version) || !('payload' in value)) throw new ApiError('Версия ответа сервера не поддерживается. Проверьте совместимость фронтенда и сервера.', 0, 'schema_mismatch');
   return value.payload;
 }
 
@@ -135,7 +136,14 @@ function pause(signal?: AbortSignal, delay = 180): Promise<void> { return new Pr
 
 function selectSpanFields(detail: TraceDetail, includeKind: boolean): TraceDetail {
   if (!includeKind) {
-    return { ...detail, spans: detail.spans.map(({ kind: _kind, ...span }) => span) };
+    // Keep structural pairing before omitting kind from the presentation payload.
+    const pairs = { ...detail.compactable_client_spans };
+    for (const span of detail.spans) {
+      if (span.kind !== 'client') continue;
+      const children = detail.spans.filter(child => child.parent_span_id === span.span_id);
+      if (children.length === 1 && children[0].kind === 'server' && children[0].service !== span.service) pairs[span.span_id] = children[0].span_id;
+    }
+    return { ...detail, compactable_client_spans: pairs, spans: detail.spans.map(({ kind: _kind, ...span }) => span) };
   }
   if (detail.spans.some(span => span.kind === undefined)) {
     throw new ApiError('Сервер не вернул тип спана для анализа.', 0, 'invalid_payload');
@@ -159,7 +167,7 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     } catch (error) {
       if (signal?.aborted) throw error;
       if (timeout.aborted) throw timeoutError();
-      throw new ApiError('Сервер вернул не JSON. Проверьте адрес API.', response.status, 'invalid_json');
+      throw new ApiError('Сервер вернул ответ не в формате JSON. Проверьте адрес сервера.', response.status, 'invalid_json');
     }
     if (!response.ok) { const error = obj(raw) && obj(raw.error) ? raw.error : null; throw new ApiError(typeof error?.message === 'string' ? error.message : `Ошибка сервера: HTTP ${response.status}`, response.status, typeof error?.code === 'string' ? error.code : 'http_error'); }
     const payload = unwrap(raw);
@@ -207,7 +215,7 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
       const detail = await request<TraceDetail>(scoped(`/api/v1/traces/${encodeURIComponent(id)}`, params, environment), 'trace', signal);
       if (detail.trace_ref.environment_id !== environment || detail.trace_ref.trace_id !== id
           || (typeof ref !== 'string' && !sameTraceRef(ref, detail.trace_ref))) {
-        throw new ApiError('Сервер вернул другой трейс или ревизию.', 0, 'trace_ref_mismatch');
+        throw new ApiError('Сервер вернул другой трейс или другую версию трейса.', 0, 'trace_ref_mismatch');
       }
       return selectSpanFields(detail, options?.includeSpanKind !== false);
     },
@@ -249,5 +257,5 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     return { items: filtered.slice(offset, offset + (query.limit ?? 100)), total: filtered.length,
       services: [...new Set(demoTraces.map(trace => trace.service))], methods, outcomes,
       ...(query.includeSuccessRates ? { success_rates: demoSuccessRates() } : {}) };
-  }, getTrace: async (id, signal, options) => { await pause(signal); const detail = demoDetail(typeof id === 'string' ? id : id.trace_id); if (typeof id !== 'string' && !sameTraceRef(id, detail.trace_ref)) throw new ApiError('Эта ревизия трейса не найдена.', 404, 'trace_ref_not_found'); return selectSpanFields(detail, options?.includeSpanKind !== false); }, getAudit: async signal => { await pause(signal); return demoAudit; }, getCapabilities: async signal => { await pause(signal); return demoCapabilities; }, getJournal: async signal => { await pause(signal); return demoJournal; }, getJournalEntry: unsupported('История операций'), getJournalEntryForEnvironment: unsupported('История операций'), createPlan: async (finding: BudgetFinding, signal?: AbortSignal) => { await pause(signal); return demoPlan(finding); }, listEnvironments: unsupported('Список окружений'), listServices: unsupported('Список сервисов'), getConfig: unsupported('Конфигурация сервиса'), createManualPlan: unsupported('Ручное изменение'), applyPlan: unsupported('Применение плана'), getActiveStand: unsupported('Лаборатория'), createStand: unsupported('Лаборатория'), createStandFromTrace: unsupported('Лаборатория'), stopStand: unsupported('Лаборатория'), setFault: unsupported('Лаборатория'), clearFault: unsupported('Лаборатория'), startRun: unsupported('Лаборатория'), getRun: unsupported('Лаборатория'), listRuns: unsupported('Лаборатория'), compareRuns: unsupported('Сравнение прогонов'), projectTrace: unsupported('Прогноз ускорения'), compareTraceGroups: unsupported('Сравнение групп') };
+  }, getTrace: async (id, signal, options) => { await pause(signal); const detail = demoDetail(typeof id === 'string' ? id : id.trace_id); if (typeof id !== 'string' && !sameTraceRef(id, detail.trace_ref)) throw new ApiError('Эта версия трейса не найдена.', 404, 'trace_ref_not_found'); return selectSpanFields({ ...detail, finding_occurrence_ids: demoAudit.findings.filter(f => f.exemplars.some(ref => sameTraceRef(ref, detail.trace_ref))).map(f => f.occurrence_id) }, options?.includeSpanKind !== false); }, getAudit: async signal => { await pause(signal); return demoAudit; }, getCapabilities: async signal => { await pause(signal); return demoCapabilities; }, createPlan: async (finding: BudgetFinding, signal?: AbortSignal) => { await pause(signal); return demoPlan(finding); }, listEnvironments: unsupported('Список окружений'), listServices: unsupported('Список сервисов'), ...createDemoLab(typeof localStorage === 'undefined' ? undefined : localStorage), projectTrace: unsupported('Прогноз ускорения'), compareTraceGroups: unsupported('Сравнение групп') };
 }

@@ -7,9 +7,9 @@ import type { AuditResult, Client, Finding, TraceDetail as TraceDetailData } fro
 import { Metrics } from '../components/Metrics';
 import { Tabs } from '../components/Tabs';
 import { Button, Icon, LoadingState, Message, Panel, PageHeader, RetryButton } from '../components/ui';
-import { WhatIf } from '../components/WhatIf';
 import { compactTimelineSpans, duration, findingsForTrace, ms, outcomeLabels, timelineRows, traceRequest, traceServiceColors } from '../lib';
 import { FindingCard } from './Audit';
+import { WhatIf } from '../components/WhatIf';
 
 const axisNumber = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const maxTimelineZoom = 8;
@@ -21,18 +21,18 @@ export function BackToTraces() {
 }
 
 
-export function TraceDetail({ trace, client, audit, auditLoading, auditError, onRetryAudit, demo, onPlan, pending, onExport, onBuild }: {
+export function TraceDetail({ trace, client, demo, audit, auditLoading, auditError, onRetryAudit, onPlan, pending, onExport, onBuild }: {
   trace: TraceDetailData;
+  client: Client;
+  demo: boolean;
   audit: AuditResult | null;
   auditLoading: boolean;
   auditError: string;
   onRetryAudit: () => void;
-  demo: boolean;
   onPlan: (finding: Finding) => void;
   pending: boolean;
   onExport: () => void;
   onBuild?: () => void;
-  client: Client;
 }) {
   const [tab, setTab] = usePersistentTab(`trace:${JSON.stringify(trace.trace_ref)}:tab`, 'timeline', ['timeline','audit','whatif']);
   const [selected, setSelected] = usePersistentState<string | undefined>(`trace:${JSON.stringify(trace.trace_ref)}:span`, undefined);
@@ -73,7 +73,7 @@ export function TraceDetail({ trace, client, audit, auditLoading, auditError, on
   const axisTicks = total ? Array.from({ length: tickCount + 1 }, (_, index) => index / tickCount) : [0];
   const traceAuditEmpty = (() => {
     if (!audit) return { title: 'Проверка пока недоступна', description: 'Результат аудита ещё не получен.' };
-    if (trace.finding_occurrence_ids === undefined && !demo) {
+    if (trace.finding_occurrence_ids === undefined) {
       return { title: 'Результаты аудита для этой версии трейса недоступны', description: 'Обновите аудит, чтобы проверить именно эту версию трейса.' };
     }
     const evaluated = audit.rule_evaluations.filter(rule => rule.status === 'evaluated').length;
@@ -149,8 +149,8 @@ export function TraceDetail({ trace, client, audit, auditLoading, auditError, on
     {trace.quality_issues.map(issue => <Message tone="warning" key={issue}>{issue}</Message>)}
     <Tabs label="Разделы трейса" value={tab} onChange={setTab} fullWidth items={[
       { value: 'timeline', label: 'Выполнение', panelId: 'timeline-panel' },
-      { value: 'audit', label: <>Аудит {findings.length > 0 && <span>{findings.length}</span>}</>, panelId: 'audit-panel' },
       { value: 'whatif', label: 'Прогноз ускорения', panelId: 'whatif-panel' },
+      { value: 'audit', label: <>Аудит {findings.length > 0 && <span>{findings.length}</span>}</>, panelId: 'audit-panel' },
     ]}/>
 
     {tab === 'timeline' && <div id="timeline-panel" role="tabpanel" aria-labelledby="timeline-panel-tab">
@@ -159,7 +159,7 @@ export function TraceDetail({ trace, client, audit, auditLoading, auditError, on
           {compactSpans.length < spans.length && <Button type="button" variant="ghost" onClick={() => {
             if (showAllSpans && selected) setSelected(trace.compactable_client_spans?.[selected] ?? selected);
             setShowAllSpans(!showAllSpans);
-          }}>{showAllSpans ? 'Свернуть пары спанов' : 'Показать все спаны'}</Button>}
+          }}>{showAllSpans ? 'Скрыть спаны отправителей' : 'Показать все спаны'}</Button>}
           {collapsed.size > 0 && <Button variant="ghost" onClick={() => setCollapsed(new Set())}>Развернуть всё</Button>}
           {total > 0 && <div className="timeline-zoom" role="group" aria-label="Масштаб шкалы">
             <Button type="button" aria-label="Уменьшить масштаб" disabled={zoom === 1}
@@ -217,9 +217,9 @@ export function TraceDetail({ trace, client, audit, auditLoading, auditError, on
           {selectedSpan && <div className="inspector">
             <dl><div><dt>Сервис</dt><dd className="service-name"><i style={{ background: colors.get(selectedSpan.service) }}/>{selectedSpan.service}</dd></div><div><dt>{/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/.test(selectedSpan.name) ? 'Эндпоинт' : 'Операция'}</dt><dd><SpanOperation span={selectedSpan}/></dd></div>
               <div><dt>Длительность</dt><dd>{duration(selectedSpan.duration_ns)}</dd></div>
-              <div><dt>Время от начала трейса</dt><dd>{duration(selectedSpan.start_offset_ns)}<small className="field-note">Через сколько после начала трейса начался этот спан</small></dd></div>
-              <div><dt>{httpCodeLabel}</dt><dd>{selectedSpan.http_status === null ? 'Не наблюдался' : <HttpStatus code={selectedSpan.http_status}/>}</dd></div>
-              {selectedSpan.error_type && <div><dt>Тип ошибки</dt><dd className="text-danger">{selectedSpan.error_type}</dd></div>}
+              <div><dt>Время от начала трейса</dt><dd>{duration(selectedSpan.start_offset_ns)}</dd></div>
+              <div><dt>{httpCodeLabel}</dt><dd>{selectedSpan.http_status === null ? 'Нет данных' : <HttpStatus code={selectedSpan.http_status}/>}</dd></div>
+              {selectedSpan.error_type && selectedSpan.error_type.trim() !== String(selectedSpan.http_status) && <div><dt>Тип ошибки</dt><dd className="text-danger">{selectedSpan.error_type}</dd></div>}
               <div><dt>Span ID</dt><dd><CopyId key={selectedSpan.span_id} label="Span ID" value={selectedSpan.span_id}/></dd></div>
             </dl>
           </div>}
@@ -238,8 +238,6 @@ export function TraceDetail({ trace, client, audit, auditLoading, auditError, on
         </div></Panel>}
     </div>}
 
-    {tab === 'whatif' && <div id="whatif-panel" role="tabpanel" aria-labelledby="whatif-panel-tab">
-      <WhatIf trace={trace} client={client} demo={demo}/>
-    </div>}
+    {tab === 'whatif' && <div id="whatif-panel" role="tabpanel" aria-labelledby="whatif-panel-tab"><WhatIf trace={trace} client={client} demo={demo}/></div>}
   </>;
 }

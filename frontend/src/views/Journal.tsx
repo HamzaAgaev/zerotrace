@@ -8,13 +8,13 @@ const statusTone = (status: JournalEntry['status']) =>
 
 export function Journal({ entries }: { entries: JournalEntry[] }) {
   return <>
-    <PageHeader title="Журнал изменений" detail={<p>Операции применения и фактические значения, подтверждённые сервером.</p>} />
+    <PageHeader title="Журнал изменений" detail={<p className="muted small-text">История применения настроек</p>} />
     <Panel>
       {entries.length ? <TableScroll>
         <table>
           <thead><tr>
             <th>Операция / время</th>
-            <th>Цель и изменения</th>
+            <th>Сервис и изменения</th>
             <th>Статус изменения</th>
             <th>Проверка проблемы</th>
           </tr></thead>
@@ -24,14 +24,9 @@ export function Journal({ entries }: { entries: JournalEntry[] }) {
               <HttpTarget target={entry.target} />
               {entry.actual_changes.length > 0 ? <>
                 <ul className="journal-changes">{entry.actual_changes.map((change, index) => <li key={`${change.field}-${index}`}>
-                  <span>{fieldLabel(change.field)}</span>: <code>{change.before}</code> → <code>{change.after}</code>
+                  <span title={change.field}>{fieldLabel(change.field)}</span>: <code>{change.before}</code> → <code>{change.after}</code>
                 </li>)}</ul>
-                <details className="cell-details">
-                  <summary>Технические названия полей</summary>
-                  <ul>{entry.actual_changes.map((change, index) => <li key={`${change.field}-${index}`}>
-                    <code>{change.field}</code>: {change.before} → {change.after}
-                  </li>)}</ul>
-                </details>
+
               </> : <small className="cell-note">Сервер не сообщил фактические изменения.</small>}
             </td>
             <td>

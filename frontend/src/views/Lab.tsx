@@ -1,205 +1,193 @@
-import { fieldLabel, statusLabel } from '../presentation';
+import { fieldLabel, statusLabel, scenarioLabel } from '../presentation';
 import { usePersistentState } from '../state';
-import { HttpOperation, HttpStatus } from '../components/HttpText';
+import { HttpOperation } from '../components/HttpText';
 import { RunComparisonControls } from '../components/RunComparisonControls';
-import { useEffect, useReducer, useState } from 'react';
-import { labSourceTrace } from '../api/fixtures';
-import {
-  comparisonIssue, initialLab, labReducer, loadCount, observedPayment, paymentFault, retryBudget, retryDefaults,
-} from '../api/labFixture';
-import type { Run } from '../api/labFixture';
-import type { Client, TraceRef } from '../api/types';
-import { Badge, Button, EmptyState, Message, Panel, PageHeader } from '../components/ui';
-import { Metrics, PairBars } from '../components/Metrics';
-import { traceHref } from '../lib';
-import { LiveLab } from './LiveLab';
+import { Select } from '../components/Select';
+import { useEffect, useMemo, useState } from 'react';
+import type { Client, LabFault, LabRun, RunComparison, Stand } from '../api/types';
+import { ApiError, createOrRecoverStand, isUncertainResponse } from '../api/client';
+import { Badge, Button, EmptyState, Message, Panel, PageHeader, TableScroll, Field } from '../components/ui';
+import { Metrics } from '../components/Metrics';
+import { ServiceConfig } from '../components/ServiceConfig';
 
-export function useLabFixture() {
-  const [state, setState] = usePersistentState('demo-laboratory', initialLab);
-  const dispatch = (action: Parameters<typeof labReducer>[1]) => setState(previous=>labReducer(previous,action));
-  const { stand, runs } = state;
-  const runningId = runs.find(run => run.status === 'running')?.id;
-  const collectingId = runs.find(run => run.status === 'completed' && run.collection === 'waiting')?.id;
-
-  useEffect(() => {
-    if (!stand || stand.status === 'ready') return;
-    const type = stand.status === 'building' ? 'ready' : 'stopped';
-    const timer = window.setTimeout(() => dispatch({ type, id: stand.id }), 450);
-    return () => window.clearTimeout(timer);
-  }, [stand]);
-  useEffect(() => {
-    if (!runningId) return;
-    const timer = window.setTimeout(() => dispatch({ type: 'loadComplete', id: runningId }), 900);
-    return () => window.clearTimeout(timer);
-  }, [runningId]);
-  useEffect(() => {
-    if (!collectingId) return;
-    const timer = window.setTimeout(() => dispatch({ type: 'tracesReady', id: collectingId }), 1100);
-    return () => window.clearTimeout(timer);
-  }, [collectingId]);
-
-  return {
-    state, dispatch,
-    build(source: TraceRef) {
-      dispatch({ type: 'build', source, id: crypto.randomUUID() });
-      location.hash = '#/lab';
-    },
-  };
+const nsMs = (value: string | number | null) => value === null ? '—' : `${(Number(value) / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}\u00A0мс`;
+const formatMetric = (value: number | null) => value === null ? '—' : value.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+const formatRate = (value: number | null) => value === null ? '—'
+  : value.toLocaleString('ru-RU', { style: 'percent', maximumFractionDigits: 1 });
+function validFaultDraft(value: unknown): value is LabFault {
+  if (!value || typeof value !== 'object') return false;
+  const draft = value as LabFault;
+  const point = draft.failure_point;
+  return typeof draft.service_id === 'string' && typeof draft.route === 'string'
+    && Number.isFinite(draft.error_rate) && draft.error_rate >= 0 && draft.error_rate <= 1
+    && Number.isInteger(draft.http_status) && draft.http_status >= 400 && draft.http_status <= 599
+    && Number.isFinite(draft.delay_ms) && draft.delay_ms >= 0 && !!point
+    && (point.mode === 'fixed' ? typeof point.boundary_id === 'string' : point.mode === 'random' && Array.isArray(point.boundary_ids) && point.boundary_ids.every(id => typeof id === 'string'));
 }
+type RunRequest = Parameters<Client['startRun']>[1];
+const pendingRuns = new WeakMap<Client, { standId: string; request: RunRequest }>();
 
-function RunComparison({ runs }: { runs: Run[] }) {
-  const [baseline, setBaseline] = usePersistentState('demo-lab:baseline', '');
-  const [candidate, setCandidate] = usePersistentState('demo-lab:candidate', '');
-  const before = runs.find(run => run.id === baseline) ?? [...runs].reverse().find(run => run.maxAttempts === 3);
-  const after = runs.find(run => run.id === candidate) ?? [...runs].reverse().find(run => run.maxAttempts === 2);
-  const issue = before && after ? comparisonIssue(before, after) : 'Выполните прогоны до и после применения рекомендации.';
-  return <Panel title="Сравнение прогонов">
-    <div className="lab-body">
-      <RunComparisonControls
-        options={runs.map((run, index) => ({ id: run.id, label: `Прогон ${index + 1} (${run.maxAttempts} попыток)` }))}
-        baseline={before?.id ?? ''} candidate={after?.id ?? ''}
-        onBaselineChange={setBaseline} onCandidateChange={setCandidate}
-      />
-      {issue && <p className="muted" role="status">{issue}</p>}
-      {!issue && before && after && <>
-        <ComparisonCharts before={before} after={after}/>
-        <div className="comparison-samples">
-          {[before, after].map((run, index) => <Badge key={run.id} tone={run.collection === 'partial' ? 'warning' : 'neutral'}>
-            {index === 0 ? 'До' : 'После'}: {run.samples.length}/{run.expected} трейсов
-            {run.collection === 'partial' && ' (неполная выборка)'}
-          </Badge>)}
-        </div>
-      </>}
-    </div>
-  </Panel>;
-}
+export function Lab({ client, demo = false }: { client: Client | null; demo?: boolean }) {
+  const [stand, setStand] = useState<Stand | null>(null);
+  const [configService, setConfigService] = usePersistentState('lab:config-service', '');
+  const [runs, setRuns] = useState<LabRun[]>([]);
+  const [fault, setFault] = usePersistentState<LabFault>(`lab:${stand?.stand_id ?? 'new'}:fault`, { service_id: '', route: '', error_rate: .2, http_status: 503, delay_ms: 0, failure_point: { mode: 'fixed', boundary_id: 'before-first' } }, validFaultDraft);
+  const [count, setCount] = usePersistentState(`lab:${stand?.stand_id ?? 'new'}:count`, '30'); const [concurrency, setConcurrency] = usePersistentState(`lab:${stand?.stand_id ?? 'new'}:concurrency`, '1');
+  const [baseline, setBaseline] = usePersistentState(`lab:${stand?.stand_id ?? 'new'}:baseline`, ''); const [candidate, setCandidate] = usePersistentState(`lab:${stand?.stand_id ?? 'new'}:candidate`, ''); const [comparison, setComparison] = useState<RunComparison | null>(null);
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const pending = client ? pendingRuns.get(client) : undefined;
+  const retry = pending?.standId === stand?.stand_id ? pending?.request : undefined;
+  const selectedRoute = useMemo(() => stand?.services.find(service => service.service_id === fault.service_id)?.routes.find(route => route.route === fault.route), [stand, fault]);
+  useEffect(() => {
+    if (!stand?.services.length) return;
+    const service = stand.services.find(item => item.service_id === fault.service_id) ?? stand.services[0];
+    const route = service.routes.find(item => item.route === fault.route) ?? service.routes[0];
+    if (!route) return;
+    const ids = route.boundaries.map(item => item.boundary_id);
+    const point = fault.failure_point;
+    const failure_point: LabFault['failure_point'] = point.mode === 'fixed'
+      ? { mode: 'fixed', boundary_id: ids.includes(point.boundary_id) ? point.boundary_id : ids[0] ?? '' }
+      : { mode: 'random', boundary_ids: point.boundary_ids.filter(id => ids.includes(id)) };
+    if (service.service_id !== fault.service_id || route.route !== fault.route || JSON.stringify(point) !== JSON.stringify(failure_point)) {
+      setFault(old => ({ ...old, service_id: service.service_id, route: route.route, failure_point }));
+    }
+  }, [stand, fault, setFault]);
+  const active = runs.find(run => run.stand_id === stand?.stand_id && (run.status === 'running' || run.trace_collection.status === 'waiting'));
 
-function ComparisonCharts({ before, after }: { before: Run; after: Run }) {
-  function summarizeRun(run: Run) {
-    const count = run.samples.length;
-    const attempts = run.samples.reduce((sum, sample) => sum + sample.attemptStatuses.length, 0) / count;
-    const durations = run.samples.map(sample => sample.durationMs);
-    const min = Math.min(...durations);
-    const max = Math.max(...durations);
-    const errors = run.samples.filter(sample => sample.status === 503).length;
-    return {
-      attempts: { amount: attempts, text: attempts.toLocaleString('ru-RU', { maximumFractionDigits: 2 }) },
-      duration: { amount: max, text: `${min}–${max} мс` },
-      errors: { amount: errors / count, text: (errors / count).toLocaleString('ru-RU', { style: 'percent', maximumFractionDigits: 1 }) },
-    };
+  async function refresh(clearError = true, signal?: AbortSignal) {
+    if (!client) return;
+    if (clearError) setError('');
+    try {
+      const [activeStand, history] = await Promise.all([client.getActiveStand(signal), client.listRuns(signal)]);
+      if (signal?.aborted) return;
+      setStand(activeStand?.status === 'stopped' ? null : activeStand);
+      setRuns(history.sort((a, b) => b.started_at.localeCompare(a.started_at)));
+    } catch (cause) {
+      if (clearError && !signal?.aborted) {
+        setError(cause instanceof Error ? cause.message : 'Не удалось загрузить состояние лаборатории.');
+      }
+    }
   }
-  const a = summarizeRun(before);
-  const b = summarizeRun(after);
-  return <div className="comparison-charts">
-    <PairBars label="Среднее число попыток" values={[a.attempts, b.attempts]}
-      info="Учитывается первый вызов payment и все повторы. Среднее считается по зафиксированным трейсам."/>
-    <PairBars label="Диапазон длительностей" values={[a.duration, b.duration]}
-      info="Диапазон длительностей входных запросов в тестовых трейсах. Длина полосы показывает максимум."/>
-    <PairBars label="Доля ответов HTTP 503" labelContent={<>Доля ответов HTTP <HttpStatus code={503}/></>} values={[a.errors, b.errors]}
-      scale={1} info="Доля входных запросов с итоговым ответом 503 среди зафиксированных трейсов."/>
-  </div>;
-}
+  useEffect(() => {
+    const controller = new AbortController();
+    setStand(null);
+    setRuns([]);
+    setComparison(null);
+    void refresh(true, controller.signal);
+    return () => controller.abort();
+  }, [client]);
+  useEffect(() => {
+    if (!client || !active) return;
+    const timer = window.setInterval(() => {
+      client.getRun(active.run_id).then(run => setRuns(old => old.map(item => item.run_id === run.run_id ? run : item))).catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [client, active?.run_id]);
+  useEffect(() => {
+    if (!client || !stand || !['building', 'stopping'].includes(stand.status)) return;
+    const timer = window.setInterval(() => { void client.getActiveStand().then(value => setStand(value?.status === 'stopped' ? null : value)).catch(() => undefined); }, 1000);
+    return () => window.clearInterval(timer);
+  }, [client, stand?.stand_id, stand?.status]);
+  async function build() {
+    if (!client) return;
+    setBusy(true);
+    setError('');
+    try {
+      setStand(await createOrRecoverStand(client, undefined, setStand));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Не удалось собрать стенд.');
+      await refresh(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function saveFault() { if (!client || !stand || !selectedRoute || !validFaultDraft(fault)) return; setBusy(true); setError(''); try { setStand(await client.setFault(stand.stand_id, fault, stand.fault_revision, crypto.randomUUID())); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось применить сбой.'); if (cause instanceof ApiError && cause.status === 409) await refresh(false); } finally { setBusy(false); } }
+  async function clearFault() { if (!client || !stand) return; setBusy(true); setError(''); try { setStand(await client.clearFault(stand.stand_id, stand.fault_revision, crypto.randomUUID())); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось сбросить сбой.'); if (cause instanceof ApiError && cause.status === 409) await refresh(false); } finally { setBusy(false); } }
+  async function run() {
+    if (!client || !stand) return;
+    setBusy(true); setError('');
+    const request = retry ?? {
+      request_id: crypto.randomUUID(),
+      scenario_revision: stand.scenario_revision,
+      expected_fault_revision: stand.fault_revision,
+      config_revisions: stand.config_revisions,
+      request_count: Number(count),
+      concurrency: Number(concurrency),
+    };
+    pendingRuns.set(client, { standId: stand.stand_id, request });
+    try {
+      const result = await client.startRun(stand.stand_id, request);
+      pendingRuns.delete(client);
+      setRuns(old => [result, ...old.filter(item => item.run_id !== result.run_id)]);
+    } catch (cause) {
+      if (isUncertainResponse(cause)) {
+        setError('Сервер не подтвердил запуск. Повторите запрос, чтобы получить состояние того же теста.');
+      } else {
+        pendingRuns.delete(client);
+        setError(cause instanceof Error ? cause.message : 'Не удалось запустить нагрузку.');
+        if (cause instanceof ApiError && cause.status === 409) await refresh(false);
+      }
+    }
+    finally { setBusy(false); }
+  }
+  async function stop() {
+    if (!client || !stand) return;
+    setBusy(true);
+    setError('');
+    try {
+      await client.stopStand(stand.stand_id);
+      await refresh();
+    } catch (cause) {
+      await refresh();
+      setError(cause instanceof Error ? cause.message : 'Не удалось остановить стенд.');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function compare() { if (!client || !baseline || !candidate) return; setBusy(true); setError(''); try { setComparison(await client.compareRuns(baseline, candidate)); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось сравнить тесты.'); } finally { setBusy(false); } }
+  const readyRuns = runs.filter(run => run.status === 'completed' && run.trace_collection.status !== 'waiting' && run.trace_collection.received_count > 0);
+  const baselineRun = readyRuns.find(run => run.run_id === baseline);
+  const candidateRun = readyRuns.find(run => run.run_id === candidate);
+  const comparable = !!baselineRun && !!candidateRun && baseline !== candidate
+    && baselineRun.stand_id === candidateRun.stand_id;
 
-export function Lab({ lab, demo, client }: { lab: ReturnType<typeof useLabFixture>; demo: boolean; client: Client }) {
-  if (!demo) return <LiveLab client={client}/>;
-  const { state: { stand, runs, message }, dispatch } = lab;
-  const [plan, setPlan] = useState<{ standId: string; revision: string } | null>(null);
-  const displayedStandId = stand?.id ?? runs.at(-1)?.standId;
-  const standRuns = runs.filter(run => run.standId === displayedStandId);
-  const running = standRuns.some(run => run.status === 'running');
-  const collecting = standRuns.some(run => run.collection === 'waiting');
-  const editable = stand?.status === 'ready' && !running;
-  const currentPlan = plan?.standId === stand?.id ? plan : null;
-  const hasBaseline = standRuns.some(run => run.maxAttempts === 3 && run.samples.length > 0);
-
-  return <>
-    <PageHeader title="Лаборатория" actions={<>{demo && <Badge tone="warning" dot>Тестовые данные</Badge>}</>}/>
-    <p className="sample-caption">Последовательность: Стенд → Сбой → Нагрузка → Прогоны → Сравнение</p>
-    {!demo ? <Message>Лабораторный API пока не подключён. Сценарий доступен в <a href="#/sources">демонстрационном режиме</a>.</Message> : <>
-      <Message tone="warning">Результаты демонстрации сохраняются в этом браузере.</Message>
-      {message && <Message>{message}</Message>}
-      {!stand ? <EmptyState icon="traces" title="Нет активного стенда" description="Откройте трейс вызова payment из orders и выберите «Собрать стенд»."
-        action={<a className="button button--primary" href={traceHref(labSourceTrace.trace_ref)}>Открыть трейс вызова payment из orders</a>}/> :
-        <div className="lab-grid lab-controls">
-          <Panel title="Стенд для вызова payment из orders" meta={<Badge tone={stand.status === 'ready' ? 'success' : 'warning'}>{statusLabel(stand.status)}</Badge>}>
-            <div className="lab-body">
-              {stand.status === 'ready' && <Metrics items={[
-                { label: 'Всего попыток', value: stand.maxAttempts, info: 'Число включает первую попытку, а не только повторы.' },
-                { label: 'Таймаут попытки', value: `${retryDefaults.timeoutMs}\u00A0мс` },
-                { label: 'Пауза между попытками', value: `${retryDefaults.backoffMs}\u00A0мс` },
-                { label: 'Доступное время ожидания', value: `${retryDefaults.budgetMs}\u00A0мс` },
-              ]}/>}
-              <details className="compact-details">
-                <summary>Источник и параметры стенда</summary>
-                <p><a className="mono" href={traceHref(stand.source)}>{stand.source.trace_id}</a>
-                  {', окружение '}{stand.source.environment_id}, поколение {stand.source.generation}, версия {stand.source.revision}</p>
-                {stand.status === 'ready' && <>
-                  <p><HttpOperation operation="POST /charge"/>. В исходном трейсе HTTP <HttpStatus code={observedPayment.httpStatus}/>, {observedPayment.durationMs} мс. Параметры повторов заданы демостендом.</p>
-                  <p>Версии: сценарий {stand.scenarioRevision}, сбой {stand.faultRevision}, настройки {stand.configRevision}</p>
-                </>}
-              </details>
-              <Button disabled={!editable || collecting} onClick={() => dispatch({ type: 'stop' })}>Остановить</Button>
-              {collecting && !running && <p className="muted">Остановка доступна после фиксации трейсов.</p>}
-            </div>
-          </Panel>
-          <Panel title="Сбой и нагрузка">
-            <div className="lab-body">
-              <Metrics items={[
-                { label: 'Сбой payment', value: stand.fault ? <>HTTP <HttpStatus code={stand.fault.httpStatus}/></> : 'Выключен' },
-                { label: 'Запросов в прогоне', value: loadCount },
-                { label: 'Дополнительная задержка', value: stand.fault ? `${stand.fault.delayMs}\u00A0мс` : '—' },
-              ]}/>
-              <div className="lab-actions">
-                <Button disabled={!editable} onClick={() => dispatch({ type: 'fault', enabled: !stand.fault })}>
-                  {stand.fault ? 'Сбросить сбой' : <>Задать HTTP <HttpStatus code={paymentFault.httpStatus}/></>}
-                </Button>
-                <Button variant="primary" disabled={!editable || !stand.fault} onClick={() => dispatch({
-                  type: 'run', id: crypto.randomUUID(),
-                  versions: { scenarioRevision: stand.scenarioRevision, faultRevision: stand.faultRevision, configRevision: stand.configRevision },
-                })}>Запустить запросы</Button>
-              </div>
-            </div>
-          </Panel>
-          {hasBaseline && <Panel title="Сокращение повторных запросов" className="lab-wide">
-            <div className="lab-body">
-              <div className="comparison-charts">
-                <PairBars label="Время на попытки и паузы"
-                  info="Число попыток × таймаут + паузы между попытками. Это расчёт по настройкам. Длительность запросов показана в сравнении прогонов." values={[
-                  { amount: retryBudget(3) ?? 0, text: `${retryBudget(3)}\u00A0мс` },
-                  { amount: retryBudget(2) ?? 0, text: `${retryBudget(2)}\u00A0мс` },
-                ]} limit={{ amount: retryDefaults.budgetMs, text: `Лимит ${retryDefaults.budgetMs}\u00A0мс` }}/>
-              </div>
-              {stand.maxAttempts === 2 ? <Badge tone="success">Настройки применены (версия конфигурации {stand.configRevision})</Badge> :
-                currentPlan ? <>
-                  <Metrics items={[
-                    { label: 'Всего попыток до изменения', value: 3 },
-                    { label: 'Всего попыток после изменения', value: 2 },
-                    { label: 'Версия конфигурации', value: currentPlan.revision },
-                  ]}/>
-                  <details className="compact-details"><summary>Что изменится</summary>
-                    <p>{fieldLabel('max_attempts')} для <HttpOperation operation="POST /charge"/>: 3 → 2. При временном отказе будет на одну попытку меньше.</p>
-                    <p className="muted">Техническое имя поля: <code>max_attempts</code>.</p>
-                  </details>
-                  <div className="lab-actions">
-                    <Button variant="primary" disabled={!editable} onClick={() => {
-                      dispatch({ type: 'apply', ...currentPlan });
-                      setPlan(null);
-                    }}>Применить рекомендацию</Button>
-                    <Button onClick={() => setPlan(null)}>Закрыть план</Button>
-                  </div>
-                </> : <Button disabled={!editable} onClick={() => setPlan({ standId: stand.id, revision: stand.configRevision })}>Посмотреть рекомендацию</Button>}
-            </div>
-          </Panel>}
-        </div>}
-      {standRuns.length > 0 && <div className="lab-grid">
-        <Panel title="Прогоны"><ul className="lab-runs" aria-live="polite">{standRuns.map((run, i) => <li key={run.id}>
-          <strong>Прогон {i + 1} (версия настроек {run.configRevision})</strong>
-          <span>{run.status === 'running' ? 'Выполняются запросы' : run.status === 'failed' ? 'Прогон завершился с ошибкой' :
-            run.collection === 'waiting' ? `Запросы ${run.completed}/${run.expected}, ждём трейсы` :
-              `Зафиксировано трейсов: ${run.samples.length}/${run.expected}`}</span>
-        </li>)}</ul></Panel>
-        <RunComparison key={displayedStandId} runs={standRuns}/>
-      </div>}
+  return <><PageHeader title="Лаборатория" actions={<><Button icon="refresh" onClick={() => void refresh()} disabled={busy}>Обновить</Button></>}/>
+    {error && <Message tone="danger">{error}</Message>}
+    {!client ? <Message tone="warning">Подключите сервер на странице «Настройки подключения».</Message> : !stand ? <EmptyState icon="traces" title="Нет активного стенда" description="Откройте трейс подключённой системы и нажмите «Собрать стенд», чтобы создать тестовую модель цепочки вызовов." action={<div className="empty-state-actions"><a className="button button--primary" href="#/traces">Выбрать трейс</a><Button onClick={() => void build()} disabled={busy}>Запустить демонстрационный стенд</Button></div>}/> : <>
+      <div className="lab-grid lab-controls">
+        <Panel title="Стенд" meta={<Badge tone={stand.status === 'ready' ? 'success' : ['failed', 'unavailable'].includes(stand.status) ? 'danger' : 'warning'}>{statusLabel(stand.status)}</Badge>}><div className="lab-body"><Metrics items={[{ label: 'Сценарий', value: scenarioLabel(stand.scenario_id) }, { label: 'Сервисов', value: stand.services.length }, { label: 'Настроено ошибок', value: stand.faults.length }]}/>{stand.source && <dl className="context-values"><div><dt>Исходный Trace ID</dt><dd className="mono">{stand.source.trace_id}</dd></div><div><dt>Окружение</dt><dd>{stand.source.environment_id}</dd></div></dl>}<Button disabled={busy || !!active || ['building', 'stopped'].includes(stand.status)}
+          onClick={() => void stop()}>{stand.status === 'stopping' ? 'Повторить остановку' : 'Остановить стенд'}</Button></div></Panel>
+        <Panel title="Имитация ошибок"><div className="lab-body lab-fault-form">
+          <Field label="Сервис"><Select value={fault.service_id} disabled={busy || !!active} onChange={value => { const service = stand.services.find(item => item.service_id === value); const route = service?.routes[0]?.route ?? ''; setFault(old => ({ ...old, service_id: value, route })); }}>{stand.services.map(service => <option value={service.service_id} key={service.service_id}>{service.display_name}</option>)}</Select></Field>
+          <Field label="Эндпоинт"><Select value={fault.route} disabled={busy || !!active} onChange={value => setFault(old => ({ ...old, route: value }))}>{stand.services.find(service => service.service_id === fault.service_id)?.routes.map(route => <option value={route.route} key={route.route} label={route.route}><HttpOperation operation={route.route}/></option>)}</Select></Field>
+          <Field label="Вероятность ошибки, %"><input type="number" min="0" max="100" step="1" value={Math.round(fault.error_rate * 100)} disabled={busy || !!active} onChange={event => setFault(old => ({ ...old, error_rate: Number(event.target.value) / 100 }))}/></Field>
+          <Field label="Код HTTP при ошибке"><input type="number" min="400" max="599" data-http-status={fault.http_status} value={fault.http_status} disabled={busy || !!active} onChange={event => setFault(old => ({ ...old, http_status: Number(event.target.value) }))}/></Field>
+          <Field label="Дополнительная задержка, мс"><input type="number" min="0" value={fault.delay_ms} disabled={busy || !!active} onChange={event => setFault(old => ({ ...old, delay_ms: Number(event.target.value) }))}/><small className="field-note">Прибавляется к обычному времени ответа перед ошибкой.</small></Field>
+          <Field label="Выбор этапа обработки"><Select value={fault.failure_point.mode} disabled={busy || !!active} onChange={value => setFault(old => ({ ...old, failure_point: value === 'fixed' ? { mode: 'fixed', boundary_id: selectedRoute?.boundaries[0]?.boundary_id ?? '' } : { mode: 'random', boundary_ids: (selectedRoute?.boundaries ?? []).map(item => item.boundary_id) } }))}><option value="fixed">Фиксированный этап</option><option value="random">Случайный из выбранных этапов</option></Select></Field>
+          {fault.failure_point.mode === 'fixed' ? <Field label="Этап обработки"><Select value={fault.failure_point.boundary_id} disabled={busy || !!active} onChange={value => setFault(old => ({ ...old, failure_point: { mode: 'fixed', boundary_id: value } }))}>{(selectedRoute?.boundaries ?? []).map(boundary => <option value={boundary.boundary_id} key={boundary.boundary_id}>{boundary.label.replace(/исходящих вызовов/gi, 'обращений к другим сервисам').replaceAll('·', '—')}</option>)}</Select></Field> : <fieldset><legend>Этапы для случайного выбора</legend>{(selectedRoute?.boundaries ?? []).map(boundary => <label key={boundary.boundary_id}><input type="checkbox" checked={fault.failure_point.mode === 'random' && fault.failure_point.boundary_ids.includes(boundary.boundary_id)} disabled={busy || !!active} onChange={event => setFault(old => ({ ...old, failure_point: { mode: 'random', boundary_ids: event.target.checked ? [...(old.failure_point.mode === 'random' ? old.failure_point.boundary_ids : []), boundary.boundary_id] : (old.failure_point.mode === 'random' ? old.failure_point.boundary_ids : []).filter(id => id !== boundary.boundary_id) } }))}/>{boundary.label.replace(/исходящих вызовов/gi, 'обращений к другим сервисам').replaceAll('·', '—')}</label>)}</fieldset>}
+          {fault.failure_point.mode === 'random' && fault.failure_point.boundary_ids.length === 0 && <Message tone="warning">Выберите хотя бы один этап обработки.</Message>}
+          <div className="lab-actions"><Button variant="primary" disabled={busy || !!active || stand.status !== 'ready' || !selectedRoute || !validFaultDraft(fault) || (fault.failure_point.mode === 'random' && fault.failure_point.boundary_ids.length === 0)} onClick={() => void saveFault()}>Применить имитацию ошибок</Button><Button disabled={busy || !!active || !stand.faults.length} onClick={() => void clearFault()}>Отключить имитацию ошибок</Button></div>
+        </div></Panel>
+        <Panel title="Нагрузка" className="lab-wide lab-load"><div className="lab-body"><div className="form-grid"><Field label="Запросов"><input type="number" min="1" max="1000" value={count} disabled={busy || !!active || !!retry} onChange={event => setCount(event.target.value)}/></Field><Field label="Одновременных запросов"><input type="number" min="1" max="32" value={concurrency} disabled={busy || !!active || !!retry} onChange={event => setConcurrency(event.target.value)}/></Field><Button variant="primary" disabled={busy || (!retry && (!!active || stand.status !== 'ready' || !Number.isInteger(Number(count)) || Number(count) < 1 || Number(count) > 1000 || !Number.isInteger(Number(concurrency)) || Number(concurrency) < 1 || Number(concurrency) > 32))} onClick={() => void run()}>{retry ? 'Повторить запрос запуска' : 'Запустить тест'}</Button></div></div></Panel>
+        {client && <Panel title="Настройки сервисов стенда" className="lab-wide"><div className="lab-body">{active && <Message tone="warning">Настройки доступны после завершения теста и сбора его трейсов.</Message>}<Field label="Сервис"><Select aria-label="Сервис для настройки" value={stand.services.some(service=>service.service_id===configService)?configService:stand.services[0]?.service_id??''} onChange={setConfigService}>{stand.services.map(service=><option key={service.service_id} value={service.service_id}>{service.display_name}</option>)}</Select></Field>{stand.services.filter(service=>service.service_id===(stand.services.some(item=>item.service_id===configService)?configService:stand.services[0]?.service_id)).map(service=><ServiceConfig localOnly={demo} key={service.service_id} client={client} service={service.service_id} environmentId="sandbox" disabled={busy || !!active || stand.status !== 'ready'} onChanged={() => void refresh()}/>)}</div></Panel>}
+      </div>
+    </>}
+    {client && <>
+      <Panel title="Результаты тестов"><div className="lab-body">{!runs.length ? <p className="muted">Тесты ещё не запускались.</p> : <TableScroll><table className="lab-runs-table"><thead><tr><th>Тест</th><th>Стенд</th><th>Всего запросов</th><th>Одновременных запросов</th><th>Состояние</th><th>Трейсы</th></tr></thead><tbody>{runs.map(run => <tr key={run.run_id}><td className="mono">{run.run_id}</td><td className="mono">{run.stand_id}</td><td>{run.request_count}</td><td>{run.concurrency}</td><td><Badge tone={run.status === 'failed' ? 'danger' : run.status === 'completed' ? 'success' : 'warning'}>{statusLabel(run.status)}</Badge></td><td>{run.trace_collection.received_count} / {run.trace_collection.expected_count} — {statusLabel(run.trace_collection.status)}</td></tr>)}</tbody></table></TableScroll>}</div></Panel>
+      {readyRuns.length >= 2 && <Panel title="Сравнение тестов"><div className="lab-body"><RunComparisonControls
+        options={readyRuns.map(run => ({ id: run.run_id, label: run.run_id }))}
+        baseline={baseline} candidate={candidate} allowClear
+        onBaselineChange={value => { setBaseline(value); setComparison(null); }}
+        onCandidateChange={value => { setCandidate(value); setComparison(null); }}
+      >
+        <Button disabled={busy || !comparable} onClick={() => void compare()}>Сравнить</Button>
+      </RunComparisonControls>{comparison && <><TableScroll><table><thead><tr><th>Показатель</th><th>До изменения</th><th>После изменения</th></tr></thead><tbody>{[
+        ['Получено трейсов', `${comparison.baseline.received_count} / ${comparison.baseline.expected_count}`, `${comparison.candidate.received_count} / ${comparison.candidate.expected_count}`],
+        ['Медиана', nsMs(comparison.baseline.root_latency_p50_ns), nsMs(comparison.candidate.root_latency_p50_ns)],
+        ['95-й перцентиль', nsMs(comparison.baseline.root_latency_p95_ns), nsMs(comparison.candidate.root_latency_p95_ns)],
+        ['Попыток на запрос', formatMetric(comparison.baseline.attempts_per_input), formatMetric(comparison.candidate.attempts_per_input)],
+        ['Ответы с ошибкой', `${comparison.baseline.root_errors} (${formatRate(comparison.baseline.root_error_ratio)})`, `${comparison.candidate.root_errors} (${formatRate(comparison.candidate.root_error_ratio)})`],
+      ].map(([label,before,after])=><tr key={label}><td>{label}</td><td>{before}</td><td>{after}</td></tr>)}</tbody></table></TableScroll><p>Изменение: {comparison.change.service_id} — {comparison.change.call_ref} — {fieldLabel(comparison.change.field)}: {String(comparison.change.before)} → {String(comparison.change.after)}</p>{comparison.warnings.map(warning => <Message tone="warning" key={warning}>{warning}</Message>)}</>}</div></Panel>}
     </>}
   </>;
 }

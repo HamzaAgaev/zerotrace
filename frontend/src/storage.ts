@@ -1,11 +1,12 @@
 /** Only our versioned UI records are read; API data remains server-owned. */
 export const uiStoragePrefix = 'zerotrace.ui.v1:';
-export function decodeStored<T>(raw: string | null, fallback: T): T {
+export function decodeStored<T>(raw: string | null, fallback: T, validate?: (value: unknown) => value is T): T {
   if (!raw) return fallback;
   try {
     const record = JSON.parse(raw);
     const value = record.value;
     if (!record || !Number.isFinite(record.updated)) return fallback;
+    if (validate) return validate(value) ? value : fallback;
     if (fallback === undefined) return typeof value === 'string' ? value as T : fallback;
     if (value === null || typeof value !== typeof fallback || Array.isArray(value)!==Array.isArray(fallback)) return fallback;
     if (typeof value === 'number' && !Number.isFinite(value)) return fallback;
@@ -21,7 +22,7 @@ export function decodeStored<T>(raw: string | null, fallback: T): T {
 }
 export function encodeStored(value:unknown) { return JSON.stringify({value,updated:Date.now()}); }
 
-/** Bound expendable navigation history; never evict configuration or projection drafts. */
+/** Bound expendable navigation history; never evict configuration drafts. */
 export function writeStored(storage: Storage, key:string, value:unknown) {
   const history:string[]=[];
   for(let i=0;i<storage.length;i++) {

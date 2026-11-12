@@ -1,4 +1,4 @@
-import type { Span, TraceDetail } from './api/types.js';
+import type { Span, TraceDetail, TraceSummary } from './api/types.js';
 export const numericMs = (ns: string) => Number(BigInt(ns)) / 1e6;
 export function percentile(values: number[], p: number): number | null {
   if (!values.length) return null;
@@ -63,13 +63,6 @@ export function summarize(details: TraceDetail[]): { services: ServiceStats[]; e
     nodes.set(to.id, to);
   }
   return { services: serviceStats, edges: edgeStats, nodes: [...nodes.values()] };
-}
-export interface BudgetDraft { timeout: number; attempts: number; backoff: number; budget: number }
-export function checkBudget(draft: BudgetDraft) {
-  const { timeout, attempts, backoff, budget } = draft;
-  const valid = [timeout,attempts,backoff,budget].every(Number.isFinite) && timeout > 0 && budget > 0 && Number.isInteger(attempts) && attempts >= 1 && attempts <= 10 && backoff >= 0 && [timeout,backoff,budget].every(v => v <= 3_600_000);
-  const required = valid ? timeout*attempts+backoff*(attempts-1) : null;
-  return { valid, required, reserve: required === null ? null : budget-required };
 }
 export function downloadJson(name: string, payload: unknown, metadata: { schema?: string; producerVersion?: string } = {}) {
   const content = {

@@ -70,15 +70,5 @@ export const demoFinding: BudgetFinding = {
 };
 export const demoAudit: AuditResult = { result_id: 'audit-demo-001', generated_at: FIXTURE_DATE, findings: [demoFinding], rule_evaluations: [{ rule_id: 'R4', status: 'evaluated', eligible_count: 5 }, ...['R1', 'R2', 'R3', 'R5', 'R6', 'R7', 'R8', 'D1'].map(rule_id => ({ rule_id, status: 'not_implemented' as const, eligible_count: 0 }))] };
 export const demoCapabilities: Capabilities = { mode: 'demo', api_version: '1.0.0', source_name: 'Интернет-магазин (демоданные)', source_state: 'unknown', apply_enabled: false, limits: { max_trace_spans: 2000 } };
-export function demoPlan(finding: BudgetFinding): ChangePlan { return { plan_id: 'plan-demo-001', plan_hash: 'demo-plan-readonly', finding_id: finding.finding_id, target: `${finding.edge.caller} / ${finding.edge.operation}`, expected_revision: finding.evidence.config_revision, expires_at: '2026-11-10T23:59:59Z', changes: finding.recommendation.changes, warnings: ['Демонстрационный план. Изменения не отправляются ни в один сервис.', 'Исполнение будет доступно после подключения управляющего адаптера.'], apply_enabled: false }; }
+export function demoPlan(finding: BudgetFinding): ChangePlan { return { plan_id: 'plan-demo-001', plan_hash: 'demo-plan-readonly', finding_id: finding.finding_id, target: `${finding.edge.caller} / ${finding.edge.operation}`, expected_revision: finding.evidence.config_revision, expires_at: '2026-11-10T23:59:59Z', changes: finding.recommendation.changes, warnings: ['Демонстрационный план. Изменения не отправляются ни в один сервис.', 'Для изменения настроек подключите сервер с разрешением на их изменение.'], apply_enabled: false }; }
 export const demoJournal: JournalEntry[] = [];
-
-interface ServiceConfigCapabilities {
-  read_config: boolean;
-  write_fields: readonly string[];
-}
-export const demoServiceCapabilities: Partial<Record<string, ServiceConfigCapabilities>> = {
-  orders: { read_config: true, write_fields: ['max_attempts'] },
-  payment: { read_config: false, write_fields: [] },
-};
-export const demoOrdersConfig = { max_attempts: 3, timeout_ms: 1000 };

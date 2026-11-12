@@ -3,9 +3,10 @@
 ## Знакомство с проектом
 
 - [Возможности и ограничения](guides/capabilities.md).
-- [Прогноз ускорения и сравнение групп трейсов](guides/trace-analysis.md).
+- [Прогноз ускорения по трейсу](guides/trace-analysis.md).
 - [Сборка и первый запуск](guides/getting-started.md).
 - [Сценарий демонстрации](guides/demo-checklist.md).
+- [Презентация для защиты и текст выступления](guides/presentation.md).
 - [Интерактивная архитектура](architecture/overview.html) и [SVG для экспорта](architecture/overview.svg).
 
 ## Устройство и действующие контракты

@@ -62,5 +62,5 @@ export function LoadingState({ children }: { children: ReactNode }) {
 }
 
 export function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
-  return <label><span>{label}</span>{children}</label>;
+  return <label className="ui-field"><span>{label}</span>{children}</label>;
 }
