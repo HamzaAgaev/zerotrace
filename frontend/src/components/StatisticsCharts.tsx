@@ -63,5 +63,5 @@ export function PeriodTrends({data}:{data:PeriodMetrics}) {
 }
 
 function ChartReadout({ children }: { children?: string }) {
-  return <div className="chart-readout" aria-live="polite" aria-atomic="true">{children ?? 'Выберите точку графика: наведите курсор, нажмите или перейдите клавишей Tab.'}</div>;
+  return <div className={children ? 'chart-readout' : 'sr-only'} aria-live="polite" aria-atomic="true">{children}</div>;
 }
