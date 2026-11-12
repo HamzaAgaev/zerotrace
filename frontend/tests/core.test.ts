@@ -133,3 +133,14 @@ test('compact chain hides failed senders, preserves receivers, retries and unpai
   const withoutKind=spans.map(({kind,...span})=>span);
   assert.deepEqual(compactTimelineSpans(withoutKind,{[sender.span_id]:receiver.span_id,retry:'payment-retry'}).map(span=>span.span_id),compact.map(span=>span.span_id));
 });
+
+test('product and guide routes preserve the existing default and versioned trace links', () => {
+  assert.deepEqual(readRoute('#/home'), { page: 'home' });
+  assert.deepEqual(readRoute('#/guide?section=traces'), { page: 'guide' });
+  assert.deepEqual(readRoute(''), { page: 'home' });
+  assert.deepEqual(readRoute('#/'), { page: 'home' });
+  assert.deepEqual(readRoute('#'), { page: 'home' });
+  assert.deepEqual(readRoute('#/traces'), { page: 'traces' });
+  const ref = { environment_id: 'shop', trace_id: 'abc', generation: 2, revision: 3 };
+  assert.deepEqual(readRoute(traceHref(ref)), { page: 'traces', traceId: 'abc', traceRef: ref });
+});

@@ -225,7 +225,12 @@ def retry_checks(ctx, edge, policy, limits, samples: EdgeRetrySamples):
             if isinstance(allowed, dict):
                 allowed = allowed.get(protocol)
             if isinstance(allowed, list):
-                hit = str(code) not in {str(x) for x in allowed}
+                tokens = {str(x) for x in allowed}
+                permitted = str(code) in tokens
+                if protocol == "http":
+                    permitted = permitted or (400 <= code <= 499 and "4xx" in tokens)
+                    permitted = permitted or (500 <= code <= 599 and "5xx" in tokens)
+                hit = not permitted
                 basis = "configured_retry_on"
             elif protocol == "http":
                 hit = 400 <= code < 500 and code not in (408, 425, 429)

@@ -4,14 +4,14 @@
   "producer_version": "0.1.0",
   "generated_at": "2026-11-10T12:00:00Z",
   "payload": {
-    "result_id": "56a4df29009390d0de8e58b60c148c736ad81b289dd0e265ee73c7e7a2d5bc75",
+    "result_id": "db554304f03eb472a7a45a8b3c25b79072d1fed36029fad39efec2303db5e54e",
     "generated_at": "2026-11-10T12:00:00Z",
     "findings": [
       {
         "finding_id": "2d767b6b5478cd65f89d4696ca51d162d714d974c3f78a078b8306bce785753d",
-        "occurrence_id": "6b47a5e1f62c35009094153a75121fedf302c3d7e2a0fd4c516cc85a1725af5e",
+        "occurrence_id": "f78a65fb8df9adf2c548c68e20a70f7cf6cd18ab85dcf432015cbaf16347e666",
         "rule_id": "R4",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "title": "Превышен локальный бюджет повторов",
         "severity": "high",
         "confidence": "high",
@@ -79,7 +79,7 @@
           "recommended_attempts": 2,
           "recommended_required_ns": "550000000"
         },
-        "recommendation_id": "eb517118d37abc2e93f36b9338d3eb045427b592afc74686c84bc99cacf32ed0",
+        "recommendation_id": "a1cae64f1a7af0ea8235cd3bfcf01795aaaf50059d952fb458ec3880a3e68e87",
         "recommendation": {
           "text": "Установить максимум 2 попыток у владельца вызова.",
           "why": "Уменьшение лимита сокращает расчётное число последовательных попыток.",
@@ -98,9 +98,9 @@
       },
       {
         "finding_id": "b7c8ca1b8980b7ad39b045547dd8aaeb02cc946b53cf7b73caaf1696992e42ab",
-        "occurrence_id": "ecb18a4fb57cc02c0e7125f71871cc3860d8b6e9f395420fa058f13a6bee0320",
+        "occurrence_id": "0568011ba0a38fdb63abef67a51ac90918dc79c4ed07ef886b52c0cb4ea2f663",
         "rule_id": "OBS_RETRIES",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "title": "Наблюдаются повторные попытки",
         "severity": "low",
         "confidence": "high",
@@ -224,7 +224,7 @@
             }
           ]
         },
-        "recommendation_id": "1dc1337918af92bde512db51519ef09100a083fbe38a3987676d9a54c133af50",
+        "recommendation_id": "4c5a9d3174564d382e550fe6d0aad57181a263c0aea7b93104ee9251f4926df5",
         "recommendation": {
           "text": "Проверьте подтверждённые группы попыток по примерам трасс.",
           "why": "Подтверждённые повторы в 30 из 30 пригодных логических вызовов.",
@@ -237,7 +237,7 @@
     "rule_evaluations": [
       {
         "rule_id": "OBS_RETRIES",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "evaluated",
         "eligible_count": 30,
         "triggered_count": 30,
@@ -255,7 +255,7 @@
       },
       {
         "rule_id": "R1",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -278,7 +278,7 @@
       },
       {
         "rule_id": "R2",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -301,7 +301,7 @@
       },
       {
         "rule_id": "R3",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -323,7 +323,7 @@
       },
       {
         "rule_id": "R4",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "evaluated",
         "eligible_count": 1,
         "triggered_count": 1,
@@ -341,7 +341,7 @@
       },
       {
         "rule_id": "R5",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -363,7 +363,7 @@
       },
       {
         "rule_id": "R6",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -385,7 +385,7 @@
       },
       {
         "rule_id": "R7",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "evaluated",
         "eligible_count": 60,
         "triggered_count": 0,
@@ -403,7 +403,7 @@
       },
       {
         "rule_id": "R8",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -425,7 +425,7 @@
       },
       {
         "rule_id": "D1",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,

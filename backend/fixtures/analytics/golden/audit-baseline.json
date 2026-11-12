@@ -67,7 +67,7 @@
    ],
    "explanation": "По настройкам требуется 850000000 нс при доступных 700000000 нс.",
    "finding_id": "141a70c23588e80fab8bb4a1ec5e0b5672618c45a792ed0ec37abd828569f573",
-   "occurrence_id": "0f8facdbbfa19c5f0ca99aa754d01652d2435a531e4164f3ad752880e8421e21",
+   "occurrence_id": "bf9b7db8805a19167160935d0df9880c4d6c872b37f0445f964d588a4cf83491",
    "recommendations": [
     {
      "changes": [
@@ -81,7 +81,7 @@
      "intents": [
       {
        "expected_config_revision": "12",
-       "reason_ref": "0f8facdbbfa19c5f0ca99aa754d01652d2435a531e4164f3ad752880e8421e21",
+       "reason_ref": "bf9b7db8805a19167160935d0df9880c4d6c872b37f0445f964d588a4cf83491",
        "set": {
         "max_attempts": 2
        },
@@ -95,21 +95,21 @@
      "preconditions": [
       "Ревизия конфигурации и политика вызова актуальны."
      ],
-     "recommendation_id": "cabcd466f59143d154fe54a5d1fa77e1eb57cb0a7358a93ecff2e48a06aafc9e",
+     "recommendation_id": "767dee241a123ae36c6afb751a24bdea2f29d2da1b17aefeadb0838252477dbf",
      "risks": [
       "Запрос, который восстанавливался на поздней попытке, может завершиться ошибкой."
      ],
      "text": "Установить максимум 2 попыток у владельца вызова.",
-     "version": "1.1.1",
+     "version": "1.1.2",
      "why": "Уменьшение лимита сокращает расчётное число последовательных попыток."
     }
    ],
    "rule_id": "R4",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "score": 4.5,
    "score_reason": "eligible_sample_priority",
    "severity": "high",
-   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
    "title": "Превышен локальный бюджет повторов"
   },
   {
@@ -158,7 +158,7 @@
    ],
    "explanation": "По настройкам требуется 850000000 нс при доступных 700000000 нс.",
    "finding_id": "93573d926c2f8317f4ed42f70dc50d50a2e0c49ae354d8934c648a9e81054daa",
-   "occurrence_id": "bed0af2d716967c33e0d32be23938f1afc6aec7978121bf4c9adeaf123f265b7",
+   "occurrence_id": "898c4f3c8764c8a9a0272db0d2ce417223999e22709f6e60b6d7f28ef5b3b7b1",
    "recommendations": [
     {
      "changes": [
@@ -172,7 +172,7 @@
      "intents": [
       {
        "expected_config_revision": "12",
-       "reason_ref": "bed0af2d716967c33e0d32be23938f1afc6aec7978121bf4c9adeaf123f265b7",
+       "reason_ref": "898c4f3c8764c8a9a0272db0d2ce417223999e22709f6e60b6d7f28ef5b3b7b1",
        "set": {
         "max_attempts": 2
        },
@@ -186,21 +186,21 @@
      "preconditions": [
       "Ревизия конфигурации и политика вызова актуальны."
      ],
-     "recommendation_id": "20dba30253e22c20fc49569b25d406014477882146537385a1d7409a5ae8b94a",
+     "recommendation_id": "e7eb6b92fd9d549206154951b0b27dd829c66c7961420f043c51a7032c3fdefb",
      "risks": [
       "Запрос, который восстанавливался на поздней попытке, может завершиться ошибкой."
      ],
      "text": "Установить максимум 2 попыток у владельца вызова.",
-     "version": "1.1.1",
+     "version": "1.1.2",
      "why": "Уменьшение лимита сокращает расчётное число последовательных попыток."
     }
    ],
    "rule_id": "R4",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "score": 4.5,
    "score_reason": "eligible_sample_priority",
    "severity": "high",
-   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
    "title": "Превышен локальный бюджет повторов"
   },
   {
@@ -265,7 +265,7 @@
    ],
    "explanation": "Подтверждённые повторы в 2 из 2 пригодных логических вызовов.",
    "finding_id": "1469c6f1d5655efa661e9b27fe42303a8639ea2c8f324e065500c32483fbafcc",
-   "occurrence_id": "ab923893fb288e039b563393b3237500f0a8d557feb3dc5cf85246b58cd34570",
+   "occurrence_id": "b6cc9bec96c0b645c7d8e41436f0ecd4c6617d47744006e096df8725479880cf",
    "recommendations": [
     {
      "changes": [],
@@ -273,19 +273,19 @@
      "intents": [],
      "kind": "primary",
      "preconditions": [],
-     "recommendation_id": "6ec4976acd4733d56d8ff32bc057af35e89b667a405a7db1121e8d352e91c43a",
+     "recommendation_id": "312c290232c2f131319038d11ed33a92ec0315200f1922b924fd2ebbe76ac561",
      "risks": [],
      "text": "Проверьте подтверждённые группы попыток по примерам трасс.",
-     "version": "1.1.1",
+     "version": "1.1.2",
      "why": "Подтверждённые повторы в 2 из 2 пригодных логических вызовов."
     }
    ],
    "rule_id": "OBS_RETRIES",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "score": 1.5,
    "score_reason": "eligible_sample_priority",
    "severity": "low",
-   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
    "title": "Наблюдаются повторные попытки"
   }
  ],
@@ -351,7 +351,7 @@
    "retry_ratio": 0.0
   }
  ],
- "result_id": "99b85c7898bacbc8474b973b14944065cbb5b984fba4183370a3617f89e01aad",
+ "result_id": "1f354e15c8e8692c4b59b05c9e3ce0a20ed9e71da973e9fb64523a934b33b80a",
  "rule_evaluations": [
   {
    "by_edge": [
@@ -383,7 +383,7 @@
    "eligible_count": 4,
    "excluded_by_reason": {},
    "rule_id": "OBS_RETRIES",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 2
   },
@@ -426,7 +426,7 @@
     "too_few_eligible_samples": 2
    },
    "rule_id": "R1",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 0
   },
@@ -471,7 +471,7 @@
     "missing_ancestry_or_compatible_offset": 7
    },
    "rule_id": "R2",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -514,7 +514,7 @@
     "no_confirmed_nested_retry_path": 2
    },
    "rule_id": "R3",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -548,7 +548,7 @@
    "eligible_count": 3,
    "excluded_by_reason": {},
    "rule_id": "R4",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 2
   },
@@ -591,7 +591,7 @@
     "single_attempt": 2
    },
    "rule_id": "R5",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -634,7 +634,7 @@
     "single_attempt": 2
    },
    "rule_id": "R6",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -674,7 +674,7 @@
     "single_attempt": 2
    },
    "rule_id": "R7",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 0
   },
@@ -716,7 +716,7 @@
     "unknown_paired_timeouts": 3
    },
    "rule_id": "R8",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -758,23 +758,23 @@
     "unmatched_workload_or_versions": 3
    },
    "rule_id": "D1",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   }
  ],
- "ruleset_version": "1.1.1",
+ "ruleset_version": "1.1.2",
  "sampling": {
   "mode": "unknown"
  },
- "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
- "thresholds_version": "1.1.1",
+ "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
+ "thresholds_version": "1.1.2",
  "trace_findings": [
   {
    "occurrence_ids": [
-    "0f8facdbbfa19c5f0ca99aa754d01652d2435a531e4164f3ad752880e8421e21",
-    "ab923893fb288e039b563393b3237500f0a8d557feb3dc5cf85246b58cd34570",
-    "bed0af2d716967c33e0d32be23938f1afc6aec7978121bf4c9adeaf123f265b7"
+    "898c4f3c8764c8a9a0272db0d2ce417223999e22709f6e60b6d7f28ef5b3b7b1",
+    "b6cc9bec96c0b645c7d8e41436f0ecd4c6617d47744006e096df8725479880cf",
+    "bf9b7db8805a19167160935d0df9880c4d6c872b37f0445f964d588a4cf83491"
    ],
    "trace_ref": {
     "environment_id": "lab",

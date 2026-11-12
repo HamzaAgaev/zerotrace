@@ -57,7 +57,7 @@
    ],
    "explanation": "По настройкам требуется 850000000 нс при доступных 700000000 нс.",
    "finding_id": "141a70c23588e80fab8bb4a1ec5e0b5672618c45a792ed0ec37abd828569f573",
-   "occurrence_id": "7114a8a7cafa862631f38163ebb0498d7caaec5839ab9e5b211a461b8eb7e720",
+   "occurrence_id": "9a24ebfacee3d899631f166c6dea71f8551b404c3329d35260ada9c94c031e2b",
    "recommendations": [
     {
      "changes": [
@@ -71,7 +71,7 @@
      "intents": [
       {
        "expected_config_revision": "12",
-       "reason_ref": "7114a8a7cafa862631f38163ebb0498d7caaec5839ab9e5b211a461b8eb7e720",
+       "reason_ref": "9a24ebfacee3d899631f166c6dea71f8551b404c3329d35260ada9c94c031e2b",
        "set": {
         "max_attempts": 2
        },
@@ -85,21 +85,21 @@
      "preconditions": [
       "Ревизия конфигурации и политика вызова актуальны."
      ],
-     "recommendation_id": "48bbd0a974e0498bfd2bf88c57b91f8d9a2a62cba2b65dc0a476c3df52b5b291",
+     "recommendation_id": "035ec797a3d7f9f4502d07d4fb4104c38bd8ca013d6be06b667ba0fb48865ade",
      "risks": [
       "Запрос, который восстанавливался на поздней попытке, может завершиться ошибкой."
      ],
      "text": "Установить максимум 2 попыток у владельца вызова.",
-     "version": "1.1.1",
+     "version": "1.1.2",
      "why": "Уменьшение лимита сокращает расчётное число последовательных попыток."
     }
    ],
    "rule_id": "R4",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "score": 4.5,
    "score_reason": "eligible_sample_priority",
    "severity": "high",
-   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
    "title": "Превышен локальный бюджет повторов"
   },
   {
@@ -155,7 +155,7 @@
    ],
    "explanation": "После указанного ответа на клиентском спане последовала следующая попытка.",
    "finding_id": "2c8f41d4ea231f4335079877586d565f6cdc06d18d92fc8a3b237356f2dd2fd2",
-   "occurrence_id": "14288ef3cca05a14f74cf9731ee2f49dc9fc82b18d5f709dc1c2214442b41e45",
+   "occurrence_id": "304b8c3c7f3a0ac7e48723545a96fde0635bf00422f669ea9028001fd96238e7",
    "recommendations": [
     {
      "changes": [],
@@ -163,19 +163,19 @@
      "intents": [],
      "kind": "primary",
      "preconditions": [],
-     "recommendation_id": "60b8fef1479ebdbc3cd3d85b46f19f6542e05d83c1618e633df8d43dfe804947",
+     "recommendation_id": "90cb781f88277425d6709cc0d849fd8fd23c10392e1687b7b9081f6ee451b4f3",
      "risks": [],
      "text": "Проверьте условия повтора по ответу, полученному клиентом.",
-     "version": "1.1.1",
+     "version": "1.1.2",
      "why": "После указанного ответа на клиентском спане последовала следующая попытка."
     }
    ],
    "rule_id": "R7",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "score": 3.0,
    "score_reason": "eligible_sample_priority",
    "severity": "medium",
-   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
    "title": "Повтор после неподходящего клиентского статуса"
   },
   {
@@ -209,7 +209,7 @@
    ],
    "explanation": "Внутренний таймаут 250000000 нс, таймаут вызывающей стороны 100000000 нс.",
    "finding_id": "f3b9e0df733f81bee095f72c3fc46369c8534a8a400aa41d4be661cab813ff74",
-   "occurrence_id": "f291665dcb12668c4d237d871c44bb3a40d40ec146ee6a1950c92ad3c8aa379b",
+   "occurrence_id": "d0f8c4302a2c1239ef7629367111ec015fe8eb7694f8c47216516e3c015c96a9",
    "recommendations": [
     {
      "changes": [],
@@ -217,19 +217,19 @@
      "intents": [],
      "kind": "primary",
      "preconditions": [],
-     "recommendation_id": "a5f83f5565a89516127b9857ca45316057434cd4e3fb0d7c33f6661ca8a63d45",
+     "recommendation_id": "4e2543b36f4386838b926e3f9678438817be4c4a89286eadefc880e3641a8042",
      "risks": [],
      "text": "Согласуйте таймаут вызываемой стороны с доступным бюджетом.",
-     "version": "1.1.1",
+     "version": "1.1.2",
      "why": "Внутренний таймаут 250000000 нс, таймаут вызывающей стороны 100000000 нс."
     }
    ],
    "rule_id": "R8",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "score": 3.0,
    "score_reason": "eligible_sample_priority",
    "severity": "medium",
-   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
    "title": "Внутренний таймаут достигает таймаута вызывающей стороны"
   },
   {
@@ -282,7 +282,7 @@
    ],
    "explanation": "Подтверждённые повторы в 1 из 1 пригодных логических вызовов.",
    "finding_id": "1469c6f1d5655efa661e9b27fe42303a8639ea2c8f324e065500c32483fbafcc",
-   "occurrence_id": "0d1c9e6ed260eeb1cc584fa2d3b10583d514cad9a30633931348b0e2a9c4cdce",
+   "occurrence_id": "69991095e13692bf1798176d934787af67da4ec68ffcaca1b5b696c42b94a863",
    "recommendations": [
     {
      "changes": [],
@@ -290,19 +290,19 @@
      "intents": [],
      "kind": "primary",
      "preconditions": [],
-     "recommendation_id": "3d3443bb93f2090ec80c269ede1d51208509acfcc99824dd1bf5d2bdd357fe99",
+     "recommendation_id": "34affb246a2b16e12cdde111d7e0fcdfc5cf65a78b3b48fe7c671413a011ec00",
      "risks": [],
      "text": "Проверьте подтверждённые группы попыток по примерам трасс.",
-     "version": "1.1.1",
+     "version": "1.1.2",
      "why": "Подтверждённые повторы в 1 из 1 пригодных логических вызовов."
     }
    ],
    "rule_id": "OBS_RETRIES",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "score": 1.5,
    "score_reason": "eligible_sample_priority",
    "severity": "low",
-   "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
+   "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
    "title": "Наблюдаются повторные попытки"
   }
  ],
@@ -330,7 +330,7 @@
    "retry_ratio": 1.0
   }
  ],
- "result_id": "c949725719961192b7358dba32daad9ca0e8be8042f7411ddcbad14acc7e1f4d",
+ "result_id": "e049a68b2abcbae3e414242192177381be1a9a402eaa9d5df6314c9a3a95ddaa",
  "rule_evaluations": [
   {
    "by_edge": [
@@ -346,7 +346,7 @@
    "eligible_count": 1,
    "excluded_by_reason": {},
    "rule_id": "OBS_RETRIES",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 1
   },
@@ -369,7 +369,7 @@
     "too_few_eligible_samples": 1
    },
    "rule_id": "R1",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -392,7 +392,7 @@
     "missing_ancestry_or_compatible_offset": 3
    },
    "rule_id": "R2",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -414,7 +414,7 @@
     "no_confirmed_nested_retry_path": 1
    },
    "rule_id": "R3",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -432,7 +432,7 @@
    "eligible_count": 1,
    "excluded_by_reason": {},
    "rule_id": "R4",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 1
   },
@@ -454,7 +454,7 @@
     "cross_clock_uncertain": 2
    },
    "rule_id": "R5",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   },
@@ -476,7 +476,7 @@
     "no_eligible_observations": 1
    },
    "rule_id": "R6",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "not_applicable",
    "triggered_count": 0
   },
@@ -494,7 +494,7 @@
    "eligible_count": 2,
    "excluded_by_reason": {},
    "rule_id": "R7",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 2
   },
@@ -512,7 +512,7 @@
    "eligible_count": 1,
    "excluded_by_reason": {},
    "rule_id": "R8",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "evaluated",
    "triggered_count": 1
   },
@@ -534,24 +534,24 @@
     "unmatched_workload_or_versions": 1
    },
    "rule_id": "D1",
-   "rule_version": "1.1.1",
+   "rule_version": "1.1.2",
    "status": "insufficient_data",
    "triggered_count": 0
   }
  ],
- "ruleset_version": "1.1.1",
+ "ruleset_version": "1.1.2",
  "sampling": {
   "mode": "unknown"
  },
- "thresholds_hash": "0acedb986806eb94477e8dadc1c269d6bbf7e444689653cbe5f91b2feb7e32c6",
- "thresholds_version": "1.1.1",
+ "thresholds_hash": "d3f383935e55d812f14fe3c1dccc184b8d57a4be46d2735845879f2ebda1f74e",
+ "thresholds_version": "1.1.2",
  "trace_findings": [
   {
    "occurrence_ids": [
-    "0d1c9e6ed260eeb1cc584fa2d3b10583d514cad9a30633931348b0e2a9c4cdce",
-    "14288ef3cca05a14f74cf9731ee2f49dc9fc82b18d5f709dc1c2214442b41e45",
-    "7114a8a7cafa862631f38163ebb0498d7caaec5839ab9e5b211a461b8eb7e720",
-    "f291665dcb12668c4d237d871c44bb3a40d40ec146ee6a1950c92ad3c8aa379b"
+    "304b8c3c7f3a0ac7e48723545a96fde0635bf00422f669ea9028001fd96238e7",
+    "69991095e13692bf1798176d934787af67da4ec68ffcaca1b5b696c42b94a863",
+    "9a24ebfacee3d899631f166c6dea71f8551b404c3329d35260ada9c94c031e2b",
+    "d0f8c4302a2c1239ef7629367111ec015fe8eb7694f8c47216516e3c015c96a9"
    ],
    "trace_ref": {
     "environment_id": "lab",

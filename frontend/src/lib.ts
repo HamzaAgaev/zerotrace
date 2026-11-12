@@ -43,6 +43,8 @@ export function findingsForTrace(trace: TraceDetail, findings: Finding[]): Findi
 export function readRoute(hash: string): Route {
   const [path, query] = hash.replace(/^#\/?/, '').split('?');
   const [page, traceId] = path.split('/');
+  if (!page) return { page: 'home' };
+  if (page === 'home' || page === 'guide') return { page };
   if (page === 'services') return { page: new URLSearchParams(query).get('tab') === 'statistics' ? 'timings' : 'graph' };
   if (page === 'policies') return { page: 'graph' };
   if (page === 'lab') return { page: 'lab', ...(new URLSearchParams(query).get('run') ? { runId: new URLSearchParams(query).get('run')! } : {}) };

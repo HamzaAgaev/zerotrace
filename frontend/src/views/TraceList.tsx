@@ -1,3 +1,5 @@
+import { Input } from '../components/ui';
+import { SearchField } from '../components/ui';
 import { TraceTable } from '../components/TraceTable';
 import { usePersistentState } from '../state';
 import { HttpMethod } from '../components/HttpText';
@@ -134,11 +136,8 @@ export function TraceList({ client }: { client: Client }) {
 
     <Panel className="trace-table-panel">
       <div className="trace-toolbar" role="group" aria-label="Фильтры трейсов">
-        <label className="search-field">
-          <Icon name="search" size={16}/>
-          <input aria-label="Поиск трейсов" type="search" value={query}
-            onChange={event => change(setQuery, event.target.value)} placeholder="Эндпоинт, сервис или Trace ID"/>
-        </label>
+        <SearchField aria-label="Поиск трейсов" value={query}
+          onChange={event => change(setQuery, event.target.value)} placeholder="Эндпоинт, сервис или Trace ID"/>
         <Select aria-label="Сервис" values={service} onValuesChange={value => { setService(value); setPage(1); }}>
           <option value="">Все сервисы</option>
           {(result?.services ?? []).map(name => <option key={name} value={name}>{name}</option>)}
@@ -162,20 +161,20 @@ export function TraceList({ client }: { client: Client }) {
           <option value="recent">Сначала новые</option>
           <option value="slow">Сначала медленные</option>
         </Select>
-        {filtersActive && <Button variant="ghost" onClick={resetFilters}>Сбросить</Button>}
+        {filtersActive && <Button icon="close" variant="ghost" onClick={resetFilters}>Сбросить</Button>}
       </div>
 
       <form ref={searchForm} className="trace-period-filter" aria-label="Фильтры по Span ID и периоду" onSubmit={applySearch}>
         <Field label="Span ID">
-          <input type="search" name="span_id" value={periodDraft.span_id} onChange={e=>setPeriodDraft(old=>({...old,span_id:e.target.value}))} placeholder="16 шестнадцатеричных символов"/>
+          <SearchField aria-label="Поиск по Span ID" name="span_id" value={periodDraft.span_id} onChange={e=>setPeriodDraft(old=>({...old,span_id:e.target.value}))} placeholder="16 шестнадцатеричных символов"/>
         </Field>
         <Field label="Начало периода">
-          <input type="datetime-local" name="period_start" value={periodDraft.period_start} onChange={e=>setPeriodDraft(old=>({...old,period_start:e.target.value}))} step="1"/>
+          <Input type="datetime-local" name="period_start" value={periodDraft.period_start} onChange={e=>setPeriodDraft(old=>({...old,period_start:e.target.value}))} step="1"/>
         </Field>
         <Field label="Конец периода">
-          <input type="datetime-local" name="period_end" value={periodDraft.period_end} onChange={e=>setPeriodDraft(old=>({...old,period_end:e.target.value}))} step="1"/>
+          <Input type="datetime-local" name="period_end" value={periodDraft.period_end} onChange={e=>setPeriodDraft(old=>({...old,period_end:e.target.value}))} step="1"/>
         </Field>
-        <Button type="submit">Применить</Button>
+        <Button icon="filter" type="submit">Применить</Button>
         {searchError && <div className="trace-period-error" role="alert">{searchError}</div>}
       </form>
 

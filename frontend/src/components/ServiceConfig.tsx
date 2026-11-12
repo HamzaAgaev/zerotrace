@@ -1,10 +1,11 @@
+import { Input } from './ui';
 import { usePersistentState } from '../state';
 import { Endpoint, endpointLabel } from './HttpText';
 import { Tabs } from './Tabs';
 import { Select } from './Select';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ChangePlan, Client, ConfigSnapshot, RouteWork } from '../api/types';
-import { Badge, Button, Field, LoadingState, Message } from './ui';
+import { ReadOnlyBlock, ReadOnlyValue, Badge, Button, Field, LoadingState, Message } from './ui';
 import { PlanDialog } from './PlanDialog';
 
 function Setting({label,editable,children}:{label:string;editable:boolean;value:ReactNode;children:ReactNode}) {
@@ -106,7 +107,7 @@ export function ServiceConfig({ client, service, environmentId, localOnly = fals
       </Select></Field>}
       {draft&&canEdit&&<Badge tone="warning">Есть несохранённые изменения</Badge>}
       {conflict&&canEdit&&<Message tone="warning">Конфигурация на сервере изменилась. Черновик сохранён. Сверьте новые значения перед сохранением.</Message>}
-      {readOnlyFields.length>0&&<section className="config-readonly" aria-label="Настройки только для просмотра">
+      {readOnlyFields.length>0&&<ReadOnlyBlock label="Настройки только для просмотра">
         <div className="config-readonly-heading"><h3>{route?'Задержка сервиса':'Таймауты и повторы'}</h3><Badge>Только просмотр</Badge></div>
         <div className="config-readonly-values">
           {call&&[
@@ -114,29 +115,29 @@ export function ServiceConfig({ client, service, environmentId, localOnly = fals
             ['max_attempts','Всего попыток, включая первую',call.max_attempts],
             ['backoff_ms','Пауза между попытками',`${call.backoff_ms} мс`],
             ['retry_on','Условия повтора',call.retry_on.join(', ')||'Без повторов'],
-          ].filter(([field])=>readOnlyFields.includes(String(field))).map(([field,label,value])=><dl className="config-value" key={field}><dt>{label}</dt><dd>{value}</dd></dl>)}
+          ].filter(([field])=>readOnlyFields.includes(String(field))).map(([field,label,value])=><ReadOnlyValue key={field} label={label}>{value}</ReadOnlyValue>)}
           {route&&work&&<>
-            <dl className="config-value"><dt>Задержка ответа</dt><dd>{work.kind==='fixed'?'Постоянная':'Переменная'}</dd></dl>
-            {work.kind==='fixed'?<dl className="config-value"><dt>Время обработки</dt><dd>{work.delay_ms} мс</dd></dl>:<>
-              <dl className="config-value"><dt>Обычное время (медиана)</dt><dd>{work.p50_ms} мс</dd></dl>
-              <dl className="config-value"><dt>Время для 99% запросов</dt><dd>{work.p99_ms} мс</dd></dl>
+            <ReadOnlyValue label="Задержка ответа">{work.kind==='fixed'?'Постоянная':'Переменная'}</ReadOnlyValue>
+            {work.kind==='fixed'?<ReadOnlyValue label="Время обработки">{work.delay_ms} мс</ReadOnlyValue>:<>
+              <ReadOnlyValue label="Обычное время (медиана)">{work.p50_ms} мс</ReadOnlyValue>
+              <ReadOnlyValue label="Время для 99% запросов">{work.p99_ms} мс</ReadOnlyValue>
             </>}
           </>}
         </div>
-      </section>}
+      </ReadOnlyBlock>}
 
       {canEdit&&(call||route)&&<form className={route?'service-work-form':undefined} onSubmit={e=>{e.preventDefault();void prepare();}}>
         {call&&values&&<>
-          <Setting label="Таймаут попытки, мс" editable={call.write_fields.includes('timeout_ms')} value={call.timeout_ms}><input required type="number" min="1" value={values.timeout} disabled={disabled||pending} onChange={e=>updateCall('timeout',e.target.value)}/></Setting>
-          <Setting label="Всего попыток, включая первую" editable={call.write_fields.includes('max_attempts')} value={call.max_attempts}><input required type="number" min="1" max="10" value={values.attempts} disabled={disabled||pending} onChange={e=>updateCall('attempts',e.target.value)}/></Setting>
-          <Setting label="Пауза между попытками, мс" editable={call.write_fields.includes('backoff_ms')} value={call.backoff_ms}><input required type="number" min="0" value={values.backoff} disabled={disabled||pending} onChange={e=>updateCall('backoff',e.target.value)}/></Setting>
-          <Setting label={call.write_fields.includes('retry_on')?'Условия повтора (через запятую)':'Условия повтора'} editable={call.write_fields.includes('retry_on')} value={call.retry_on.join(', ') || 'Без повторов'}><input value={values.retry} disabled={disabled||pending} onChange={e=>updateCall('retry',e.target.value)}/></Setting>
+          <Setting label="Таймаут попытки, мс" editable={call.write_fields.includes('timeout_ms')} value={call.timeout_ms}><Input required type="number" min="1" value={values.timeout} disabled={disabled||pending} onChange={e=>updateCall('timeout',e.target.value)}/></Setting>
+          <Setting label="Всего попыток, включая первую" editable={call.write_fields.includes('max_attempts')} value={call.max_attempts}><Input required type="number" min="1" max="10" value={values.attempts} disabled={disabled||pending} onChange={e=>updateCall('attempts',e.target.value)}/></Setting>
+          <Setting label="Пауза между попытками, мс" editable={call.write_fields.includes('backoff_ms')} value={call.backoff_ms}><Input required type="number" min="0" value={values.backoff} disabled={disabled||pending} onChange={e=>updateCall('backoff',e.target.value)}/></Setting>
+          <Setting label={call.write_fields.includes('retry_on')?'Условия повтора (через запятую)':'Условия повтора'} editable={call.write_fields.includes('retry_on')} value={call.retry_on.join(', ') || 'Без повторов'}><Input value={values.retry} disabled={disabled||pending} onChange={e=>updateCall('retry',e.target.value)}/></Setting>
         </>}
         {route&&work&&<>
           <Setting label="Задержка ответа" editable={canEditWork} value={work.kind==='fixed'?'Постоянная':'Переменная'}><Select value={work.kind} disabled={disabled||pending} onChange={v=>updateWork(v==='fixed'?{kind:'fixed',delay_ms:1}:{kind:'lognormal',p50_ms:1,p99_ms:2})}><option value="fixed">Постоянная</option><option value="lognormal">Переменная</option></Select></Setting>
-          {work.kind==='fixed'?<Setting label="Время обработки, мс" editable={canEditWork} value={work.delay_ms}><input required type="number" min="0" value={work.delay_ms} disabled={disabled||pending} onChange={e=>updateWork({...work,delay_ms:Number(e.target.value)})}/></Setting>:<>
-            <Setting label="Обычное время (медиана), мс" editable={canEditWork} value={work.p50_ms}><input required type="number" min="1" value={work.p50_ms} disabled={disabled||pending} onChange={e=>updateWork({...work,p50_ms:Number(e.target.value)})}/></Setting>
-            <Setting label="Время для 99% запросов, мс" editable={canEditWork} value={work.p99_ms}><input required type="number" min={work.p50_ms} value={work.p99_ms} disabled={disabled||pending} onChange={e=>updateWork({...work,p99_ms:Number(e.target.value)})}/></Setting>
+          {work.kind==='fixed'?<Setting label="Время обработки, мс" editable={canEditWork} value={work.delay_ms}><Input required type="number" min="0" value={work.delay_ms} disabled={disabled||pending} onChange={e=>updateWork({...work,delay_ms:Number(e.target.value)})}/></Setting>:<>
+            <Setting label="Обычное время (медиана), мс" editable={canEditWork} value={work.p50_ms}><Input required type="number" min="1" value={work.p50_ms} disabled={disabled||pending} onChange={e=>updateWork({...work,p50_ms:Number(e.target.value)})}/></Setting>
+            <Setting label="Время для 99% запросов, мс" editable={canEditWork} value={work.p99_ms}><Input required type="number" min={work.p50_ms} value={work.p99_ms} disabled={disabled||pending} onChange={e=>updateWork({...work,p99_ms:Number(e.target.value)})}/></Setting>
           </>}
         </>}
         {canEdit&&<Button type="submit" loading={pending} disabled={disabled||pending||conflict||!changed}>{pending ? (directSave?'Сохраняем…':'Готовим план…') : (directSave?'Применить':'Посмотреть изменения')}</Button>}

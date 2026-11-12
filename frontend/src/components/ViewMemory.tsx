@@ -15,7 +15,7 @@ export function ViewMemory({route}:{route:string}) {
     const panelKey=(el:Element)=>el.closest('.panel')?.querySelector('.panel-heading h2, h2')?.textContent?.trim()||el.closest('main')?.id||'';
     const identity=(el:Element)=>{
       const explicit=el.getAttribute('aria-label')||el.id;
-      if(explicit)return explicit;
+      if(explicit && !el.classList.contains('table-scroll'))return explicit;
       const panel=el.closest('.panel');
       const peers=panel?Array.from(panel.querySelectorAll(scrollSelector)):[];
       return `${panelKey(el)}|${el.className}|${Math.max(0,peers.indexOf(el))}`;

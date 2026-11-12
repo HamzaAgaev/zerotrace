@@ -1,8 +1,14 @@
 import { useState, useRef } from 'react';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, Ref } from 'react';
 import type { Tone } from '../api/types';
-export type IconName = 'graph' | 'clock' | 'compare' | 'traces' | 'audit' | 'journal' | 'plug' | 'search' | 'refresh' | 'chevron' | 'arrow' | 'download' | 'close' | 'check' | 'copy' | 'info' | 'external' | 'filter';
+export type IconName = 'graph' | 'clock' | 'compare' | 'traces' | 'audit' | 'journal' | 'plug' | 'search' | 'refresh' | 'chevron' | 'arrow' | 'download' | 'close' | 'check' | 'copy' | 'info' | 'external' | 'filter' | 'home' | 'book' | 'play' | 'stop' | 'upload' | 'save';
 const paths: Record<IconName, ReactNode> = {
+  home: <><path d="m3 10 9-7 9 7v11H3Z"/><path d="M9 21v-8h6v8"/></>,
+  book: <><path d="M12 5v16M3 3h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v16h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3Z"/></>,
+  play: <path d="m8 4 12 8-12 8Z"/>,
+  stop: <rect x="5" y="5" width="14" height="14" rx="2"/>,
+  upload: <><path d="M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5"/></>,
+  save: <><path d="M4 3h13l4 4v14H3V3ZM7 3v6h10V3M7 21v-8h10v8"/></>,
   graph: <><rect x="2" y="8" width="6" height="7" rx="1"/><rect x="16" y="2" width="6" height="7" rx="1"/><rect x="16" y="16" width="6" height="7" rx="1"/><path d="M8 11h4V5h4m-4 6v8h4"/></>,
   clock: <><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></>,
   compare: <><path d="M4 5h16M4 12h9M4 19h16"/><path d="m16 9 4 3-4 3"/></>,
@@ -20,7 +26,7 @@ const paths: Record<IconName, ReactNode> = {
   external: <><path d="M14 3h7v7m0-7-10 10M10 3H3v18h18v-7"/></>,
   filter: <path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z"/>,
 };
-export function Icon({ name, size = 18, className = '' }: { name: IconName; size?: number; className?: string }) { return <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>; }
+export function Icon({ name, size = 18, className = '' }: { name: IconName; size?: number; className?: string }) { return <svg className={`ui-icon ${className}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>; }
 export function Button({ children, variant = 'secondary', icon, loading = false, className = '', onClick, disabled, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost'; icon?: IconName; loading?: boolean }) {
   const [working,setWorking]=useState(false);
   const [actionError,setActionError]=useState('');
@@ -35,7 +41,7 @@ export function Button({ children, variant = 'secondary', icon, loading = false,
       const finish=()=>{inFlight.current=false;setWorking(false);};
       Promise.resolve(result).then(finish,error=>{finish();setActionError(error instanceof Error ? error.message : 'Не удалось выполнить действие.');});
     }
-  }}>{busy ? <span className="spinner button-spinner" aria-hidden="true"/> : icon && <Icon name={icon} size={16}/>} {children}</button>{actionError && <span role="alert" className="button-error">{actionError}</span>}</>;
+  }}>{busy ? <span className="spinner button-spinner" aria-hidden="true"/> : icon && <Icon name={icon} />} {children}</button>{actionError && <span role="alert" className="button-error">{actionError}</span>}</>;
 }
 export function RetryButton({ onClick }: Pick<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>) {
   return <Button type="button" className="button--retry" icon="refresh" onClick={onClick}>Повторить</Button>;
@@ -70,7 +76,7 @@ export function PageHeader({ title, actions, context, detail, titleClassName }: 
 }
 
 export function TableScroll({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`table-scroll ${className}`}>{children}</div>;
+  return <div className={`table-scroll ${className}`} tabIndex={0} role="region" aria-label="Таблица данных, прокручивается по горизонтали">{children}</div>;
 }
 
 export function LoadingState({ children }: { children: ReactNode }) {
@@ -82,3 +88,22 @@ export function Field({ label, children }: { label: ReactNode; children: ReactNo
 }
 
 export function BackLink({href,children}:{href:string;children:ReactNode}) { return <a href={href} className="button button--primary page-back"><Icon name="arrow" size={16} className="rotate"/>{children}</a>; }
+
+/** Shared control foundation; native input semantics and refs are preserved. */
+export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
+  return <input className={`ui-input ${className}`} {...props}/>;
+}
+export function SearchField(props: Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>) {
+  return <span className="search-field"><Icon name="search"/><Input {...props} type="search"/></span>;
+}
+export function LinkButton({ href, children, icon, primary = false }: { href: string; children: ReactNode; icon?: IconName; primary?: boolean }) {
+  return <a className={`button button--${primary ? 'primary' : 'secondary'}`} href={href}>{icon && <Icon name={icon}/>}<span>{children}</span></a>;
+}
+
+/** Label and content shared by explanations and non-editable parameters. */
+export function ReadOnlyValue({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return <dl className="readonly-value"><dt>{label}</dt><dd>{children}</dd></dl>;
+}
+export function ReadOnlyBlock({ children, className = '', label }: { children: ReactNode; className?: string; label?: string }) {
+  return <section className={`readonly-block ${className}`} aria-label={label}>{children}</section>;
+}

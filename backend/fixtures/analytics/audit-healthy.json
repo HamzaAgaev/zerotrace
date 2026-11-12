@@ -4,13 +4,13 @@
   "producer_version": "0.1.0",
   "generated_at": "2026-11-10T12:00:00Z",
   "payload": {
-    "result_id": "381ba1b3c05e7625c7693904b02cc825299b0f8ebe01cd319e12961ffa5c0c57",
+    "result_id": "f0e06bb4b5b289741eb6ff8d3e0bbaacb2c688c6bdf99464207fff3cd0871535",
     "generated_at": "2026-11-10T12:00:00Z",
     "findings": [],
     "rule_evaluations": [
       {
         "rule_id": "OBS_RETRIES",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "evaluated",
         "eligible_count": 5,
         "triggered_count": 0,
@@ -28,7 +28,7 @@
       },
       {
         "rule_id": "R1",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -51,7 +51,7 @@
       },
       {
         "rule_id": "R2",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -74,7 +74,7 @@
       },
       {
         "rule_id": "R3",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -96,7 +96,7 @@
       },
       {
         "rule_id": "R4",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "evaluated",
         "eligible_count": 1,
         "triggered_count": 0,
@@ -114,7 +114,7 @@
       },
       {
         "rule_id": "R5",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -136,7 +136,7 @@
       },
       {
         "rule_id": "R6",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -158,7 +158,7 @@
       },
       {
         "rule_id": "R7",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -180,7 +180,7 @@
       },
       {
         "rule_id": "R8",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,
@@ -202,7 +202,7 @@
       },
       {
         "rule_id": "D1",
-        "rule_version": "1.1.1",
+        "rule_version": "1.1.2",
         "status": "insufficient_data",
         "eligible_count": 0,
         "triggered_count": 0,

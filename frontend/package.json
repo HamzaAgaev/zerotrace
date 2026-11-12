@@ -7,7 +7,9 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node -e \"require('node:fs').rmSync('.test-build',{recursive:true,force:true})\" && tsc -p tsconfig.tests.json && node --test .test-build/tests/*.test.js"
+    "test": "node -e \"require('node:fs').rmSync('.test-build',{recursive:true,force:true})\" && tsc -p tsconfig.tests.json && node --test .test-build/tests/*.test.js",
+    "docs": "node scripts/generate-guide.mjs",
+    "docs:check": "node scripts/generate-guide.mjs --check"
   },
   "dependencies": {
     "react": "19.3.1",

@@ -1,3 +1,4 @@
+import { Input } from '../components/ui';
 import { usePersistentState } from '../state';
 import { useEffect, useRef, useState } from 'react';
 import type { Capabilities, Connection } from '../api/types';
@@ -41,10 +42,10 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
       <Panel title="Сервер ZeroTrace" meta={<Badge tone={connection.mode === 'live' ? 'success' : 'neutral'}>{connection.mode === 'live' ? 'Выбран' : 'Доступен'}</Badge>}>
         <form className="connection-form" onSubmit={connect}>
           <Field label="Адрес сервера">
-            <input id="server-url" type="url" required value={url} onChange={event => setUrl(event.target.value)} placeholder="http://127.0.0.1:8000" />
+            <Input id="server-url" type="url" required value={url} onChange={event => setUrl(event.target.value)} placeholder="http://127.0.0.1:8000" />
           </Field>
           <Field label="Окружение">
-            <input id="environment-id" required value={environmentId} onChange={event => setEnvironmentId(event.target.value)} placeholder="shop" />
+            <Input id="environment-id" required value={environmentId} onChange={event => setEnvironmentId(event.target.value)} placeholder="shop" />
           </Field>
           {error && <Message tone="danger">{error} Подключение не изменено.</Message>}
           <Button icon="plug" variant="primary" type="submit" loading={testing}>{testing ? 'Проверяем сервер…' : 'Проверить и подключить'}</Button>

@@ -209,6 +209,27 @@ class DetectorTests(unittest.TestCase):
         for p in a: p["idempotency"]="present"
         self.assertIsNone(by_rule(run(model(a,[c])),"R6"))
 
+    def test_r7_http_retry_classes_and_exact_codes(self):
+        for allowed, code, forbidden in [
+            (["5xx", "timeout"], 503, False), (["5xx"], 500, False),
+            (["5xx"], 599, False), (["5xx"], 429, True),
+            (["4xx"], 400, False), (["4xx"], 499, False),
+            (["4xx"], 503, True), (["503"], 503, False),
+            ([503], 503, False), (["502"], 503, True),
+            (["timeout", "connect"], 503, True), ([], 503, True),
+        ]:
+            for configured in (allowed, {"http": allowed}):
+                with self.subTest(allowed=configured, code=code):
+                    attempts, call = group(n=2)
+                    attempts[0]["client_http_status"] = code
+                    output = run(model(attempts, [call]), [policy(retry_on=configured)])
+                    self.assertEqual(by_rule(output, "R7") is not None, forbidden)
+
+        attempts, call = group(n=2)
+        attempts[0].update(protocol="grpc", client_grpc_status=503)
+        self.assertIsNotNone(by_rule(run(model(attempts, [call]),
+                                        [policy(retry_on={"grpc": ["5xx"]})]), "R7"))
+
     def test_configured_r7_grpc_and_r8(self):
         a,c=group(n=2)
         a[0].update(protocol="grpc",client_grpc_status="INVALID_ARGUMENT")

@@ -1,0 +1,116 @@
+/* Semantic design contract. Layout rules live in styles.css; roles live here. */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --text-sm: .875rem;
+  --text-md: 1rem;
+  --text-lg: 1.5rem;
+  --text-xl: 1.75rem;
+  --control-height: 44px;
+  --radius-control: 8px;
+  --muted: #a3afc4;
+  --quiet: #8d9bb2;
+  font-family: var(--font-ui);
+}
+body { background: radial-gradient(ellipse at 75% 0%, #5261ad16, transparent 45%), var(--bg); }
+body h1 { font-size: var(--text-xl); font-weight: 600; line-height: 1.25; letter-spacing: -.025em; }
+body :is(h2,h3,h4), body .panel-heading h2 { font-size: var(--text-md); font-weight: 600; line-height: 1.5; letter-spacing: 0; }
+button, input, select, textarea { font-family: var(--font-ui); }
+body .nav-link { font-size: var(--text-md); font-weight: 500; min-height: var(--control-height); gap: 12px; }
+.sidebar { background: linear-gradient(160deg,#1c2340 0%,#101620 42%); }
+.sidebar-footer { margin-top: auto; padding-top: 32px; }
+body :is(.button,.select-control,.ui-input:where(:not([type=checkbox]):not([type=radio]):not([type=file]))) {
+  min-height: var(--control-height); font-size: var(--text-md); line-height: 1.5;
+  border-radius: var(--radius-control); padding: 9px 12px;
+}
+body .button { gap: 8px; font-weight: 500; }
+body .button--primary { font-weight: 600; }
+body .select-control { gap: 8px; font-weight: 400; }
+body .select-option { font-size: var(--text-md); min-height: var(--control-height); padding: 10px 12px; }
+body .ui-input { width: 100%; }
+body .ui-input:is([type=checkbox],[type=radio]) { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+body .ui-input:disabled { opacity: .5; cursor: not-allowed; }
+body .ui-input[aria-invalid=true] { border-color: var(--red); }
+body .search-field { display: flex; flex-direction: row; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: var(--control-height); border-radius: var(--radius-control); padding: 0 12px; color: var(--muted); }
+body .search-field .ui-input { border: 0; border-radius: 0; background: transparent; padding: 9px 0; font-size: var(--text-md); outline: none; }
+body .search-field:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ui-icon { width: 18px; height: 18px; flex-shrink: 0; }
+.brand .ui-icon,.empty-icon .ui-icon { width: 24px; height: 24px; }
+body .ui-field { gap: 8px; }
+body .ui-field>span:first-child:not(.search-field) { font-size: var(--text-sm); color: var(--muted); font-weight: 400; }
+body .panel-heading { min-height: 68px; padding: 16px 24px; flex-wrap: wrap; }
+body .tabs>button { min-height: var(--control-height); font-size: var(--text-md); font-weight: 500; padding: 10px 16px; }
+body :is(table,th,td,.badge,.chart-legend,.trend-legend,.chart-detail) { font-size: var(--text-sm); }
+body :is(th,.badge) { font-weight: 500; }
+body :is(.trend-chart,.latency-histogram) text { font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 400; }
+body :is(.chart-caption,.graph-node-meta,.graph-edge text) { font-size: var(--text-sm); }
+body .metric-tile dd,body .chart-total { font-size: var(--text-lg); font-weight: 600; }
+code,pre,.scenario-editor { font-family: var(--font-code); font-size: var(--text-sm); }
+body .table-scroll { max-width: 100%; overscroll-behavior-x: contain; }
+.table-scroll:focus-visible,.chart-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.chart-scroll { width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+.chart-scroll>svg { min-width: 560px; }
+.chart-readout { margin-top: 12px; min-height: 4.5em; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); font-size: var(--text-sm); }
+.panel { box-shadow: 0 6px 28px #00000012; }
+@media(min-width:761px) { .app-shell { grid-template-columns: 248px minmax(0,1fr); } .sidebar { width: 248px; } }
+@media(max-width:1100px) { .trace-period-filter { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media(max-width:760px) {
+  main { padding: 24px 16px 40px; }
+  .app-shell { display: block; }
+  .sidebar { position: static; width: 100%; min-height: 0; max-height: none; padding: 16px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .sidebar>.brand { margin-bottom: 16px; }
+  .sidebar>nav { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; }
+  .sidebar .nav-link { margin: 0; padding: 8px; white-space: normal; }
+  .sidebar-footer { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+  .sidebar-footer .nav-link { flex: 1; }
+  .page-title { flex-wrap: wrap; align-items: flex-start; }
+  .page-actions { flex-wrap: wrap; }
+  body .panel-heading { padding: 16px; }
+  .lab-body,.statistics-summary-body,.service-statistics { padding: 16px; }
+  .trace-period-filter { display: grid; grid-template-columns: minmax(0,1fr); }
+  .trace-toolbar>.select-control { flex: 1 1 100%; max-width: none; }
+  .tabs { gap: 4px; overflow-x: auto; }
+  body .tabs>button { flex: 0 0 auto; white-space: nowrap; }
+  .table-scroll>table { min-width: 640px; }
+  .table-scroll::before { content: 'Прокрутите таблицу вправо, чтобы увидеть все столбцы'; display: block; position: sticky; left: 0; width: calc(100vw - 66px); padding: 12px; color: var(--muted); font-size: var(--text-sm); }
+  .timeline-layout,.graph-layout { grid-template-columns: minmax(0,1fr); }
+  .timeline-scroll { max-width: 100%; }
+  .panel-heading>*,.trace-period-filter>*,.test-trace-filters>.ui-field { min-width: 0; }
+  .plan-dialog { max-height: calc(100dvh - 24px); width: calc(100vw - 24px); }
+  .trace-copy-id>.trace-copy-button,.metric-info>button { min-width: 44px; min-height: 44px; }
+  .request-activity { bottom: 12px; right: 12px; max-width: calc(100vw - 24px); }
+}
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior: auto !important; transition: none !important; } }
+
+.guide { max-width: 960px; margin: auto; }.guide-intro { color: var(--muted); margin-bottom: 24px; }
+.guide-index { display: grid; padding: 16px 24px; }.guide-index a { padding: 10px 0; color: var(--accent); }
+.guide-section { margin-top: 40px; scroll-margin-top: 24px; }.guide-section li { margin: 12px 0; padding-left: 8px; }
+.guide-section img { display: block; max-width: 100%; max-height: 680px; width: auto; border: 1px solid var(--line); border-radius: 12px; margin-top: 24px; }
+body .select-control { height: var(--control-height); }
+body .select-control>span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media(max-width:760px) {
+  .test-trace-filters { flex-direction: column; align-items: stretch; }
+  .test-trace-filters>.ui-field { width: 100%; }
+  .chart-scroll::before { content: 'Прокрутите график вправо для просмотра всей шкалы'; display: block; position: sticky; left: 0; width: calc(100vw - 100px); margin-bottom: 12px; font-size: var(--text-sm); color: var(--muted); }
+}
+@media(max-width:760px) {
+  body .trace-table { min-width: 920px; }
+  body .lab-runs-table { min-width: 600px; table-layout: auto; }
+}
+body .search-field .ui-input { min-height: calc(var(--control-height) - 2px); height: calc(var(--control-height) - 2px); }
+
+body .plan-dialog { width: min(720px,calc(100vw - 24px)); max-inline-size: calc(100vw - 24px); }
+
+/* Shared read-only content: one surface, label hierarchy and spacing. */
+.readonly-block { padding: 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); display: grid; gap: 20px; }
+body .readonly-value { margin: 0; min-width: 0; display: grid; gap: 8px; align-content: start; }
+body .readonly-value dt { font-size: var(--text-sm); font-weight: 400; color: var(--muted); }
+body .readonly-value dd { margin: 0; font-size: var(--text-md); font-weight: 400; line-height: 1.6; color: var(--text); overflow-wrap: anywhere; }
+body .readonly-value p { margin: 0; } body .readonly-value p+p { margin-top: 8px; }
+body :is(.technical-grid,.context-values,.connection-details) dt { font-size: var(--text-sm); font-weight: 400; color: var(--muted); margin-bottom: 8px; }
+body :is(.technical-grid,.context-values,.connection-details) dd { font-size: var(--text-md); font-weight: 400; line-height: 1.6; margin: 0; }
+.guide-section img { width: 100%; height: auto; max-height: none; }
+
+/* The product homepage has its own full-width layout outside the app shell. */
+main.landing-page { width: 100%; max-width: 1320px; margin: 0 auto; padding: 40px 32px 64px; }
+@media(max-width:760px) { main.landing-page { padding: 20px 16px 40px; } }

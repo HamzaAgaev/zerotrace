@@ -2,7 +2,7 @@ import { Journal } from './Journal';
 import { usePersistentState, usePersistentTab } from '../state';
 import { ServiceCall } from '../components/HttpText';
 import type { AuditResult, Finding, JournalEntry } from '../api/types';
-import { Badge, Button, EmptyState, Icon, Panel, TableScroll, PageHeader, LoadingState, Message, RetryButton } from '../components/ui';
+import { ReadOnlyBlock, ReadOnlyValue, Badge, Button, EmptyState, Icon, Panel, TableScroll, PageHeader, LoadingState, Message, RetryButton } from '../components/ui';
 import { Metrics } from '../components/Metrics';
 import { RuleLabel, ruleName, ruleImpact } from '../components/RuleLabel';
 import { Tabs } from '../components/Tabs';
@@ -45,15 +45,11 @@ export function FindingCard({ finding: f, onPlan, pending }: { finding: Finding;
             { label: 'Доступное время ожидания', value: duration(evidence.budget_ns) },
           ] : []),
         ]} />
-        <div className="finding-summary">
-          <section><h3>Что не так</h3><p>{explanation || f.title}</p></section>
-          <section><h3>На что влияет</h3><p>{ruleImpact(f.rule_id)}</p></section>
-          <section>
-            <h3>Что изменить</h3>
-            <p>{f.recommendation.text}</p>
-            {whyDiffers && <p>{why}</p>}
-          </section>
-        </div>
+        <ReadOnlyBlock label="Решение">
+          <ReadOnlyValue label="Что не так">{explanation || f.title}</ReadOnlyValue>
+          <ReadOnlyValue label="На что влияет">{ruleImpact(f.rule_id)}</ReadOnlyValue>
+          <ReadOnlyValue label="Что изменить"><p>{f.recommendation.text}</p>{whyDiffers && <p>{why}</p>}</ReadOnlyValue>
+        </ReadOnlyBlock>
         {evidence.kind === 'retry_budget' && f.recommendation.can_prepare_plan !== false && <div className="recommendation-bottom">
           <Button variant="primary" icon="external" disabled={pending} onClick={() => onPlan(f)}>{pending ? 'Готовим план…' : 'Посмотреть план'}</Button>
         </div>}
