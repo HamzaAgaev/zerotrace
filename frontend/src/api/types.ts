@@ -123,6 +123,24 @@ export interface RunComparison {
   baseline: ComparisonMetrics; candidate: ComparisonMetrics; attempts_per_input_delta: number | null;
   input_hash: string; warnings: string[];
 }
+export interface ProjectionCandidate { span_id: string; target: string; gain25_ns: string; gain50_ns: string; gain100_ns: string }
+export interface ProjectionResult {
+  analysis_id: string; status: string; algorithm_version: string; input_hash: string; trace_ref: TraceRef;
+  baseline_ns: string | null; projected_ns: string | null; gain_ns: string | null; gain_ratio: number | null;
+  candidates: ProjectionCandidate[]; assumptions: string[]; warnings: string[];
+  applicability: { reason_codes: string[]; scope_root: string | null; excluded_span_ids: string[] };
+}
+export interface TraceCohortMetrics {
+  count: number; root_latency_p50_ns: string | null; root_latency_p95_ns: string | null;
+  root_errors: number; root_error_ratio: number | null;
+  coverage: { root_latency_count: number; [key: string]: unknown };
+}
+export interface TraceCohortComparison {
+  analysis_id: string; status: string; algorithm_version: string; input_hash: string;
+  input_refs: { baseline: TraceRef[]; candidate: TraceRef[] };
+  comparability: string; baseline: TraceCohortMetrics; candidate: TraceCohortMetrics;
+  delta_ns: string | null; delta_ratio: number | null; warnings: string[];
+}
 export interface Client {
   listTraces(signal?: AbortSignal, query?: TraceQuery): Promise<ListPayload>;
   getTrace(id: string | TraceRef, signal?: AbortSignal, options?: { includeFindings?: boolean; includeSpanKind?: boolean }): Promise<TraceDetail>;
@@ -147,4 +165,6 @@ export interface Client {
   getRun(runId: string, signal?: AbortSignal): Promise<LabRun>;
   listRuns(signal?: AbortSignal): Promise<LabRun[]>;
   compareRuns(baselineRunId: string, candidateRunId: string, signal?: AbortSignal): Promise<RunComparison>;
+  projectTrace(traceRef: TraceRef, changes: { span_id: string; speedup_percent: number }[], signal?: AbortSignal): Promise<ProjectionResult>;
+  compareTraceGroups(baselineTraceRefs: TraceRef[], candidateTraceRefs: TraceRef[], signal?: AbortSignal): Promise<TraceCohortComparison>;
 }

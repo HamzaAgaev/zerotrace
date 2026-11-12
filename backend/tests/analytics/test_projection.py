@@ -68,7 +68,9 @@ class IntervalTest(unittest.TestCase):
         issues = {"issues": [{"code": "cross_clock_uncertain", "span_ids": [sid("other")]}]}
         tree = [span("r", None, 0, 1), span("a", "r", 0, 1), span("other", "r", 0, 1)]
         self.assertEqual(run(tree, root="a", quality=issues)["status"], "available")
-        self.assertEqual(run(tree, quality=issues)["status"], "insufficient_data")
+        assumed = run(tree, quality=issues)
+        self.assertEqual(assumed["status"], "available")
+        self.assertIn("cross_clock_uncertain", assumed["warnings"])
 
     def test_loss_cannot_be_mistaken_for_a_valid_speedup(self):
         tree = [span("r", None, 0, 100), span("a", "r", 0, 100)]
@@ -97,15 +99,18 @@ class IntervalTest(unittest.TestCase):
         tree.append(span("orphan", "a", 0, 8))
         self.assertIsNone(run(tree, root="a")["projected_ns"])
 
-    def test_dedup_absolute_duration_and_relative_clock_domains(self):
+    def test_dedup_absolute_duration_and_clock_metadata_is_advisory(self):
         tree = [span("r", None, 0, 10, clock_domain="orders"), span("a", "r", 0, 10, clock_domain="payment")]
         for item in tree:
             item["start_ns"] = "1000"
             item["end_ns"] = str(1000 + int(item.pop("duration_ns")))
-        self.assertIn("cross_clock_uncertain", run(tree)["applicability"]["reason_codes"])
+        assumed = run(tree)
+        self.assertEqual(assumed["status"], "available")
+        self.assertIn("timestamps_assumed_aligned", assumed["warnings"])
+        self.assertTrue(any("aligned as supplied" in text for text in assumed["assumptions"]))
         siblings = [span("r", None, 0, 10), span("a", "r", 0, 10, clock_domain="orders"),
                     span("b", "r", 0, 10, clock_domain="payment")]
-        self.assertIn("cross_clock_uncertain", run(siblings)["applicability"]["reason_codes"])
+        self.assertEqual(run(siblings)["status"], "available")
         available = run(tree, {"a": 50}, clock_compatible=True)
         self.assertEqual(available["projected_ns"], "5")
         self.assertEqual(run(tree + [tree[-1].copy()], {"a": 50}, clock_compatible=True), available)
@@ -123,7 +128,9 @@ class IntervalTest(unittest.TestCase):
         tree = [span("r", None, 0, 100), span("a", "r", 0, 100)]
         for s in tree:
             s["start_ns"] = s.pop("start_offset_ns")
-        self.assertEqual(run(tree)["status"], "insufficient_data")
+        assumed = run(tree)
+        self.assertEqual(assumed["status"], "available")
+        self.assertIn("timestamps_assumed_aligned", assumed["warnings"])
         for s in tree:
             s["clock_domain"] = "machine-1"
         self.assertEqual(run(tree)["status"], "available")

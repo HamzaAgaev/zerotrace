@@ -82,4 +82,7 @@ def compare(graphs, request, policy=None):
             "status": "available", "comparability": "exploratory" if exploratory else "comparable",
             "operation": rows[0]["operation"], "baseline": a, "candidate": b,
             "delta_ns": delta, "delta_ratio": ratio(delta, a["root_latency_p50_ns"]) if delta is not None else None,
-            "observations": observations, "warnings": warnings}
+            "observations": observations, "warnings": warnings,
+            "assumptions": [
+                "Intervals are calculated from timestamps as supplied by the user; clock metadata is advisory."
+            ]}

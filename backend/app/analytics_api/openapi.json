@@ -384,7 +384,7 @@
           "algorithm_version": {
             "type": "string",
             "enum": [
-              "interval-blocks-v1.0.0"
+              "interval-blocks-v1.1.0"
             ]
           },
           "changes": {

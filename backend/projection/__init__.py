@@ -9,7 +9,7 @@ from analytics_support import AnalyticsError, digest, ref_key, valid_span_id
 
 from .intervals import Intervals
 
-VERSION = "interval-blocks-v1.0.0"
+VERSION = "interval-blocks-v1.1.0"
 TOLERANCE_NS = 500_000
 MAX_DEPTH = 256
 MAX_CHANGES = 32
@@ -95,8 +95,8 @@ def _quality(graph, scope, root, explicit_root, span_count, locations):
         if explicit_root and (code == "multiple_roots" or (code == "missing_parent" and ids == [root])):
             warnings.add("partial_trace_scope")
         elif code in {"missing_parent", "multiple_roots", "cycle", "depth_limit",
-                      "cross_clock_uncertain", "conflicting_span", "source_loss", "invalid_bounds",
-                      "disconnected", "orphan", "clock_skew", "missing_span", "span_count_mismatch", "forced_close"}:
+                      "conflicting_span", "source_loss", "invalid_bounds",
+                      "disconnected", "orphan", "missing_span", "span_count_mismatch", "forced_close"}:
             blockers.add(code)
         else:
             # Unknown fields (e.g. HTTP status) do not by themselves invalidate intervals.
@@ -232,7 +232,7 @@ def analyze(graph, request, policy=None):
     if explicit and (excluded or spans[root].get("parent_span_id")):
         warnings.add("partial_trace_scope")
     bounds, observed = {}, {}
-    clock_groups, domains = {}, defaultdict(set)
+    timestamps_assumed_aligned = False
     for n in order:
         s = spans[n]
         if s.get("links_present") or s.get("links") or s.get("async_markers") or str(s.get("kind")).lower() in {"producer", "consumer"}:
@@ -244,29 +244,19 @@ def analyze(graph, request, policy=None):
             continue
         bounds[n] = (start, end)
         p = s.get("parent_span_id")
-        # An unknown clock on an intermediary does not prove that two named
-        # clocks elsewhere can be compared. Explicit alignment bridges domains.
-        clock_groups[n] = n if n == root or s.get("clock_compatible") is True else clock_groups.get(p, n)
-        clock = s.get("clock_domain")
-        if clock not in (None, "", "unknown") and graph.get("clock_compatible") is not True:
-            domains[clock_groups[n]].add(clock)
-            if len(domains[clock_groups[n]]) > 1:
-                blockers.add("cross_clock_uncertain")
         if n == root or p not in bounds:
             continue
         parent = spans[p]
-        explicit_clock = s.get("clock_compatible")
         child_relative = "start_offset_ns" in s or "offset_ns" in s
         parent_relative = "start_offset_ns" in parent or "offset_ns" in parent
         if child_relative != parent_relative:
             blockers.add("mixed_time_axes")
-        child_clock, parent_clock = s.get("clock_domain"), parent.get("clock_domain")
-        unknown = (None, "", "unknown")
-        common_clock = child_clock == parent_clock and child_clock not in unknown
-        aligned = explicit_clock is True or graph.get("clock_compatible") is True
-        if (explicit_clock is False or graph.get("clock_compatible") is False
-                or not aligned and not child_relative and not common_clock):
-            blockers.add("cross_clock_uncertain")
+        # OTLP timestamps are the user's alignment assertion.  Clock metadata
+        # is often absent (and may differ between exporters), so it must not
+        # reject an otherwise valid synchronous tree.
+        if (not child_relative or s.get("clock_domain") != parent.get("clock_domain")
+                or s.get("clock_compatible") is False or graph.get("clock_compatible") is False):
+            timestamps_assumed_aligned = True
         lo, hi = bounds[p]
         if start < lo or end > hi:
             if max(lo - start, end - hi) > TOLERANCE_NS:
@@ -274,6 +264,11 @@ def analyze(graph, request, policy=None):
             else:
                 bounds[n] = (min(hi, max(lo, start)), min(hi, max(lo, end)))
                 warnings.add("clipped_temporal_bounds")
+    if timestamps_assumed_aligned:
+        warnings.add("timestamps_assumed_aligned")
+        result["assumptions"].append(
+            "Timestamps are treated as aligned as supplied by the user; clock metadata is advisory."
+        )
     result["warnings"] = sorted(warnings)
     if root in observed:
         result["baseline_ns"] = str(observed[root][1] - observed[root][0])

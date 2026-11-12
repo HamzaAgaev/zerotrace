@@ -107,16 +107,27 @@ class P2AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(AnalyticsError, "Different service"):
             compare([first_a, second_a], {"baseline_trace_refs": [first_a["trace_ref"]], "candidate_trace_refs": [second_a["trace_ref"]], "entry_selector": {"service": "orders"}})
 
-    def test_unknown_clock_preserves_evidence_and_blocks_projection(self):
+    def test_unknown_clock_preserves_evidence_and_allows_projection(self):
         current = graph(packet(clock=None))
         calls = derive_calls(current)
         # B 0.3 preserves the sequential interval even if no clock domain is
-        # declared; C must still refuse a timing projection without that clock.
+        # declared; C treats supplied OTLP timestamps as aligned by the user.
         self.assertEqual(calls.calls[0].evidence_codes, ["explicit_resend_marker", "sequential_gaps"])
         self.assertTrue(calls.calls[0].gaps_ns)
         self.assertTrue(any(item.gap_before_ns is not None for item in calls.attempts))
         trace = analytics_trace(current, calls)
-        self.assertIsNone(analyze(trace, {"trace_ref": trace["trace_ref"]})["gain_ns"])
+        projection = analyze(trace, {"trace_ref": trace["trace_ref"]})
+        self.assertEqual(projection["status"], "available")
+        self.assertIsNotNone(projection["gain_ns"])
+        self.assertIn("timestamps_assumed_aligned", projection["warnings"])
+        candidate_graph = graph(packet(trace_id="c" * 32, clock=None))
+        candidate = analytics_trace(candidate_graph, derive_calls(candidate_graph))
+        comparison = compare([trace, candidate], {
+            "baseline_trace_refs": [trace["trace_ref"]],
+            "candidate_trace_refs": [candidate["trace_ref"]],
+        })
+        self.assertIsNotNone(comparison["baseline"]["overlap_ratio"])
+        self.assertTrue(any("clock metadata is advisory" in text for text in comparison["assumptions"]))
         audit = run({"environment_id": "lab", "traces": [trace]})
         self.assertIn("OBS_RETRIES", [item["rule_id"] for item in audit["findings"]])
         self.assertEqual(next(item for item in audit["rule_evaluations"] if item["rule_id"] == "R5")["eligible_count"], 0)

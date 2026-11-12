@@ -3,7 +3,7 @@ import { usePersistentState, usePersistentTab } from '../state';
 import { HttpMethod, HttpStatus, SpanOperation, httpCodeLabel } from '../components/HttpText';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { AuditResult, Finding, TraceDetail as TraceDetailData } from '../api/types';
+import type { AuditResult, Client, Finding, TraceDetail as TraceDetailData } from '../api/types';
 import { Metrics } from '../components/Metrics';
 import { Tabs } from '../components/Tabs';
 import { Button, Icon, LoadingState, Message, Panel, PageHeader, RetryButton } from '../components/ui';
@@ -21,7 +21,7 @@ export function BackToTraces() {
 }
 
 
-export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAudit, demo, onPlan, pending, onExport, onBuild }: {
+export function TraceDetail({ trace, client, audit, auditLoading, auditError, onRetryAudit, demo, onPlan, pending, onExport, onBuild }: {
   trace: TraceDetailData;
   audit: AuditResult | null;
   auditLoading: boolean;
@@ -32,6 +32,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
   pending: boolean;
   onExport: () => void;
   onBuild?: () => void;
+  client: Client;
 }) {
   const [tab, setTab] = usePersistentTab(`trace:${JSON.stringify(trace.trace_ref)}:tab`, 'timeline', ['timeline','audit','whatif']);
   const [selected, setSelected] = usePersistentState<string | undefined>(`trace:${JSON.stringify(trace.trace_ref)}:span`, undefined);
@@ -238,7 +239,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
     </div>}
 
     {tab === 'whatif' && <div id="whatif-panel" role="tabpanel" aria-labelledby="whatif-panel-tab">
-      <WhatIf trace={trace}/>
+      <WhatIf trace={trace} client={client} demo={demo}/>
     </div>}
   </>;
 }

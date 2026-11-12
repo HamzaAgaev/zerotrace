@@ -383,6 +383,29 @@ def test_product_can_attach_projection_and_trace_cohort_then_load_frozen_report(
     assert client.get("/api/v1/report?projection_id=missing").status_code == 404
 
 
+def test_otlp_without_clock_metadata_can_be_projected_over_public_api(app):
+    client = app.test_client()
+    registry = app.extensions["registry"]
+    token = registry.register_source("shop", "ordinary-otlp")
+    body = (Path(__file__).resolve().parents[2] / "fixtures/otlp/s01_retry.json").read_bytes()
+
+    accepted = client.post("/v1/traces", data=body, headers={
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json",
+    })
+    assert accepted.status_code == 200
+
+    ref = payload(client.get("/api/v1/traces"))["items"][0]["trace_ref"]
+    result = payload(client.post("/api/v1/projections", json={
+        "trace_ref": ref,
+        "changes": [{"span_id": "0000000000000002", "speedup_percent": 50}],
+    }))
+    assert result["status"] == "available"
+    assert result["gain_ns"] == "125000000"
+    assert "timestamps_assumed_aligned" in result["warnings"]
+    assert any("aligned as supplied" in item for item in result["assumptions"])
+
+
 def test_trace_membership_and_full_audit_use_the_live_config(app, monkeypatch):
     ref, = ingest(app, "1" * 32)
     registry = app.extensions["registry"]

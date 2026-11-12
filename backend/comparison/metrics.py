@@ -9,7 +9,7 @@ from statistics import median
 from analytics_support import AnalyticsError, percentile_ns, ref_key, valid_span_id
 
 ERRORS = {"error", "timeout", "fast_fail", "http_error", "grpc_error", "transport_error", "error_unknown"}
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 
 def canonical(value):
@@ -91,13 +91,9 @@ def comparable_intervals(spans, clock_compatible=None):
         return 0, 0
     offsets = [ns(s.get("start_offset_ns", s.get("offset_ns"))) for s in spans]
     use_offsets = all(start is not None for start in offsets)
-    if len(spans) > 1:
-        domains = {s.get("clock_domain") for s in spans}
-        known = domains - {None, "", "unknown"}
-        if clock_compatible is False or any(s.get("clock_compatible") is False for s in spans):
-            return None
-        if clock_compatible is not True and (len(known) > 1 or not use_offsets and domains != known):
-            return None
+    # Timestamps are supplied as a comparable observation by the user.  OTLP
+    # clock metadata is optional and can differ between exporters, therefore it
+    # is advisory rather than an interval-validity gate.
     intervals = []
     for span, offset in zip(spans, offsets):
         start = offset if use_offsets else ns(span.get("start_ns"))
@@ -223,7 +219,7 @@ def measure_trace(graph, entry_selector=None):
     internal = [outcome(span) for span in spans.values() if span["span_id"] != root["span_id"]]
     calls_complete = codes.isdisjoint(INCOMPLETE_CALL_DATA)
     internal_status = "error" if "error" in internal else ("unknown" if not calls_complete or "unknown" in internal else "ok")
-    intervals = comparable_intervals(direct, graph.get("clock_compatible")) if calls_complete and "cross_clock_uncertain" not in codes else None
+    intervals = comparable_intervals(direct, graph.get("clock_compatible")) if calls_complete else None
     return {"ref": ref, "root": root, "service": service, "operation": entry_operation,
             "outcome": outcome(root), "duration": duration(root), "internal_outcome": internal_status,
             "groups": groups, "descriptors": descriptors, "intervals": intervals, "issues": sorted(codes), "calls_complete": calls_complete,

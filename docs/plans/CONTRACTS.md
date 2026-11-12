@@ -321,7 +321,7 @@ ProjectionResult:
 
 До32 изменений, UI до8; дубли span недопустимы. Если выбраны предок и потомок, предок включает потомка, вложенный выбор исключается с notice. Root не выбирается как сокращаемая внутренняя ветка. Unknown ref→404/422, устаревшая revision→409. Явный root ограничивает поддерево; наблюдения и ranking не выходят за его scope.
 
-Gates: цикл/глубина>256, неоднозначный root, relevant missing parents, несвязность, links/producer-consumer в scope, несоответствие temporal bounds/clocks. Допуск500000ns; clipping только в модели, с diagnostic, исходные timestamps сохраняются. Отсутствие defects не доказывает полноту. unavailable→projected/gain=null; available gain0 — отдельный осмысленный результат.
+Gates: цикл/глубина>256, неоднозначный root, relevant missing parents, несвязность, links/producer-consumer в scope, несоответствие фактических temporal bounds. Согласование часов обеспечивает пользователь источника; отсутствие или различие clock_domain само по себе не блокирует P9. Сервер использует переданные timestamps на общей временной шкале и явно указывает это допущение. Допуск500000ns; clipping только в модели, с diagnostic, исходные timestamps сохраняются. Отсутствие defects не доказывает полноту. unavailable→projected/gain=null; available gain0 — отдельный осмысленный результат.
 
 Контрольные числа:1000∥800, первая−50%→800; sequential1000+800, первая−50%→1300; parallel обе−50%→500. Offset900 второй ветки длительностью800 сохраняет 1700 даже после удаления первой1000. Ties показывают все limiting branches.
 

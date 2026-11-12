@@ -61,7 +61,7 @@ class CohortTests(unittest.TestCase):
         self.assertAlmostEqual(cohort([a], [b])["baseline"]["overlap_ratio"], 40 / 30)
         for s in a["spans"][1:3]:
             s["start_ns"] = s.pop("start_offset_ns")
-        self.assertIsNone(cohort([a], [b])["baseline"]["overlap_ratio"])
+        self.assertAlmostEqual(cohort([a], [b])["baseline"]["overlap_ratio"], 40 / 30)
 
     def test_machine_edge_stays_one_group_when_target_is_only_known_on_one_side(self):
         a, b = trace(1), trace(2)
@@ -79,15 +79,15 @@ class CohortTests(unittest.TestCase):
         a["quality"] = {"source_loss": True}
         self.assertFalse(any(o["metric"] == "median_calls_per_trace" for o in cohort([a], [b])["observations"]))
 
-    def test_explicit_clock_disagreement_disables_overlap_not_durations(self):
+    def test_clock_metadata_is_advisory_for_supplied_intervals(self):
         a, b = trace(1, 2), trace(2)
         a["clock_compatible"] = False
         z = cohort([a], [b])["baseline"]
-        self.assertIsNone(z["overlap_ratio"])
+        self.assertEqual(z["overlap_ratio"], 1)
         self.assertEqual(z["direct_calls"][0]["pooled_median_duration_ns"], 10)
         a.pop("clock_compatible")
         a["spans"][1]["clock_compatible"] = False
-        self.assertIsNone(cohort([a], [b])["baseline"]["overlap_ratio"])
+        self.assertEqual(cohort([a], [b])["baseline"]["overlap_ratio"], 1)
 
     def test_percentiles_interpolation_denominators_and_warnings(self):
         a = [trace(i, root_status=200, length=10 * i) for i in (1, 2, 3)]
