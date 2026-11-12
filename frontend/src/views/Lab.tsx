@@ -152,7 +152,6 @@ export function Lab({ client, demo = false }: { client: Client | null; demo?: bo
     && baselineRun.stand_id === candidateRun.stand_id;
 
   return <><PageHeader title="Лаборатория" actions={<><Button icon="refresh" onClick={() => void refresh()} disabled={busy}>Обновить</Button></>}/>
-    {demo && <Message>Демонстрационный режим. Данные тестов моделируются локально, реальные запросы не выполняются.</Message>}
     {error && <Message tone="danger">{error}</Message>}
     {!client ? <Message tone="warning">Подключите сервер на странице «Настройки подключения».</Message> : !stand ? <EmptyState icon="traces" title="Нет активного стенда" description="Откройте трейс подключённой системы и нажмите «Собрать стенд», чтобы создать тестовую модель цепочки вызовов." action={<div className="empty-state-actions"><a className="button button--primary" href="#/traces">Выбрать трейс</a><Button onClick={() => void build()} disabled={busy}>Запустить демонстрационный стенд</Button></div>}/> : <>
       <div className="lab-grid lab-controls">

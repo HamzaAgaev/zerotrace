@@ -20,13 +20,12 @@ export function BackToTraces() {
 }
 
 
-export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAudit, demo, onPlan, pending, onExport, onBuild }: {
+export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAudit, onPlan, pending, onExport, onBuild }: {
   trace: TraceDetailData;
   audit: AuditResult | null;
   auditLoading: boolean;
   auditError: string;
   onRetryAudit: () => void;
-  demo: boolean;
   onPlan: (finding: Finding) => void;
   pending: boolean;
   onExport: () => void;
@@ -71,7 +70,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
   const axisTicks = total ? Array.from({ length: tickCount + 1 }, (_, index) => index / tickCount) : [0];
   const traceAuditEmpty = (() => {
     if (!audit) return { title: 'Проверка пока недоступна', description: 'Результат аудита ещё не получен.' };
-    if (trace.finding_occurrence_ids === undefined && !demo) {
+    if (trace.finding_occurrence_ids === undefined) {
       return { title: 'Результаты аудита для этой версии трейса недоступны', description: 'Обновите аудит, чтобы проверить именно эту версию трейса.' };
     }
     const evaluated = audit.rule_evaluations.filter(rule => rule.status === 'evaluated').length;

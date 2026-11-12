@@ -4,17 +4,15 @@ import { Endpoint, endpointLabel } from './HttpText';
 import { Select } from './Select';
 import { useEffect, useRef, useState } from 'react';
 import type { ChangePlan, Client, ConfigSnapshot, RouteWork } from '../api/types';
-import { demoServiceCapabilities } from '../api/fixtures';
 import { Badge, Button, Field, LoadingState, Message } from './ui';
 import { PlanDialog } from './PlanDialog';
 
 type CallValues = { timeout: string; attempts: string; backoff: string; retry: string };
 type Draft = { revision: string; call?: CallValues; work?: RouteWork };
-export function ServiceConfig({ client, service, environmentId, demo = false, localOnly = false, disabled = false, maxAttempts = 3, onSave = () => undefined, onChanged, initialCall }: { initialCall?: { callee:string; operation:string }; client: Client; service: string; environmentId: string; demo?: boolean; localOnly?: boolean; disabled?: boolean; maxAttempts?: number; onSave?: (value: number) => void; onChanged?: () => void }) {
+export function ServiceConfig({ client, service, environmentId, localOnly = false, disabled = false, onChanged, initialCall }: { initialCall?: { callee:string; operation:string }; client: Client; service: string; environmentId: string; localOnly?: boolean; disabled?: boolean; onChanged?: () => void }) {
   const context = `config:${environmentId}:${service}`;
-  const [demoDraft, setDemoDraft] = usePersistentState(`${context}:demo`, String(maxAttempts));
   const [snapshot, setSnapshot] = useState<ConfigSnapshot | null>(null);
-  const [loading, setLoading] = useState(!demo);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [plan, setPlan] = useState<{value: ChangePlan; target: string} | null>(null);
   const [reload, setReload] = useState(0);
@@ -27,14 +25,13 @@ export function ServiceConfig({ client, service, environmentId, demo = false, lo
   const openedCall = useRef('');
   useEffect(() => {
     const version = ++requestVersion.current;
-    if (demo) return;
     const controller = new AbortController();
     setLoading(true); setSnapshot(null); setPlan(null); setError('');
     client.getConfig(service, environmentId, controller.signal).then(config => {
       if (!controller.signal.aborted) setSnapshot(config);
     }).catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Не удалось прочитать настройки.'); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => { controller.abort(); if(requestVersion.current === version) requestVersion.current++; };
-  }, [client, demo, service, environmentId, reload]);
+  }, [client, service, environmentId, reload]);
   useEffect(()=>{
     if(!initialCall||!snapshot)return;
     const target=JSON.stringify([service,environmentId,initialCall.callee,initialCall.operation]);
@@ -71,11 +68,6 @@ export function ServiceConfig({ client, service, environmentId, demo = false, lo
       if(version===requestVersion.current)setPlan({value,target:key});
     } catch(cause){if(version===requestVersion.current)setError(cause instanceof Error?cause.message:'Не удалось подготовить план.');}
     finally{inFlight.current=false;setPending(false);}
-  }
-  if(demo){
-    const capabilities=demoServiceCapabilities[service];
-    if(!capabilities?.read_config)return <p className="muted">Настройки недоступны в демонстрационном наборе.</p>;
-    return <form className="service-config" onSubmit={e=>{e.preventDefault();onSave(Number(demoDraft));}}><Badge tone="warning">Локальная демонстрация</Badge><Field label="Эндпоинт"><Select value="payment" onChange={()=>undefined}><option value="payment" label="POST payment/charge"><Endpoint service="payment" operation="POST /charge"/></option></Select></Field><Field label="Всего попыток, включая первую"><input type="number" required min="1" max="10" value={demoDraft} onChange={e=>setDemoDraft(e.target.value)}/></Field><Button type="submit" disabled={Number(demoDraft)===maxAttempts}>Сохранить в примере</Button></form>;
   }
   return <div className="service-config">
     <h3>Настройки эндпоинта</h3>

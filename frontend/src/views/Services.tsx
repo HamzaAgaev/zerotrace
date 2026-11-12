@@ -1,7 +1,6 @@
 import { usePersistentState } from '../state';
 import { ServiceCall, serviceCallLabel } from '../components/HttpText';
 import { RuleLabel } from '../components/RuleLabel';
-import { demoOrdersConfig } from '../api/fixtures';
 import { isBudgetFinding } from '../api/types';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AuditResult, Client, Finding, TraceDetail, TraceSummary } from '../api/types';
@@ -21,7 +20,6 @@ export function Services({ client, environmentId, traces, total, audit, view, on
   const [savedSurface,setSurface]=usePersistentState<'graph'|'table'>('services:surface', view === 'timings' ? 'table' : 'graph');
   const surface = serviceSurfaceForHash(location.hash, savedSurface);
   const [statistics, setStatistics] = usePersistentState('services:statistics', 'services');
-  const [maxAttempts, setMaxAttempts] = useState(demoOrdersConfig.max_attempts);
   const [query,setQuery] = usePersistentState('views/Services.tsx:query', ''); const [onlyProblems,setOnlyProblems] = usePersistentState('views/Services.tsx:onlyProblems', false); const [selected,setSelected] = usePersistentState('views/Services.tsx:selected', ''); const [zoom,setZoom] = usePersistentState('views/Services.tsx:zoom', 1);
   const graph = useRef<SVGSVGElement>(null);
   const [nodeSizes, setNodeSizes] = useState(new Map<string, { width: number; height: number }>());
@@ -158,7 +156,7 @@ export function Services({ client, environmentId, traces, total, audit, view, on
           { label: '95-й перцентиль', value: formatMs(selectedService.p95) },
           { label: 'Ошибки', value: selectedService.errors },
           { label: 'Результат неизвестен', value: selectedService.unknown },
-        ]}/><ServiceConfig key={selectedService.name} client={client} service={selectedService.name} environmentId={environmentId} initialCall={requestedFindingMatch?.edge} demo={demo} maxAttempts={maxAttempts} onSave={setMaxAttempts}/></>:!selectedNode?<p className="muted">Выберите сервис на графе, чтобы посмотреть его показатели и настроить параметры вызовов.</p>:<p className="muted">Спаны этого сервиса не получены. Данные об обращениях к нему доступны на связи.</p>}</div></Panel>}</div>}
+        ]}/><ServiceConfig key={selectedService.name} client={client} service={selectedService.name} environmentId={demo ? 'demo-shop' : environmentId} initialCall={requestedFindingMatch?.edge} localOnly={demo}/></>:!selectedNode?<p className="muted">Выберите сервис на графе, чтобы посмотреть его показатели и настроить параметры вызовов.</p>:<p className="muted">Спаны этого сервиса не получены. Данные об обращениях к нему доступны на связи.</p>}</div></Panel>}</div>}
       {surface==='table'&&<><Tabs label="Статистика сервисов" value={statistics} onChange={setStatistics} items={[{value:'services',label:'По сервисам'},{value:'edges',label:'По связям'}]}/><Panel title={statistics==='edges'?'Статистика по связям':'Статистика сервисов'}><TableScroll><table className="explore-table"><thead><tr><th>{statistics==='edges'?'Связь':'Сервис'}</th><th>Операций</th><th>Медиана</th><th>95-й перцентиль</th><th>Ошибки / неизвестно</th><th>{statistics==='edges'?'Трейс':'Время вне вложенных вызовов'}</th></tr></thead><tbody>{statistics==='edges'?visibleEdges.map(e=><tr key={e.id}><td><button className="text-button" onClick={()=>{setSelected(e.id);setSurface('graph');location.hash='#/services?tab=graph';}}><ServiceCall call={e}/></button></td><td>{e.count}</td><td>{formatMs(e.median)}</td><td>{formatMs(e.p95)}</td><td>{e.errors} / {e.unknown}</td><td><a className="mono" href={traceHref(traces.find(t => t.trace_id === e.traceIds[0])?.trace_ref ?? e.traceIds[0])}>{e.traceIds[0]}</a></td></tr>):data.services.filter(s=>s.name.toLowerCase().includes(query.toLowerCase()) && (!onlyProblems || s.errors>0 || audit?.findings.some(f=>f.edge.caller===s.name||f.edge.callee===s.name))).map(s=><tr key={s.name}><td><button className="text-button service-name" onClick={()=>{setSelected(data.nodes.find(n=>!n.external&&n.name===s.name)?.id ?? '');setSurface('graph');location.hash='#/services?tab=graph';}}><i style={{background:serviceColors[s.name]}}/>{s.name}</button></td><td>{s.count}</td><td>{formatMs(s.median)}</td><td>{formatMs(s.p95)}</td><td>{s.errors} / {s.unknown}</td><td>{formatMs(s.own)} <span className="muted">суммарно</span></td></tr>)}</tbody></table></TableScroll></Panel></>}<p className="panel-note">Показатели рассчитаны по загруженным трейсам. На графе отображается до 40 сервисов.</p></>}
   </>;
 }

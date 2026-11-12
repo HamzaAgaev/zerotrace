@@ -1,8 +1,8 @@
 import type { Client, Stand, LabRun, LabFault, TraceRef, ConfigSnapshot, ManualChangeIntent, ChangePlan, JournalEntry, ComparisonMetrics } from './types.js';
-import { demoDetail, labSourceTrace } from './fixtures.js';
+import { demoDetail, demoTraces, labSourceTrace } from './fixtures.js';
 
 type DemoRun = LabRun & { faults: LabFault[]; configs: Record<string, ConfigSnapshot> };
-interface State { stand: Stand | null; runs: DemoRun[]; configs: Record<string, ConfigSnapshot>; plans: Record<string, { plan: ChangePlan; intent: ManualChangeIntent }>; journal: JournalEntry[] }
+interface State { externalConfigs?: Record<string, ConfigSnapshot>; stand: Stand | null; runs: DemoRun[]; configs: Record<string, ConfigSnapshot>; plans: Record<string, { plan: ChangePlan; intent: ManualChangeIntent }>; journal: JournalEntry[] }
 const storageKey = 'zerotrace.demo-lab.v2';
 const empty = (): State => ({ stand: null, runs: [], configs: {}, plans: {}, journal: [] });
 /** Same client contract as the server; only the data source is simulated. */
@@ -12,6 +12,27 @@ export function createDemoLab(storage?: Pick<Storage, 'getItem' | 'setItem'>) {
   const copy = <T,>(value: T): T => structuredClone(value);
   const save = () => { try { storage?.setItem(storageKey, JSON.stringify(state)); } catch { /* Session remains usable. */ } };
   const current = (id?: string) => { if (!state.stand || (id && state.stand.stand_id !== id)) throw new Error('Стенд не найден.'); return state.stand; };
+  // Connected demonstration services are independent of laboratory stand lifecycle.
+  if (!state.externalConfigs) {
+    state.externalConfigs = {};
+    for (const summary of demoTraces) {
+      const trace = demoDetail(summary.trace_id);
+      for (const span of trace.spans.filter(s => s.kind === 'server')) {
+        const config = state.externalConfigs[span.service] ??= { schema_version: '1', service_id: span.service, revision: '1', routes: [], calls: [] };
+        if (!config.routes.some(r => r.route === span.name)) config.routes.push({ route: span.name, work: { kind: 'fixed', delay_ms: Number(span.duration_ns) / 1e6 }, write_fields: ['work'] });
+        let parent = trace.spans.find(s => s.span_id === span.parent_span_id);
+        const seen = new Set<string>();
+        while (parent && parent.kind !== 'server' && !seen.has(parent.span_id)) { seen.add(parent.span_id); parent = trace.spans.find(s => s.span_id === parent!.parent_span_id); }
+        if (parent) {
+          const owner = state.externalConfigs[parent.service] ??= { schema_version: '1', service_id: parent.service, revision: '1', routes: [], calls: [] };
+          const [method, ...path] = span.name.split(' ');
+          if (!owner.calls.some(c => c.target.service_id === span.service && c.target.route === path.join(' '))) owner.calls.push({ call_ref: `${span.service}:${span.name}`, target: { service_id: span.service, method, route: path.join(' ') }, timeout_ms: 1000, max_attempts: 3, backoff_ms: 50, retry_on: ['5xx', 'timeout'], write_fields: ['timeout_ms', 'max_attempts', 'backoff_ms', 'retry_on'] });
+        }
+      }
+    }
+    save();
+  }
+  const configsFor = (environment = 'sandbox') => environment === 'sandbox' ? state.configs : state.externalConfigs!;
   const build = async (source: TraceRef = labSourceTrace.trace_ref): Promise<Stand> => {
     if (state.stand) throw new Error('Сначала остановите текущий стенд.');
     const trace = demoDetail(source.trace_id);
@@ -57,19 +78,19 @@ export function createDemoLab(storage?: Pick<Storage, 'getItem' | 'setItem'>) {
       state.runs.unshift(run); save(); return copy(run);
     },
     getRun: async (id: string) => copy(findRun(id)), listRuns: async () => copy(state.runs),
-    getConfig: async (service: string) => { if (!state.configs[service]) throw new Error('Настройки доступны после создания демонстрационного стенда.'); return copy(state.configs[service]); },
+    getConfig: async (service: string, environment = 'sandbox') => { const config = configsFor(environment)[service]; if (!config) throw new Error('Настройки сервиса недоступны.'); return copy(config); },
     createManualPlan: async (intent: ManualChangeIntent): Promise<ChangePlan> => {
-      const config = state.configs[intent.service_id];
+      const config = configsFor(intent.environment_id)[intent.service_id];
       const route = config?.routes.find(r => r.route === intent.route);
       const call = config?.calls.find(c => c.call_ref === intent.call_ref);
       if ((!route && !call) || config.revision !== intent.expected_config_revision || !Object.keys(intent.set).length) throw new Error('Настройки изменились или эндпоинт недоступен.');
-      const plan: ChangePlan = { plan_id: crypto.randomUUID(), plan_hash: crypto.randomUUID(), finding_id: '', target: `${intent.service_id} / ${intent.route ?? `${call!.target.method} ${call!.target.service_id}${call!.target.route}`}`, expected_revision: config.revision, environment_id: 'sandbox', expires_at: new Date(Date.now() + 300000).toISOString(), changes: Object.entries(intent.set).map(([field, value]) => ({ field, before: JSON.stringify(field === 'work' ? route?.work : field === 'per_attempt_timeout_ns' ? String((call?.timeout_ms ?? 0) * 1e6) : call?.[field as keyof typeof call]), after: JSON.stringify(value) })), warnings: ['Изменение действует только в локальном демонстрационном наборе.'], apply_enabled: true };
+      const plan: ChangePlan = { plan_id: crypto.randomUUID(), plan_hash: crypto.randomUUID(), finding_id: '', target: `${intent.service_id} / ${intent.route ?? `${call!.target.method} ${call!.target.service_id}${call!.target.route}`}`, expected_revision: config.revision, environment_id: intent.environment_id, expires_at: new Date(Date.now() + 300000).toISOString(), changes: Object.entries(intent.set).map(([field, value]) => ({ field, before: JSON.stringify(field === 'work' ? route?.work : field === 'per_attempt_timeout_ns' ? String((call?.timeout_ms ?? 0) * 1e6) : call?.[field as keyof typeof call]), after: JSON.stringify(value) })), warnings: ['Изменение действует только в локальном демонстрационном наборе.'], apply_enabled: true };
       state.plans[plan.plan_id] = { plan, intent: copy(intent) }; save(); return copy(plan);
     },
     applyPlan: async (id: string, hash: string, request: string) => {
       const previous = state.journal.find(e => e.operation_id === request); if (previous) return { operation_id: request, status: previous.status };
       const saved = state.plans[id]; if (!saved || saved.plan.plan_hash !== hash || Date.parse(saved.plan.expires_at) < Date.now()) throw new Error('План недоступен. Подготовьте новый.');
-      const { plan, intent } = saved; const stand = current(); const config = state.configs[intent.service_id];
+      const { plan, intent } = saved; const stand = intent.environment_id === 'sandbox' ? current() : null; const config = configsFor(intent.environment_id)[intent.service_id];
       if (config.revision !== intent.expected_config_revision) throw new Error('Версия настроек изменилась.');
       if (intent.route) config.routes.find(r => r.route === intent.route)!.work = copy(intent.set.work as ConfigSnapshot['routes'][number]['work']);
       else {
@@ -81,8 +102,8 @@ export function createDemoLab(storage?: Pick<Storage, 'getItem' | 'setItem'>) {
           else if (field === 'retry_on') call.retry_on = value as string[];
         }
       }
-      config.revision = String(Number(config.revision) + 1); stand.config_revisions[intent.service_id] = config.revision;
-      const service = stand.services.find(s => s.service_id === intent.service_id)!; service.revision = config.revision; service.routes = copy(config.routes) as typeof service.routes;
+      config.revision = String(Number(config.revision) + 1);
+      if (stand) { stand.config_revisions[intent.service_id] = config.revision; const service = stand.services.find(s => s.service_id === intent.service_id)!; service.revision = config.revision; service.routes = copy(config.routes) as typeof service.routes; }
       state.journal.push({ operation_id: request, target: plan.target, requested_at: new Date().toISOString(), status: 'applied', verification: null, actual_changes: plan.changes }); save(); return { operation_id: request, status: 'applied' as const };
     },
     getJournal: async () => copy(state.journal), getJournalEntry: entry, getJournalEntryForEnvironment: entry,

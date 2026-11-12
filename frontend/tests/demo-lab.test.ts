@@ -40,3 +40,21 @@ test('default demo stand follows shared creation contract', async () => {
   assert.equal(stand.source, null);
   assert.equal(stand.status, 'ready');
 });
+
+test('service editor works without a stand and isolates connected demo settings from sandbox', async () => {
+  const data = new Map<string, string>();
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); } };
+  let client = createDemoLab(storage);
+  const config = await client.getConfig('orders', 'demo-shop');
+  assert.ok(config.calls.length);
+  const plan = await client.createManualPlan({ environment_id: 'demo-shop', service_id: 'orders', expected_config_revision: config.revision, call_ref: config.calls[0].call_ref, set: { max_attempts: 2 } });
+  await client.applyPlan(plan.plan_id, plan.plan_hash, 'external-apply');
+  assert.equal(await client.getActiveStand(), null);
+  client = createDemoLab(storage);
+  assert.equal((await client.getConfig('orders', 'demo-shop')).calls[0].max_attempts, 2);
+  const stand = await client.createStand();
+  assert.equal((await client.getConfig('orders', 'sandbox')).calls[0].max_attempts, 3);
+  await client.stopStand(stand.stand_id);
+  assert.equal((await client.getConfig('orders', 'demo-shop')).calls[0].max_attempts, 2);
+  assert.equal((await client.getJournal()).length, 1);
+});

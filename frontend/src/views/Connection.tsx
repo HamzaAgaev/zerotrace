@@ -38,7 +38,7 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
   return <>
     <PageHeader title="Настройки подключения" />
     <div className="connection-grid">
-      <Panel title="Сервер ZeroTrace" meta={<Badge tone={connection.mode === 'live' ? 'success' : 'neutral'}>{connection.mode === 'live' ? 'Выбран' : 'Не подключён'}</Badge>}>
+      <Panel title="Сервер ZeroTrace" meta={<Badge tone={connection.mode === 'live' ? 'success' : 'neutral'}>{connection.mode === 'live' ? 'Выбран' : 'Доступен'}</Badge>}>
         <form className="connection-form" onSubmit={connect}>
           <Field label="Адрес сервера">
             <input id="server-url" type="url" required value={url} onChange={event => setUrl(event.target.value)} placeholder="http://127.0.0.1:8000" />
@@ -50,7 +50,7 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
           <Button icon="plug" variant="primary" type="submit" disabled={testing}>{testing ? 'Проверяем сервер…' : 'Проверить и подключить'}</Button>
         </form>
       </Panel>
-      <Panel title="Демонстрационный набор" meta={<Badge tone={connection.mode === 'demo' ? 'accent' : 'neutral'}>{connection.mode === 'demo' ? 'Выбран' : 'Доступен'}</Badge>}>
+      <Panel title="Демонстрационный набор" meta={<Badge tone={connection.mode === 'demo' ? 'success' : 'neutral'}>{connection.mode === 'demo' ? 'Выбран' : 'Доступен'}</Badge>}>
         <div className="connection-form">
           <p>Готовые примеры запросов, проблем и лабораторных экспериментов. Подключение к серверу не требуется.</p>
           <Button onClick={() => {
@@ -65,9 +65,9 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
     <Panel title="Текущее подключение">
       <dl className="connection-details">
         <div><dt>Режим</dt><dd>{connection.mode === 'demo' ? 'Демонстрационный набор' : 'Подключённый сервер'}</dd></div>
-        {connection.mode === 'live' && <div><dt>Адрес сервера</dt><dd>{connection.baseUrl || location.origin}</dd></div>}
+        <div><dt>Адрес сервера</dt><dd>{connection.mode === 'live' ? connection.baseUrl || location.origin : 'Не используется'}</dd></div>
         <div><dt>Изменение настроек</dt><dd>{connection.mode === 'demo' ? 'Локальные изменения демонстрационного примера' : capabilities ? capabilities.apply_enabled ? 'Разрешено' : 'Недоступно' : 'Неизвестно'}</dd></div>
-        {connection.mode === 'live' && <div><dt>Окружение</dt><dd className="mono">{connection.environmentId || 'Не задано'}</dd></div>}
+        <div><dt>Окружение</dt><dd className="mono">{connection.mode === 'demo' ? 'demo-shop' : connection.environmentId || 'Не задано'}</dd></div>
       </dl>
     </Panel>
   </>;
