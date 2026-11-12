@@ -13,8 +13,8 @@ services:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
     read_only: true
-    security_opt:
-      - no-new-privileges:true
+    # Snap Docker needs the AppArmor profile transition at exec time.
+    # no-new-privileges blocks that transition on this host.
     healthcheck:
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
       interval: 3s
