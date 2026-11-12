@@ -349,7 +349,8 @@ def test_trace_scan_reuses_data_when_shared_cache_is_full(app, monkeypatch):
     assert reads == refs
     reads.clear()
     assert payload(client.get(path + "&offset=1"))["items"][0]["trace_ref"] == refs[1]
-    assert reads == refs[:2]
+    # Lightweight list entries avoid rebuilding non-visible traces.
+    assert reads == refs[1:2]
 
 
 def test_product_can_attach_projection_and_trace_cohort_then_load_frozen_report(app):

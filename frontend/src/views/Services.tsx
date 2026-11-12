@@ -1,3 +1,4 @@
+import { ServiceStatistics } from '../components/ServiceStatistics';
 import { usePersistentState } from '../state';
 import { ServiceCall, serviceCallLabel } from '../components/HttpText';
 import { RuleLabel } from '../components/RuleLabel';
@@ -5,11 +6,11 @@ import { isBudgetFinding } from '../api/types';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AuditResult, Client, Finding, TraceDetail, TraceSummary } from '../api/types';
 import { summarize, type EdgeStats } from '../analysis';
-import { Badge, Button, EmptyState, Message, Panel, PageHeader, TableScroll, LoadingState, RetryButton } from '../components/ui';
-import { MetricInfo, Metrics } from '../components/Metrics';
+import { Badge, Button, EmptyState, Message, Panel, PageHeader, LoadingState, RetryButton } from '../components/ui';
+import { Metrics } from '../components/Metrics';
 import { Tabs } from '../components/Tabs';
 import { ServiceConfig } from '../components/ServiceConfig';
-import { duration, serviceColors, serviceSurfaceForHash, traceHref } from '../lib';
+import { serviceColors, serviceSurfaceForHash } from '../lib';
 import { formatMs } from '../presentation';
 const graphPadding = 24;
 const graphColumnGap = 104;
@@ -19,14 +20,13 @@ export function Services({ client, environmentId, traces, total, audit, view, on
   const [details,setDetails] = useState<TraceDetail[]>([]); const [loading,setLoading] = useState(true); const [failed,setFailed] = useState(0); const [reload,setReload] = useState(0);
   const [savedSurface,setSurface]=usePersistentState<'graph'|'table'>('services:surface', view === 'timings' ? 'table' : 'graph');
   const surface = serviceSurfaceForHash(location.hash, savedSurface);
-  const [statistics, setStatistics] = usePersistentState('services:statistics', 'services');
   const [query,setQuery] = usePersistentState('views/Services.tsx:query', ''); const [onlyProblems,setOnlyProblems] = usePersistentState('views/Services.tsx:onlyProblems', false); const [selected,setSelected] = usePersistentState('views/Services.tsx:selected', ''); const [zoom,setZoom] = usePersistentState('views/Services.tsx:zoom', 1);
   const graph = useRef<SVGSVGElement>(null);
   const [nodeSizes, setNodeSizes] = useState(new Map<string, { width: number; height: number }>());
-  useEffect(() => { const ctrl = new AbortController(); let cursor=0, failures=0; const result:TraceDetail[]=[]; setLoading(true); setFailed(0); setDetails([]);
+  useEffect(() => { if(surface !== 'graph') return; const ctrl = new AbortController(); let cursor=0, failures=0; const result:TraceDetail[]=[]; setLoading(true); setFailed(0); setDetails([]);
     async function worker() { while (!ctrl.signal.aborted && cursor < Math.min(traces.length,100)) { const trace = traces[cursor++]; try { const detail = await client.getTrace(trace.trace_ref, ctrl.signal, { includeFindings: false }); if (!ctrl.signal.aborted) { if (detail.spans.length > 2000) failures++; else result.push(detail); } } catch { if (!ctrl.signal.aborted) failures++; } } }
     Promise.all(Array.from({length:Math.min(4,traces.length)},worker)).then(() => { if (!ctrl.signal.aborted) { setDetails(result); setFailed(failures); setLoading(false); } }); return () => ctrl.abort();
-  },[client,traces,reload]);
+  },[client,traces,reload,surface]);
   const data = useMemo(() => summarize(details),[details]);
   const findingsOnEdge = (edge: EdgeStats) => edge.to.external ? [] :
     (audit?.findings.filter(f => f.edge.caller === edge.caller && f.edge.callee === edge.callee) ?? []);
@@ -97,7 +97,11 @@ export function Services({ client, environmentId, traces, total, audit, view, on
   }
   const width = Math.max(600, nextColumnX - graphColumnGap + graphPadding);
   const height = bottom + graphPadding;
+  if(surface==='table')return <><PageHeader title="Сервисы" actions={<Button icon="refresh" onClick={()=>setReload(v=>v+1)}>Обновить</Button>}/>
+    <Tabs label="Представление сервисов" value={surface} onChange={value=>{setSurface(value);location.hash=`#/services?tab=${value==='graph'?'graph':'statistics'}`;}} items={[{value:'graph',label:'Граф'},{value:'table',label:'Статистика'}]}/>
+    <ServiceStatistics client={client} reload={reload} onRetry={()=>setReload(v=>v+1)}/></>;
   return <><PageHeader title="Сервисы" actions={<><Button icon="refresh" onClick={()=>setReload(v=>v+1)} disabled={loading}>Обновить</Button></>}/>
+      <Tabs label="Представление сервисов" value={surface} onChange={value => { setSurface(value); location.hash = `#/services?tab=${value === 'graph' ? 'graph' : 'statistics'}`; }} items={[{value:'graph',label:'Граф'},{value:'table',label:'Статистика'}]}/>
     {!loading && <div>
       <Metrics items={[
         { label: 'Трейсы в выборке', value: `${details.length} / ${total}` },
@@ -107,7 +111,7 @@ export function Services({ client, environmentId, traces, total, audit, view, on
 
     </div>}{failed>0&&<Message tone="warning">Не удалось включить часть трейсов ({failed}). Данные могут быть неполными.</Message>}
     {loading?<LoadingState>Собираем карту сервисов…</LoadingState>:!details.length?<EmptyState title="Нет данных о сервисах" description={failed?'Не удалось получить трейсы. Повторите загрузку.':'В текущем наборе нет трейсов.'} action={<RetryButton onClick={()=>setReload(v=>v+1)}/>}/>:<>
-      <Tabs label="Представление сервисов" value={surface} onChange={value => { setSurface(value); location.hash = `#/services?tab=${value === 'graph' ? 'graph' : 'statistics'}`; }} items={[{value:'graph',label:'Граф'},{value:'table',label:'Статистика'}]}/>
+
       {requestedFinding && audit && !requestedFindingMatch && <Message tone="warning">Проблема из ссылки больше недоступна. Выберите сервис, чтобы посмотреть текущие настройки.</Message>}
       {requestedFindingMatch && !requestedFindingNode && <Message tone="warning">Проблема найдена, но её сервис {requestedFindingMatch.edge.caller} отсутствует в текущей выборке. Настройки не подставлены из другого сервиса. Обновите выборку или откройте сервис вручную.</Message>}{details.some(t=>t.quality_issues.length>0)&&<Message tone="warning">Есть замечания к качеству данных ({details.filter(t=>t.quality_issues.length>0).length}). Граф может быть неполным.</Message>}
       {true&&<div className="filters"><input type="search" aria-label="Поиск сервиса или связи" placeholder="Найти сервис или связь" value={query} onChange={e=>setQuery(e.target.value)}/><label className="check-label"><input type="checkbox" checked={onlyProblems} onChange={e=>setOnlyProblems(e.target.checked)}/>Только проблемные связи</label></div>}
@@ -157,6 +161,6 @@ export function Services({ client, environmentId, traces, total, audit, view, on
           { label: 'Ошибки', value: selectedService.errors },
           { label: 'Результат неизвестен', value: selectedService.unknown },
         ]}/><ServiceConfig key={selectedService.name} client={client} service={selectedService.name} environmentId={demo ? 'demo-shop' : environmentId} initialCall={requestedFindingMatch?.edge} localOnly={demo}/></>:!selectedNode?<p className="muted">Выберите сервис на графе, чтобы посмотреть его показатели и настроить параметры вызовов.</p>:<p className="muted">Спаны этого сервиса не получены. Данные об обращениях к нему доступны на связи.</p>}</div></Panel>}</div>}
-      {surface==='table'&&<><Tabs label="Статистика сервисов" value={statistics} onChange={setStatistics} items={[{value:'services',label:'По сервисам'},{value:'edges',label:'По связям'}]}/><Panel title={statistics==='edges'?'Статистика по связям':'Статистика сервисов'}><TableScroll><table className="explore-table"><thead><tr><th>{statistics==='edges'?'Связь':'Сервис'}</th><th>Операций</th><th>Медиана</th><th>95-й перцентиль</th><th>Ошибки / неизвестно</th><th>{statistics==='edges'?'Трейс':'Время вне вложенных вызовов'}</th></tr></thead><tbody>{statistics==='edges'?visibleEdges.map(e=><tr key={e.id}><td><button className="text-button" onClick={()=>{setSelected(e.id);setSurface('graph');location.hash='#/services?tab=graph';}}><ServiceCall call={e}/></button></td><td>{e.count}</td><td>{formatMs(e.median)}</td><td>{formatMs(e.p95)}</td><td>{e.errors} / {e.unknown}</td><td><a className="mono" href={traceHref(traces.find(t => t.trace_id === e.traceIds[0])?.trace_ref ?? e.traceIds[0])}>{e.traceIds[0]}</a></td></tr>):data.services.filter(s=>s.name.toLowerCase().includes(query.toLowerCase()) && (!onlyProblems || s.errors>0 || audit?.findings.some(f=>f.edge.caller===s.name||f.edge.callee===s.name))).map(s=><tr key={s.name}><td><button className="text-button service-name" onClick={()=>{setSelected(data.nodes.find(n=>!n.external&&n.name===s.name)?.id ?? '');setSurface('graph');location.hash='#/services?tab=graph';}}><i style={{background:serviceColors[s.name]}}/>{s.name}</button></td><td>{s.count}</td><td>{formatMs(s.median)}</td><td>{formatMs(s.p95)}</td><td>{s.errors} / {s.unknown}</td><td>{formatMs(s.own)} <span className="muted">суммарно</span></td></tr>)}</tbody></table></TableScroll></Panel></>}<p className="panel-note">Показатели рассчитаны по загруженным трейсам. На графе отображается до 40 сервисов.</p></>}
+<p className="panel-note">Показатели рассчитаны по загруженным трейсам. На графе отображается до 40 сервисов.</p></>}
   </>;
 }

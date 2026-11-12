@@ -125,6 +125,10 @@ def list_traces(
     read_entries: Callable[[str], dict[TraceRef, TraceListEntry]] | None = None,
     query: str = "",
     service: str = "",
+    statuses: tuple[str, ...] = (),
+    services_filter: tuple[str, ...] = (),
+    methods_filter: tuple[str, ...] = (),
+    allowed_refs: set[TraceRef] | None = None,
     status: str = "",
     method: str = "",
     span_id: str | None = None,
@@ -143,6 +147,10 @@ def list_traces(
         store.list_traces(environment_id),
         key=lambda m: (-m.first_received_at_ns, m.trace_ref.trace_id),
     )
+    if any(s not in {"ok", "error", "unknown"} for s in statuses):
+        return ApiError(400, "invalid_status", "Unknown outcome")
+    if any(not HTTP_METHOD_TOKEN.fullmatch(m) for m in methods_filter):
+        return ApiError(400, "invalid_method", "Invalid HTTP method")
     if status and status not in {"ok", "error", "unknown"}:
         return ApiError(400, "invalid_status", "status must be ok, error or unknown")
     if sort is not None and sort not in {"recent", "slow"}:
@@ -162,6 +170,7 @@ def list_traces(
     has_period = start_from_ns is not None or start_to_ns is not None
     expanded = bool(
         query or service or status or method or sort is not None or span_id or has_period
+        or statuses or services_filter or methods_filter or allowed_refs is not None
     )
     span_matches = (
         store.trace_refs_for_span(environment_id, span_id) if span_id is not None else None
@@ -197,7 +206,8 @@ def list_traces(
                     known[minutes] += 1
                     successes[minutes] += summary.outcome == "ok"
         if expanded:
-            services.add(summary.service)
+            participants = getattr(summary, "services", ()) or (summary.service,)
+            services.update(participants)
             if summary.http_method is not None:
                 methods.add(summary.http_method)
             if span_matches is not None and meta.trace_ref not in span_matches:
@@ -208,10 +218,18 @@ def list_traces(
                 or (start_to_ns is not None and summary.start_ns >= start_to_ns)
             ):
                 continue
+            if allowed_refs is not None and meta.trace_ref not in allowed_refs:
+                continue
+            if services_filter and not set(services_filter).intersection(participants):
+                continue
+            if methods_filter and summary.http_method not in methods_filter:
+                continue
+            if statuses and summary.outcome not in statuses:
+                continue
             if selected_method and summary.http_method != selected_method:
                 continue
-            searchable = f"{summary.operation} {summary.service} {summary.trace_id}".casefold()
-            if search not in searchable or (service and summary.service != service):
+            searchable = f"{summary.operation} {' '.join(participants)} {summary.trace_id}".casefold()
+            if search not in searchable or (service and service not in participants):
                 continue
             if status and summary.outcome != status:
                 continue

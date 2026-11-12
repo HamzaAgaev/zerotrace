@@ -1,6 +1,7 @@
+import { calculatePeriodMetrics, validPeriod } from './periodMetrics.js';
 import { createDemoLab } from './demoLab.js';
 import { filterTraces, traceRequest } from '../lib.js';
-import type { ApplyResult, AuditResult, Capabilities, ChangePlan, Client, ConfigSnapshot, Connection, Environment, JournalEntry, LabFault, LabRun, ListPayload, ManagedService, ManualChangeIntent, RunComparison, Stand, TraceDetail, TraceRef } from './types.js';
+import type { ApplyResult, AuditResult, Capabilities, ChangePlan, Client, ConfigSnapshot, Connection, Environment, JournalEntry, LabFault, LabRun, ListPayload, ManagedService, ManualChangeIntent, RunComparison, Stand, TraceDetail, TraceRef, PeriodMetrics, TraceQuery } from './types.js';
 import { demoAudit, demoCapabilities, demoDetail, demoPlan, demoTraces } from './fixtures.js';
 import { successWindowsMinutes } from './types.js';
 import type { BudgetFinding, SuccessRates } from './types.js';
@@ -107,8 +108,16 @@ function demoSuccessRates(): SuccessRates {
   })) as SuccessRates;
 }
 
-export function validatePayload(kind: 'list' | 'trace' | 'audit' | 'capabilities' | 'journal' | 'journal-entry' | 'plan' | 'environments' | 'services' | 'config' | 'operation' | 'stand' | 'run' | 'runs' | 'comparison', value: unknown): void {
+export function validatePayload(kind: 'metrics' | 'list' | 'trace' | 'audit' | 'capabilities' | 'journal' | 'journal-entry' | 'plan' | 'environments' | 'services' | 'config' | 'operation' | 'stand' | 'run' | 'runs' | 'comparison', value: unknown): void {
   let valid = false;
+  if (kind === 'metrics') {
+    const stats = (v: unknown) => obj(v) && count(v.count) && count(v.errors) && count(v.unknown)
+      && (v.success_rate === null || num(v.success_rate) && v.success_rate >= 0 && v.success_rate <= 1)
+      && (v.median_ns === null || nanos(v.median_ns)) && (v.p95_ns === null || nanos(v.p95_ns)) && nanos(v.own_ns);
+    valid = obj(value) && validPeriod(value.period_minutes) && str(value.start_ns) && nanos(value.end_ns) && stats(value.summary)
+      && Array.isArray(value.services) && value.services.every(v=>obj(v) && str(v.service) && stats(v))
+      && Array.isArray(value.endpoints) && value.endpoints.every(v=>obj(v) && str(v.service) && str(v.endpoint) && stats(v));
+  }
   if (kind === 'list') valid = obj(value) && Array.isArray(value.items) && value.items.every(validSummary)
     && count(value.total) && (value.methods === undefined || strings(value.methods))
     && (value.success_rates === undefined || validSuccessRates(value.success_rates));
@@ -168,7 +177,7 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     }
     if (!response.ok) { const error = obj(raw) && obj(raw.error) ? raw.error : null; throw new ApiError(typeof error?.message === 'string' ? error.message : `Ошибка сервера: HTTP ${response.status}`, response.status, typeof error?.code === 'string' ? error.code : 'http_error'); }
     const payload = unwrap(raw);
-    if (kind === 'audit' && response.status === 202 && isPendingAudit(payload)) return payload as T;
+    if ((kind === 'audit' || kind === 'list') && response.status === 202 && isPendingAudit(payload)) return payload as T;
     validatePayload(kind, payload);
     return payload as T;
   }
@@ -187,7 +196,9 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
   }
   const unsupported = (name: string) => async (): Promise<never> => { throw new ApiError(`${name} доступен только при подключении к серверу.`, 400, 'demo_readonly'); };
   if (connection.mode === 'live') return {
-    listTraces: (signal, query = {}) => request<ListPayload>(scoped('/api/v1/traces', {
+    getMetrics: (minutes, signal) => request<PeriodMetrics>(scoped('/api/v1/metrics', {period_minutes:String(minutes)}), 'metrics', signal, undefined, 'GET', 30),
+    async listTraces(signal, query = {}) {
+      const params: Record<string,string> = {
       limit: String(query.limit ?? 100), offset: String(query.offset ?? 0),
       ...(query.includeFindings === false ? { include_findings: 'false' } : {}),
       ...(query.includeSuccessRates ? { include_success_rates: 'true' } : {}),
@@ -197,8 +208,18 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
       ...(query.span_id !== undefined ? { span_id: query.span_id } : {}),
       ...(query.start_from_ns !== undefined ? { start_from_ns: query.start_from_ns } : {}),
       ...(query.start_to_ns !== undefined ? { start_to_ns: query.start_to_ns } : {}),
-    }), 'list', signal, undefined, 'GET',
-    query.includeFindings === false && query.includeSuccessRates ? 10 : 5),
+      ...Object.fromEntries(['services','methods','statuses','rules'].flatMap(key => { const values = query[key as keyof TraceQuery]; return Array.isArray(values) && values.length ? [[key, JSON.stringify(values)]] : []; })),
+      };
+      if(query.rules?.length) params.defer='true';
+      const deadline=Date.now()+120_000;
+      let result=await request<ListPayload | PendingAudit>(scoped('/api/v1/traces',params),'list',signal,undefined,'GET',30);
+      while(isPendingAudit(result)) {
+        if(Date.now()>=deadline) throw new ApiError('Поиск по проблемам ещё рассчитывается. Повторите поиск.',0,'audit_pending');
+        await pause(signal,750);
+        result=await request<ListPayload | PendingAudit>(scoped('/api/v1/traces',{...params,job_id:result.job_id}),'list',signal);
+      }
+      return result;
+    },
     async getTrace(ref, signal, options) {
       const id = typeof ref === 'string' ? ref : ref.trace_id;
       const environment = typeof ref === 'string' ? environmentId : ref.environment_id;
@@ -220,7 +241,11 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     createPlan: (finding, signal) => request<ChangePlan>('/api/v1/change-plans', 'plan', signal, { environment_id: environmentId, occurrence_id: finding.occurrence_id, recommendation_id: finding.recommendation_id, finding_id: finding.finding_id, expected_config_revision: finding.evidence.config_revision }, 'POST'), listEnvironments: async signal => { const payload = await request<{ items: Environment[] }>(`/api/v1/environments`, 'environments', signal); return payload.items; }, listServices: async (environment = environmentId, signal) => { const payload = await request<{ items: ManagedService[] }>(scoped('/api/v1/services', {}, environment), 'services', signal); return payload.items; }, getConfig: (id, environment = environmentId, signal) => request<ConfigSnapshot>(scoped(`/api/v1/services/${encodeURIComponent(id)}/config`, {}, environment), 'config', signal), createManualPlan: (intent, signal) => request<ChangePlan>('/api/v1/change-plans', 'plan', signal, { ...intent, environment_id: intent.environment_id || environmentId }, 'POST'), applyPlan: (id, hash, requestId, signal) => request<ApplyResult>(`/api/v1/change-plans/${encodeURIComponent(id)}/apply`, 'operation', signal, { request_id: requestId, plan_hash: hash }, 'POST'),
     getActiveStand: signal => request<Stand | null>('/api/v1/lab/stands/active', 'stand', signal), createStand: (scenarioId, signal) => request<Stand>('/api/v1/lab/stands', 'stand', signal, { scenario_id: scenarioId }, 'POST'), createStandFromTrace: (source, signal) => request<Stand>('/api/v1/lab/stands', 'stand', signal, { source }, 'POST'), stopStand: (id, signal) => request<Stand>(`/api/v1/lab/stands/${encodeURIComponent(id)}`, 'stand', signal, undefined, 'DELETE'), setFault: (id, fault, revision, requestId, signal) => request<Stand>(`/api/v1/lab/stands/${encodeURIComponent(id)}/fault`, 'stand', signal, { ...fault, request_id: requestId, expected_fault_revision: revision }, 'PUT'), clearFault: (id, revision, requestId, signal) => request<Stand>(`/api/v1/lab/stands/${encodeURIComponent(id)}/fault`, 'stand', signal, { request_id: requestId, expected_fault_revision: revision }, 'DELETE'), startRun: (id, payload, signal) => request<LabRun>(`/api/v1/lab/stands/${encodeURIComponent(id)}/runs`, 'run', signal, payload, 'POST'), getRun: (id, signal) => request<LabRun>(`/api/v1/lab/runs/${encodeURIComponent(id)}`, 'run', signal), async listRuns(signal) { const payload = await request<{ items: LabRun[] }>('/api/v1/lab/runs', 'runs', signal); return payload.items; }, compareRuns: (baseline, candidate, signal) => request<RunComparison>('/api/v1/comparisons', 'comparison', signal, { baseline_run_id: baseline, candidate_run_id: candidate }, 'POST'),
   };
-  return { listTraces: async (signal, query = {}) => {
+  return { getMetrics: async (minutes, signal) => {
+    await pause(signal);
+    if (!validPeriod(minutes)) throw new ApiError('Недопустимый период.',400,'invalid_period');
+    return calculatePeriodMetrics(demoTraces.map(t=>demoDetail(t.trace_id)),minutes);
+  }, listTraces: async (signal, query = {}) => {
     await pause(signal);
     const method = query.method?.toUpperCase();
     const spanId = query.span_id;
@@ -240,8 +265,15 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
       throw new ApiError('Начало периода должно быть раньше конца.', 400, 'invalid_time_range');
     }
     const methods = [...new Set(demoTraces.flatMap(trace => traceRequest(trace).method ?? []))].sort();
-    const filtered = filterTraces(demoTraces, query.query ?? '', query.service ?? '', query.status ?? '', query.sort ?? 'recent')
+    const filtered = filterTraces(demoTraces, '', '', query.status ?? '', query.sort ?? 'recent')
       .filter(trace => {
+        const detail=demoDetail(trace.trace_id), participants=new Set(detail.spans.map(s=>s.service));
+        const selectedServices=query.services?.length ? query.services : query.service ? [query.service] : [];
+        if(selectedServices.length && !selectedServices.some(s=>participants.has(s))) return false;
+        if(query.query && !`${trace.trace_id} ${trace.operation} ${[...participants].join(' ')}`.toLowerCase().includes(query.query.trim().toLowerCase())) return false;
+        if(query.methods?.length && !query.methods.includes(traceRequest(trace).method ?? '')) return false;
+        if(query.statuses?.length && !query.statuses.includes(trace.outcome)) return false;
+        if(query.rules?.length && !demoAudit.findings.some(f=>query.rules!.includes(f.rule_id) && f.exemplars.some(ref=>sameTraceRef(ref,trace.trace_ref)))) return false;
         if (method && traceRequest(trace).method !== method) return false;
         const start = BigInt(trace.start_ns);
         if ((from !== undefined || to !== undefined) && start === 0n) return false;
@@ -252,7 +284,7 @@ export function createClient(connection: Connection, fetcher: typeof fetch = fet
     const outcomes = { ok: 0, error: 0, unknown: 0 };
     for (const trace of filtered) outcomes[trace.outcome]++;
     return { items: filtered.slice(offset, offset + (query.limit ?? 100)), total: filtered.length,
-      services: [...new Set(demoTraces.map(trace => trace.service))], methods, outcomes,
+      services: [...new Set(demoTraces.flatMap(trace => demoDetail(trace.trace_id).spans.map(s=>s.service)))].sort(), methods, outcomes,
       ...(query.includeSuccessRates ? { success_rates: demoSuccessRates() } : {}) };
   }, getTrace: async (id, signal, options) => { await pause(signal); const detail = demoDetail(typeof id === 'string' ? id : id.trace_id); if (typeof id !== 'string' && !sameTraceRef(id, detail.trace_ref)) throw new ApiError('Эта версия трейса не найдена.', 404, 'trace_ref_not_found'); return selectSpanFields({ ...detail, finding_occurrence_ids: demoAudit.findings.filter(f => f.exemplars.some(ref => sameTraceRef(ref, detail.trace_ref))).map(f => f.occurrence_id) }, options?.includeSpanKind !== false); }, getAudit: async signal => { await pause(signal); return demoAudit; }, getCapabilities: async signal => { await pause(signal); return demoCapabilities; }, createPlan: async (finding: BudgetFinding, signal?: AbortSignal) => { await pause(signal); return demoPlan(finding); }, listEnvironments: unsupported('Список окружений'), listServices: unsupported('Список сервисов'), ...createDemoLab(typeof localStorage === 'undefined' ? undefined : localStorage) };
 }

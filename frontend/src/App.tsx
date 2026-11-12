@@ -1,5 +1,5 @@
 import { ViewMemory } from './components/ViewMemory';
-import { StateScope } from './state';
+import { StateScope, usePersistentState } from './state';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadJson } from './analysis';
 import { isBudgetFinding } from './api/types';
@@ -8,7 +8,7 @@ import type { AuditResult, Capabilities, ChangePlan, Connection, Finding, Journa
 import { Badge, Button, Icon, Message, LoadingState, RetryButton } from './components/ui';
 import type { IconName } from './components/ui';
 import { PlanDialog } from './components/PlanDialog';
-import { readRoute } from './lib';
+import { readRoute, serviceSurfaceForHash } from './lib';
 import { TraceList } from './views/TraceList';
 import { BackToTraces, TraceDetail } from './views/TraceDetail';
 import { Audit } from './views/Audit';
@@ -57,9 +57,10 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
   const selectedRef = useMemo(() => routeRef, [routeRef?.environment_id, routeRef?.trace_id, routeRef?.generation, routeRef?.revision]);
   const loadedTraceRef = trace?.trace_ref;
   const auditTraceRef = selectedId ? (loadedTraceRef?.trace_id === selectedId ? loadedTraceRef : undefined) : undefined;
-  const needsTraceSample = route.page === 'graph' || route.page === 'timings';
+  const [savedServiceSurface] = usePersistentState<'graph'|'table'>('services:surface','graph');
+  const needsTraceSample = (route.page === 'graph' || route.page === 'timings') && serviceSurfaceForHash(location.hash,savedServiceSurface) === 'graph';
   const needsAudit = route.page === 'audit'
-    || route.page === 'graph' || route.page === 'timings'
+    || needsTraceSample
     || (route.page === 'traces' && !!route.traceId);
   useEffect(() => {
     const controller = new AbortController();
@@ -209,7 +210,7 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
     {connection.mode === 'demo' && <Message>Демонстрационный режим. Данные и изменения сохраняются локально; реальные запросы к сервисам не выполняются.</Message>}
     {planError && <Message tone="danger" action={<Button variant="ghost" onClick={() => setPlanError('')} aria-label="Закрыть ошибку" icon="close"/>}>{planError}</Message>}
     {standBuildError && <Message tone="danger">{standBuildError} <a href="#/lab">Открыть лабораторию</a></Message>}
-    {route.page === 'sources' ? <ConnectionView connection={connection} capabilities={capabilities} onChange={changeConnection}/> : route.page === 'lab' ? <Lab demo={connection.mode === 'demo'} client={client}/> : error ? <div className="connection-error"><Message tone="danger">{error}</Message><div className="error-actions"><RetryButton onClick={refresh}/><a className="button button--primary" href="#/sources">Настроить подключение</a></div><p className="muted">Демонстрационные данные не подставляются вместо ответа сервера.</p></div> : pageBusy ? <LoadingState>Загружаем данные…</LoadingState> : route.page === 'graph' || route.page === 'timings' ? <>{auditError&&<Message tone="warning">Аудит недоступен: {auditError}. Проблемные связи могут быть показаны не полностью.</Message>}<Services client={client} environmentId={connection.environmentId || 'shop'} traces={traces} total={total} audit={audit} view={route.page} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/></> : route.page === 'audit' ? auditError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Аудит недоступен: {auditError}</Message> : <Audit audit={audit} onPlan={openPlan} pending={planBusy}/> : route.page === 'journal' ? journalError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Журнал недоступен: {journalError}</Message> : <Journal entries={journal}/> : selectedId ? traceError ? <Message tone="danger" action={<>
+    {route.page === 'sources' ? <ConnectionView connection={connection} capabilities={capabilities} onChange={changeConnection}/> : route.page === 'lab' ? <Lab demo={connection.mode === 'demo'} client={client}/> : error ? <div className="connection-error"><Message tone="danger">{error}</Message><div className="error-actions"><RetryButton onClick={refresh}/><a className="button button--primary" href="#/sources">Настроить подключение</a></div><p className="muted">Демонстрационные данные не подставляются вместо ответа сервера.</p></div> : pageBusy ? <LoadingState>Загружаем данные…</LoadingState> : route.page === 'graph' || route.page === 'timings' ? <>{needsAudit&&auditError&&<Message tone="warning">Аудит недоступен: {auditError}. Проблемные связи могут быть показаны не полностью.</Message>}<Services client={client} environmentId={connection.environmentId || 'shop'} traces={traces} total={total} audit={audit} view={route.page} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/></> : route.page === 'audit' ? auditError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Аудит недоступен: {auditError}</Message> : <Audit audit={audit} onPlan={openPlan} pending={planBusy}/> : route.page === 'journal' ? journalError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Журнал недоступен: {journalError}</Message> : <Journal entries={journal}/> : selectedId ? traceError ? <Message tone="danger" action={<>
       <RetryButton onClick={refresh}/>
       <BackToTraces/>
     </>}>{traceError}</Message> : traceBusy || !trace ? <LoadingState>Открываем трейс…</LoadingState> : <TraceDetail key={`${trace.trace_ref.environment_id}-${trace.trace_ref.trace_id}-${trace.trace_ref.generation}-${trace.trace_ref.revision}`} trace={trace} audit={audit} auditLoading={!auditError && (auditBusy || membershipBusy)} auditError={auditError} onRetryAudit={() => setAuditRefreshKey(key => key + 1)} onPlan={openPlan} pending={planBusy} onExport={exportReport} onBuild={() => void buildLabFromTrace(trace.trace_ref)}/> : <TraceList client={client}/>}

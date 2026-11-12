@@ -5,8 +5,10 @@ import { Icon } from './ui';
 
 interface Props {
   children: ReactNode;
-  value: string;
-  onChange: (value: string) => void;
+  value?: string;
+  onChange?: (value: string) => void;
+  values?: string[];
+  onValuesChange?: (values: string[]) => void;
   'aria-label'?: string;
   disabled?: boolean;
 }
@@ -18,7 +20,7 @@ interface Option {
   disabled: boolean;
 }
 
-export function Select({ children, value, onChange, disabled, 'aria-label': label }: Props) {
+export function Select({ children, value, onChange, values, onValuesChange, disabled, 'aria-label': label }: Props) {
   const options: Option[] = Children.toArray(children).filter(isValidElement).map(child => {
     const props = child.props as { value?: string; label?: string; disabled?: boolean; children: ReactNode };
     const label = props.label ?? Children.toArray(props.children).join('');
@@ -31,7 +33,8 @@ export function Select({ children, value, onChange, disabled, 'aria-label': labe
   const [active, setActive] = useState(0);
   const [position, setPosition] = useState<CSSProperties>({});
   const search = useRef({ text: '', time: 0 });
-  const selected = options.findIndex(option => option.value === value);
+  const isSelected = (option: Option) => values ? (option.value ? values.includes(option.value) : !values.length) : option.value === value;
+  const selected = options.findIndex(isSelected);
   const enabled = options.map((option, index) => option.disabled ? -1 : index).filter(index => index >= 0);
 
   function show(last = false) {
@@ -44,8 +47,9 @@ export function Select({ children, value, onChange, disabled, 'aria-label': labe
   function choose(index: number) {
     const option = options[index];
     if (!option || option.disabled) return;
-    onChange(option.value);
-    setOpen(false);
+    if (values && onValuesChange) {
+      onValuesChange(!option.value ? [] : values.includes(option.value) ? values.filter(v => v !== option.value) : [...values, option.value]);
+    } else { onChange?.(option.value); setOpen(false); }
     trigger.current?.focus();
   }
 
@@ -134,16 +138,16 @@ export function Select({ children, value, onChange, disabled, 'aria-label': labe
       aria-controls={open ? id : undefined} aria-activedescendant={open ? `${id}-option-${active}` : undefined}
       disabled={disabled || !enabled.length} onClick={() => open ? setOpen(false) : show()}
       onKeyDown={onKeyDown} onBlur={() => setOpen(false)}>
-      <span>{options[selected]?.content ?? 'Выберите значение'}</span><Icon name="chevron" size={14}/>
+      <span>{values && values.length > 1 ? `${label}: ${values.length}` : options[selected]?.content ?? values?.[0] ?? 'Выберите значение'}</span><Icon name="chevron" size={14}/>
     </button>
-    {open && createPortal(<div ref={popup} id={id} role="listbox" aria-label={label ?? 'Варианты выбора'}
+    {open && createPortal(<div ref={popup} id={id} role="listbox" aria-multiselectable={values ? true : undefined} aria-label={label ?? 'Варианты выбора'}
       className="select-menu" style={{ position: 'fixed', ...position }}>
       {options.map((option, index) => <div key={option.value} id={`${id}-option-${index}`}
-        role="option" aria-selected={option.value === value} aria-disabled={option.disabled || undefined}
+        role="option" aria-selected={isSelected(option)} aria-disabled={option.disabled || undefined}
         className={`select-option ${active === index ? 'is-active' : ''}`}
         onPointerMove={() => { if (!option.disabled) setActive(index); }}
         onMouseDown={event => event.preventDefault()} onClick={() => choose(index)}>
-        <span className="select-check">{option.value === value && <Icon name="check" size={14}/>}</span>
+        <span className="select-check">{isSelected(option) && <Icon name="check" size={14}/>}</span>
         <span>{option.content}</span>
       </div>)}
     </div>, document.body)}

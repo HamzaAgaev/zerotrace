@@ -3,19 +3,18 @@ import { HttpMethod, HttpStatus } from '../components/HttpText';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { Client, ListPayload, TraceQuery } from '../api/types';
-import { isUncertainResponse } from '../api/client';
-import { successWindowsMinutes } from '../api/types';
-import { Metrics } from '../components/Metrics';
+import { PeriodSummary } from '../components/PeriodSummary';
+import { auditRuleIds, ruleName } from '../components/RuleLabel';
 import { Select } from '../components/Select';
 import { Badge, Button, EmptyState, Field, Icon, LoadingState, Message, PageHeader, Panel, TableScroll, RetryButton } from '../components/ui';
 import { duration, outcomeLabels, traceHref, traceRequest } from '../lib';
-import { formatCount, formatPercent } from '../presentation';
+import { formatCount } from '../presentation';
 
 type TracePage = {
   client: Client; data: ListPayload; page: number; limit: number;
   findings?: Map<string, number>;
 };
-const successLabels = { 5: 'Успех за 5 минут', 30: 'Успех за 30 минут', 60: 'Успех за 1 час', 180: 'Успех за 3 часа' };
+const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(v=>typeof v === 'string');
 const formatStart = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'medium' });
 
 function boundaryNs(value: string): string | undefined {
@@ -35,9 +34,10 @@ function traceStart(value: string): string {
 
 export function TraceList({ client }: { client: Client }) {
   const [query, setQuery] = usePersistentState('views/TraceList.tsx:query', '');
-  const [service, setService] = usePersistentState('views/TraceList.tsx:service', '');
-  const [status, setStatus] = usePersistentState('views/TraceList.tsx:status', '');
-  const [method, setMethod] = usePersistentState('views/TraceList.tsx:method', '');
+  const [service, setService] = usePersistentState<string[]>('traces:service-selection', [], stringArray);
+  const [status, setStatus] = usePersistentState<string[]>('traces:status-selection', [], stringArray);
+  const [method, setMethod] = usePersistentState<string[]>('traces:method-selection', [], stringArray);
+  const [rules,setRules]=usePersistentState<string[]>('traces:audit-rules',[],stringArray);
   const [sort, setSort] = usePersistentState('views/TraceList.tsx:sort', 'recent');
   const [periodDraft, setPeriodDraft] = usePersistentState('traces:period-draft', {span_id:'',period_start:'',period_end:''});
   const searchForm = useRef<HTMLFormElement>(null);
@@ -49,65 +49,31 @@ export function TraceList({ client }: { client: Client }) {
   const [response, setResponse] = useState<TracePage | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
-  const [summaryError, setSummaryError] = useState(false);
   const requestedQuery = useRef('');
-  const filtersActive = !!(query.trim() || service || status || method
+  const filtersActive = !!(query.trim() || service.length || status.length || method.length || rules.length
     || appliedSearch.span_id || appliedSearch.start_from_ns || appliedSearch.start_to_ns);
 
   useEffect(() => {
     const controller = new AbortController();
     setBusy(true);
     setError('');
-    setSummaryError(false);
 
     async function load() {
       requestedQuery.current = query;
-      const filters = { query, service, status, method, sort, limit, offset: (page - 1) * limit, ...appliedSearch };
-      const recentPage = sort === 'recent' && !filtersActive;
-      const summaryQuery = { ...filters, includeFindings: false, includeSuccessRates: true };
+      const filters = { query, services:service, statuses:status, methods:method, rules, sort, limit, offset: (page - 1) * limit, ...appliedSearch, includeFindings:false };
       try {
-        const data = await client.listTraces(controller.signal, recentPage
-          ? { limit, offset: filters.offset, includeFindings: false }
-          : summaryQuery);
-        if (controller.signal.aborted) return;
-        const lastPage = Math.max(1, Math.ceil(data.total / limit));
-        if (page > lastPage) {
-          setPage(lastPage);
-          return;
-        }
-        let next: TracePage = { client, data, page, limit };
+        const data=await client.listTraces(controller.signal,filters);
+        if(controller.signal.aborted)return;
+        const lastPage=Math.max(1,Math.ceil(data.total/limit));
+        if(page>lastPage){setPage(lastPage);return;}
+        const next: TracePage={client,data,page,limit,...(rules.length ? {findings:new Map(data.items.map(item=>[traceHref(item.trace_ref),item.finding_count]))} : {})};
         setResponse(next);
         setBusy(false);
-        if (recentPage) {
-          try {
-            const summary = await client.listTraces(controller.signal, summaryQuery).catch(cause => {
-              if (!controller.signal.aborted && isUncertainResponse(cause)) {
-                return client.listTraces(controller.signal, summaryQuery);
-              }
-              throw cause;
-            });
-            if (controller.signal.aborted) return;
-            const first = next;
-            const enriched = { ...first, data: {
-              ...data, services: summary.services, methods: summary.methods,
-              outcomes: summary.outcomes, success_rates: summary.success_rates,
-            } };
-            next = enriched;
-            setResponse(current => current === first ? enriched : current);
-          } catch {
-            if (!controller.signal.aborted) setSummaryError(true);
-            return;
-          }
-        }
-        if (data.items.length) {
-          void client.listTraces(controller.signal, filters).then(audited => {
-            if (controller.signal.aborted) return;
-            const findings = new Map(audited.items.map(item => [traceHref(item.trace_ref), item.finding_count]));
-            setResponse(current => current === next ? { ...next, findings } : current);
-          }).catch(() => {
-            // The telemetry page is still available; omitted counts remain unknown.
-          });
-        }
+        if(data.items.length && !rules.length)void client.listTraces(controller.signal,{...filters,includeFindings:true}).then(audited=>{
+          if(controller.signal.aborted)return;
+          const findings=new Map(audited.items.map(item=>[traceHref(item.trace_ref),item.finding_count]));
+          setResponse(current=>current===next ? {...next,findings} : current);
+        }).catch(()=>{});
       } catch (cause) {
         if (controller.signal.aborted) return;
         setError(cause instanceof Error ? cause.message : 'Не удалось загрузить трейсы.');
@@ -120,7 +86,7 @@ export function TraceList({ client }: { client: Client }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [client, query, service, status, method, sort, page, limit, reload, appliedSearch, filtersActive]);
+  }, [client, query, service, status, method, rules, sort, page, limit, reload, appliedSearch, filtersActive]);
 
   const displayed = response?.client === client ? response : null;
   const result = displayed?.data;
@@ -137,9 +103,9 @@ export function TraceList({ client }: { client: Client }) {
   const refresh = () => setReload(value => value + 1);
   const resetFilters = () => {
     setQuery('');
-    setService('');
-    setStatus('');
-    setMethod('');
+    setService([]);
+    setStatus([]);
+    setMethod([]); setRules([]);
     setPeriodDraft({span_id:'',period_start:'',period_end:''});
     setAppliedSearch({});
     setSearchError('');
@@ -169,14 +135,7 @@ export function TraceList({ client }: { client: Client }) {
 
   return <>
     <PageHeader title="Трейсы" actions={<><Button icon="refresh" onClick={refresh} disabled={busy}>Обновить</Button></>}/>
-    <Metrics items={successWindowsMinutes.map(minutes => {
-      const rate = result?.success_rates?.[minutes];
-      const tone = rate == null ? 'neutral' : rate >= 0.99 ? 'success' : rate >= 0.95 ? 'warning' : 'danger';
-      return { label: successLabels[minutes], value: formatPercent(rate), tone };
-    })}/>
-    {summaryError && <Message tone="warning" action={<RetryButton onClick={refresh}/>}>
-      Не удалось загрузить долю успешных запросов и варианты фильтров.
-    </Message>}
+    <PeriodSummary client={client} reload={reload} onRetry={refresh}/>
 
     <Panel className="trace-table-panel">
       <div className="trace-toolbar" role="group" aria-label="Фильтры трейсов">
@@ -185,20 +144,24 @@ export function TraceList({ client }: { client: Client }) {
           <input aria-label="Поиск трейсов" type="search" value={query}
             onChange={event => change(setQuery, event.target.value)} placeholder="Эндпоинт, сервис или Trace ID"/>
         </label>
-        <Select aria-label="Сервис" value={service} onChange={value => change(setService, value)}>
+        <Select aria-label="Сервис" values={service} onValuesChange={value => { setService(value); setPage(1); }}>
           <option value="">Все сервисы</option>
           {(result?.services ?? []).map(name => <option key={name} value={name}>{name}</option>)}
         </Select>
-        <Select aria-label="Метод запроса" value={method} onChange={value => change(setMethod, value)}
+        <Select aria-label="Метод запроса" values={method} onValuesChange={value => { setMethod(value); setPage(1); }}
           disabled={!result?.methods?.length}>
           <option value="">Все методы</option>
           {(result?.methods ?? []).map(name => <option key={name} value={name} label={name}><HttpMethod method={name}/></option>)}
         </Select>
-        <Select aria-label="Результат запроса" value={status} onChange={value => change(setStatus, value)}>
+        <Select aria-label="Результат запроса" values={status} onValuesChange={value => { setStatus(value); setPage(1); }}>
           <option value="">Все результаты</option>
           <option value="error">{outcomeLabels.error}</option>
           <option value="ok">{outcomeLabels.ok}</option>
           <option value="unknown">{outcomeLabels.unknown}</option>
+        </Select>
+        <Select aria-label="Проблемы аудита" values={rules} onValuesChange={value=>{setRules(value);setPage(1);}}>
+          <option value="">Все проблемы аудита</option>
+          {auditRuleIds.map(id=><option key={id} value={id}>{ruleName(id)}</option>)}
         </Select>
         <Select aria-label="Сортировка" value={sort} onChange={value => change(setSort, value)}>
           <option value="recent">Сначала новые</option>

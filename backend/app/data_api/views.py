@@ -141,6 +141,10 @@ class TraceListEntry:
     duration_ns: int
     outcome: UiOutcome
     http_method: str | None
+    services: tuple[str, ...] = ()
+    root_duration_ns: int | None = None
+    operations: tuple[dict, ...] = ()
+    root_start_ns: int | None = None
 
     @property
     def trace_id(self) -> str:
@@ -154,15 +158,34 @@ def trace_list_entry(ref: TraceRef, spans: list[TraceListSpan]) -> TraceListEntr
     compatible = [span for span in spans if span.clock_domain == reference.clock_domain]
     start_ns = min(span.start_ns for span in compatible)
     duration_ns = max(int(span.end_ns) for span in compatible) - start_ns
+    services = tuple(sorted({s.service for s in spans if s.service}))
+    operations = []
+    children = {}
+    for span in spans:
+        children.setdefault(span.parent_span_id, []).append(span)
+    for span in spans:
+        if span.kind != 'server':
+            continue
+        intervals = sorted((max(span.start_ns, child.start_ns), min(int(span.end_ns), int(child.end_ns)))
+                           for child in children.get(span.span_id, ()) if child.clock_domain == span.clock_domain)
+        occupied, end = 0, span.start_ns
+        for left, right in intervals:
+            occupied += max(0, right - max(left, end))
+            end = max(end, right)
+        duration = max(0, int(span.end_ns) - span.start_ns)
+        operations.append(dict(service=span.service, endpoint=span.operation, start_ns=span.start_ns,
+                               duration_ns=duration, own_ns=max(0, duration-occupied),
+                               outcome=_outcome(span.otel_status, span.kind, span.http_status)))
     if root is None:
-        return TraceListEntry(ref, "unknown", "unknown", start_ns, duration_ns, "unknown", None)
+        return TraceListEntry(ref, "unknown", "unknown", start_ns, duration_ns, "unknown", None, services, None, tuple(operations))
     operation = root.operation or "unknown"
     method, _ = _operation_parts(
         operation, root.http_status is not None or bool(root.operation_observed),
     )
     return TraceListEntry(
         ref, operation, root.service or "unknown", start_ns, duration_ns,
-        _outcome(root.otel_status, root.kind, root.http_status), method,
+        _outcome(root.otel_status, root.kind, root.http_status), method, services,
+        max(0, int(root.end_ns) - root.start_ns), tuple(operations), root.start_ns,
     )
 
 

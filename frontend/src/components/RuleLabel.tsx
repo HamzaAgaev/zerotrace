@@ -42,6 +42,8 @@ const rules: Record<string, { name: string; description: ReactNode }> = {
   },
 };
 
+export const auditRuleIds = Object.keys(rules);
+
 export function ruleName(id: string) {
   return rules[id]?.name ?? 'Дополнительная проверка';
 }

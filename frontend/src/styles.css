@@ -576,3 +576,11 @@ input[type=number]{appearance:textfield;-moz-appearance:textfield}
 input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .lab-load .form-grid{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
 @media(max-width:760px){.lab-load .form-grid{grid-template-columns:minmax(0,1fr)}}
+
+.period-summary { display: grid; gap: 16px; margin-bottom: 24px; }
+.statistics-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.service-statistics { padding: 24px; display: grid; gap: 24px; }
+.statistics-filters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.trace-toolbar > .search-field { flex: 1 0 100%; }
+.trace-toolbar > .select-control { flex: 1 1 150px; }
+@media(max-width:640px) { .statistics-filters { grid-template-columns: 1fr; } }

@@ -1,12 +1,13 @@
 import type { AuditResult, Capabilities, ChangePlan, BudgetFinding, JournalEntry, Span, TraceDetail, TraceSummary } from './types.js';
 export const FIXTURE_DATE = '2026-11-10T11:24:00.000Z';
+const demoNow = BigInt(Date.now() - 60_000) * 1_000_000n;
 const ns = (ms: number) => String(Math.round(ms * 1e6));
 const monitoringTraces: TraceSummary[] = Array.from({ length: 18 }, (_, i) => ({
   trace_id: (0x4bf92000 + i).toString(16).padStart(32, '0'),
   trace_ref: { environment_id: 'demo-shop', trace_id: (0x4bf92000 + i).toString(16).padStart(32, '0'), generation: 1, revision: 2 },
   operation: i >= 5 && i % 5 === 4 ? 'GET /catalog' : 'POST /checkout',
   service: i >= 5 && i % 5 === 4 ? 'catalog-api' : 'gateway',
-  start_ns: String(1794319440000000000n - BigInt(i) * 14700000000n),
+  start_ns: String(demoNow - BigInt(i) * 14700000000n),
   duration_ns: ns(i >= 5 && i % 5 === 4 ? 126 + i : i < 5 ? 2015 + i * 8 : 245 + i * 19),
   span_count: i < 5 ? 10 : 6, service_count: i < 5 ? 3 : 3,
   outcome: i === 8 ? 'unknown' : i < 5 ? 'error' : 'ok', http_status: i === 8 ? null : i < 5 ? 504 : 200,
@@ -20,7 +21,7 @@ export const labSourceTrace: TraceDetail = {
   summary: {
     ...monitoringTraces[0], trace_id: labSourceId,
     trace_ref: labSourceRef,
-    operation: 'POST /orders', service: 'orders', start_ns: '1794319450000000000',
+    operation: 'POST /orders', service: 'orders', start_ns: String(demoNow + 10_000_000_000n),
     duration_ns: ns(25), span_count: 3, service_count: 2, outcome: 'ok', http_status: 200, finding_count: 0,
   },
   spans: [

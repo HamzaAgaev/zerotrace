@@ -39,7 +39,7 @@ export interface AuditResult { trace_findings?: { trace_ref: TraceRef; occurrenc
 export interface ChangePlan { plan_id: string; plan_hash: string; finding_id: string; target: string; expected_revision: string; environment_id?: string; expires_at: string; changes: { field: string; before: string; after: string }[]; warnings: string[]; apply_enabled: boolean }
 export interface JournalEntry { operation_id: string; target: string; requested_at: string; status: 'planned' | 'applying' | 'applied' | 'no_op' | 'rejected' | 'unknown' | 'failed'; verification: 'checking' | 'insufficient_data' | 'symptom_absent' | 'symptom_present' | 'inconclusive' | null; actual_changes: { field: string; before: string; after: string }[] }
 export interface Capabilities { mode: string; api_version: string; source_name: string; source_state: 'receiving' | 'idle' | 'unknown'; apply_enabled: boolean; limits: { max_trace_spans: number } }
-export interface TraceQuery { query?: string; service?: string; status?: string; method?: string; sort?: string; limit?: number; offset?: number; includeFindings?: boolean;
+export interface TraceQuery { services?: string[]; methods?: string[]; statuses?: string[]; rules?: string[]; query?: string; service?: string; status?: string; method?: string; sort?: string; limit?: number; offset?: number; includeFindings?: boolean;
   includeSuccessRates?: boolean;
   span_id?: string; start_from_ns?: string; start_to_ns?: string;
 }
@@ -123,7 +123,10 @@ export interface RunComparison {
   baseline: ComparisonMetrics; candidate: ComparisonMetrics; attempts_per_input_delta: number | null;
   input_hash: string; warnings: string[];
 }
+export interface PeriodStats { count: number; errors: number; unknown: number; success_rate: number | null; median_ns: string | null; p95_ns: string | null; own_ns: string }
+export interface PeriodMetrics { period_minutes: number; start_ns: string; end_ns: string; summary: PeriodStats; services: (PeriodStats & { service: string })[]; endpoints: (PeriodStats & { service: string; endpoint: string })[] }
 export interface Client {
+  getMetrics(minutes: number, signal?: AbortSignal): Promise<PeriodMetrics>;
   listTraces(signal?: AbortSignal, query?: TraceQuery): Promise<ListPayload>;
   getTrace(id: string | TraceRef, signal?: AbortSignal, options?: { includeFindings?: boolean; includeSpanKind?: boolean }): Promise<TraceDetail>;
   getAudit(signal?: AbortSignal, traceRef?: TraceRef): Promise<AuditResult>;

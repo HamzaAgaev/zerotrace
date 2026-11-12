@@ -112,6 +112,7 @@ class TraceListSpan(NamedTuple):
     otel_status: str
     http_status: int | None
     operation_observed: bool | None
+    parent_span_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -645,7 +646,8 @@ class SpanStore:
                             json_extract(s.payload, '$.kind'),
                             json_extract(s.payload, '$.otel_status'),
                             json_extract(s.payload, '$.http_status'),
-                            json_extract(s.payload, '$.field_coverage.operation')
+                            json_extract(s.payload, '$.field_coverage.operation'),
+                            json_extract(s.payload, '$.parent_span_id')
                         ))
                         FROM spans s
                         WHERE s.project_id = json_extract(m.value, '$[0]')

@@ -302,6 +302,17 @@ def create_app(config: dict) -> Flask:
         ]
         return jsonify(envelope({"items": items}, "runs"))
 
+    @app.get("/api/v1/metrics")
+    def metrics():
+        from app.analytics_api.metrics import period_metrics
+        env = environment()
+        try:
+            minutes = int(request.args.get('period_minutes', '30'))
+        except ValueError:
+            raise AnalyticsError('invalid_period', 'Недопустимый период.', 400)
+        with analytics.source.read() as view:
+            return jsonify(envelope(period_metrics(view, env, minutes), 'metrics'))
+
     @app.get("/api/v1/traces")
     @app.get("/api/v1/traces/<trace_id>")
     @app.get("/api/v1/audit")
@@ -311,6 +322,19 @@ def create_app(config: dict) -> Flask:
     @app.get("/api/v1/reports/<report_id>")
     def analytics_read(trace_id=None, report_id=None):
         env = environment() if report_id is None or "environment_id" in request.args else None
+        if request.path == "/api/v1/traces" and request.args.get("defer") == "true" and request.args.get("rules", "[]") != "[]":
+            params = dict(request.args)
+            params['environment_id'] = env
+            params.pop('job_id', None)
+            params.pop('defer', None)
+            scope = (env, 'trace-search', urlencode(sorted(params.items())), None)
+            def calculate_search():
+                with analytics.configured(env, snapshots(env)):
+                    return api.dispatch({'REQUEST_METHOD': 'GET', 'PATH_INFO': '/api/v1/traces',
+                                         'QUERY_STRING': urlencode(params)})
+            job_id = request.args.get('job_id') or audit_jobs.start(scope, calculate_search)
+            result = audit_jobs.result(scope, job_id)
+            return jsonify(result) if result is not None else (jsonify(envelope({'status': 'pending', 'job_id': job_id}, 'audit-job')), 202)
         audit_ref = None
         if request.path == "/api/v1/audit" and any(k in request.args for k in ("trace_id", "generation", "revision")):
             from analytics_support import ref_key
@@ -351,7 +375,7 @@ def create_app(config: dict) -> Flask:
             environ["QUERY_STRING"] = urlencode(params)
         saved_snapshot = request.path == "/api/v1/report" and request.args.get("snapshot_id")
         trace_only = (request.path == "/api/v1/traces" or trace_id is not None) and (
-            request.args.get("include_findings") == "false"
+            request.args.get("include_findings") == "false" and request.args.get("rules", "[]") == "[]"
         )
         skip_snapshots = report_id is not None or saved_snapshot or trace_only
         configs = snapshots(env) if env and not skip_snapshots else None
