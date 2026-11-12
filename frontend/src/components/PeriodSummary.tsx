@@ -24,9 +24,9 @@ export function PeriodSummary({client,reload,onRetry}:{client:Client;reload:numb
     <div className="statistics-toolbar"><span className="muted">Вся система</span><PeriodSelect value={period} onChange={setPeriod}/></div>
     <Metrics items={[
       {label:'Запросы',value:stats?.count ?? '—'},
-      {label:'Успешные запросы',value:formatPercent(stats?.success_rate), info:'Доля успешных среди запросов с известным результатом.'},
+      {label:'Успешные запросы',value:formatPercent(stats?.success_rate)},
       {label:'Медиана времени ответа',value:stats?.median_ns == null ? '—' : duration(stats.median_ns)},
-      {label:'95-й перцентиль времени ответа',value:stats?.p95_ns == null ? '—' : duration(stats.p95_ns),info:'95% запросов завершились за это время или быстрее.'},
+      {label:'95-й перцентиль времени ответа',value:stats?.p95_ns == null ? '—' : duration(stats.p95_ns)},
     ]}/>
     {!!stats?.unknown && <p className="panel-note">Результат неизвестен: {stats.unknown}. Эти запросы не входят в долю успешных.</p>}
     {error && <Message tone="warning" action={<RetryButton onClick={onRetry}/>}>{error}</Message>}

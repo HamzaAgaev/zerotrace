@@ -31,7 +31,7 @@ export function ServiceStatistics({client,reload,onRetry}:{client:Client;reload:
         {label:'Операции',value:stats.count},{label:'Медиана',value:stats.median_ns===null?'—':duration(stats.median_ns)},
         {label:'95-й перцентиль',value:stats.p95_ns===null?'—':duration(stats.p95_ns)},
         {label:'Ошибки',value:stats.errors},{label:'Результат неизвестен',value:stats.unknown},
-        {label:'Время вне вложенных вызовов',value:duration(stats.own_ns),info:'Суммарное время операций без времени их вложенных вызовов.'},
+        {label:'Время вне вложенных вызовов',value:duration(stats.own_ns)},
       ]}/>}
     </div>
   </Panel>;

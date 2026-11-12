@@ -1,3 +1,4 @@
+import { metricHelp } from '../metricHelp';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { Tone } from '../api/types';
@@ -30,10 +31,15 @@ export function MetricInfo({ label, children }: { label: string; children: React
   </span>;
 }
 
+export function MetricLabel({ label, info }: { label: string; info?: string }) {
+  const explanation=info ?? metricHelp[label];
+  return <><span>{label}</span>{explanation && <MetricInfo label={`О показателе «${label}»`}>{explanation}</MetricInfo>}</>;
+}
+
 export function Metrics({ items }: { items: { label: string; value: ReactNode; tone?: Tone; info?: string }[] }) {
   return <dl className="metric-grid" style={{ '--metric-count': items.length } as CSSProperties}>{items.map(({ label, value, tone, info }) =>
     <div className={`metric-tile metric-tile--${tone ?? 'neutral'}`} key={label}>
-      <dt><span>{label}</span>{info && <MetricInfo label={`О показателе «${label}»`}>{info}</MetricInfo>}</dt><dd>{value}</dd>
+      <dt><MetricLabel label={label} info={info}/></dt><dd>{value}</dd>
     </div>
   )}</dl>;
 }

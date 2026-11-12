@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Client, LabFault, LabRun, RunComparison, Stand } from '../api/types';
 import { ApiError, createOrRecoverStand, isUncertainResponse } from '../api/client';
 import { Badge, Button, EmptyState, Message, Panel, PageHeader, TableScroll, Field } from '../components/ui';
-import { Metrics } from '../components/Metrics';
+import { Metrics, MetricLabel } from '../components/Metrics';
 import { ServiceConfig } from '../components/ServiceConfig';
 
 const nsMs = (value: string | number | null) => value === null ? '—' : `${(Number(value) / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}\u00A0мс`;
@@ -187,7 +187,7 @@ export function Lab({ client, demo = false }: { client: Client | null; demo?: bo
         ['95-й перцентиль', nsMs(comparison.baseline.root_latency_p95_ns), nsMs(comparison.candidate.root_latency_p95_ns)],
         ['Попыток на запрос', formatMetric(comparison.baseline.attempts_per_input), formatMetric(comparison.candidate.attempts_per_input)],
         ['Ответы с ошибкой', `${comparison.baseline.root_errors} (${formatRate(comparison.baseline.root_error_ratio)})`, `${comparison.candidate.root_errors} (${formatRate(comparison.candidate.root_error_ratio)})`],
-      ].map(([label,before,after])=><tr key={label}><td>{label}</td><td>{before}</td><td>{after}</td></tr>)}</tbody></table></TableScroll><p>Изменение: {comparison.change.service_id} — {comparison.change.call_ref} — {fieldLabel(comparison.change.field)}: {String(comparison.change.before)} → {String(comparison.change.after)}</p>{comparison.warnings.map(warning => <Message tone="warning" key={warning}>{warning}</Message>)}</>}</div></Panel>}
+      ].map(([label,before,after])=><tr key={label}><td><MetricLabel label={label}/></td><td>{before}</td><td>{after}</td></tr>)}</tbody></table></TableScroll><p>Изменение: {comparison.change.service_id} — {comparison.change.call_ref} — {fieldLabel(comparison.change.field)}: {String(comparison.change.before)} → {String(comparison.change.after)}</p>{comparison.warnings.map(warning => <Message tone="warning" key={warning}>{warning}</Message>)}</>}</div></Panel>}
     </>}
   </>;
 }
