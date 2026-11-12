@@ -1,0 +1,96 @@
+{
+  "schema_version": "1",
+  "scenario_id": "example",
+  "scenario_revision": 1,
+  "entrypoint": {
+    "service_id": "api",
+    "route": "POST /run"
+  },
+  "services": {
+    "api": {
+      "config_write": true,
+      "routes": {
+        "POST /run": {
+          "work": {
+            "kind": "fixed",
+            "delay_ms": 10
+          },
+          "response_status": 200,
+          "calls": {
+            "first": {
+              "target": {
+                "service_id": "worker-a",
+                "method": "GET",
+                "route": "/work"
+              },
+              "timeout_ms": 500,
+              "max_attempts": 2,
+              "backoff_ms": 20,
+              "retry_on": [
+                "5xx",
+                "timeout"
+              ],
+              "required": true
+            },
+            "second": {
+              "target": {
+                "service_id": "worker-b",
+                "method": "GET",
+                "route": "/work"
+              },
+              "timeout_ms": 500,
+              "max_attempts": 2,
+              "backoff_ms": 20,
+              "retry_on": [
+                "5xx",
+                "timeout"
+              ],
+              "required": false
+            }
+          },
+          "steps": [
+            {
+              "id": "parallel-work",
+              "parallel": [
+                "first",
+                "second"
+              ]
+            },
+            {
+              "id": "repeat-first",
+              "call": "first"
+            }
+          ]
+        }
+      }
+    },
+    "worker-a": {
+      "config_write": true,
+      "routes": {
+        "GET /work": {
+          "work": {
+            "kind": "fixed",
+            "delay_ms": 10
+          },
+          "response_status": 200,
+          "calls": {},
+          "steps": []
+        }
+      }
+    },
+    "worker-b": {
+      "config_write": true,
+      "routes": {
+        "GET /work": {
+          "work": {
+            "kind": "fixed",
+            "delay_ms": 10
+          },
+          "response_status": 503,
+          "calls": {},
+          "steps": []
+        }
+      }
+    }
+  }
+}

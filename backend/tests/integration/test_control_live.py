@@ -375,23 +375,12 @@ def test_timeouts_wait_for_downstream_spans(live):
     )
 
 
-def test_linear_generator_uses_only_local_targets(live):
+def test_trace_source_creation_is_rejected(live):
     base, _, stand_id = live
-    listed = value(requests.get(base + "/api/v1/traces?environment_id=shop"))
-    source = listed["items"][0]["trace_ref"]
-    stopped = value(requests.delete(f"{base}/api/v1/lab/stands/{stand_id}"))
-    assert len(stopped["services"]) == 9
-    repeated = value(requests.delete(f"{base}/api/v1/lab/stands/{stand_id}"))
-    assert repeated["stand_id"] == stopped["stand_id"]
-    assert value(requests.get(base + "/api/v1/lab/stands/active")) is None
-    generated = value(
-        requests.post(base + "/api/v1/lab/stands", json={"source": source}, timeout=30)
-    )
-    assert generated["source"] == source
-    assert len(generated["services"]) == 2
-    assert generated["origins"]
-    run = start_run(base, generated["stand_id"], count=1)
-    assert run["results"][0]["http_status"] == 200
+    value(requests.delete(f"{base}/api/v1/lab/stands/{stand_id}"))
+    rejected=requests.post(base+"/api/v1/lab/stands",json={"source":{"trace_id":"a"*32}})
+    assert rejected.status_code==400
+    assert rejected.json()['error']['code']=='unsupported_stand_source'
 
 
 def test_unmodified_application_with_language_launcher(live, tmp_path):

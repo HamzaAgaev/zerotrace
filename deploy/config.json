@@ -10,12 +10,13 @@
   "environments": [
     {
       "environment_id": "shop",
-      "name": "Магазин",
-      "kind": "external"
+      "name": "\u041c\u0430\u0433\u0430\u0437\u0438\u043d",
+      "kind": "external",
+      "lab_scenario_file": "/config/scenarios/checkout.json"
     },
     {
       "environment_id": "sandbox",
-      "name": "Лаборатория",
+      "name": "\u041b\u0430\u0431\u043e\u0440\u0430\u0442\u043e\u0440\u0438\u044f",
       "kind": "lab"
     }
   ],

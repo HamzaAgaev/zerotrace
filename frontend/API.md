@@ -14,7 +14,7 @@ GET services/environments возвращает `{items:[]}`; GET services/{id}/c
 
 История прогонов загружается через GET /api/v1/lab/runs. Сравнение выполняется POST /api/v1/comparisons с baseline_run_id и candidate_run_id после фиксации трасс; метрики показываются из фактических результатов C. Частичная выборка отображает received/expected.
 
-Сервер отводит на сборку checkout 20 секунд. Если браузер не получил ответ на создание, он перечитывает активный стенд и сравнивает полный source TraceRef с выбранной трассой. Стенд со статусом building ещё нельзя использовать. Повторное создание выполняется по явному действию пользователя после проверки состояния.
+Сервер отводит на сборку checkout 20 секунд. Если браузер не получил ответ на создание, он перечитывает активный стенд и сверяет request_id и selector сценария. Стенд со статусом building ещё нельзя использовать. Повторное создание выполняется по явному действию пользователя после проверки состояния.
 
 ## Общие правила
 
@@ -113,3 +113,14 @@ ChangePlan: plan_id,plan_hash,finding_id,target,expected_revision,expires_at,cha
 - Группы: только одна пара service/operation, непересекающиеся ids из загруженной выборки; медиана, p95, errors, unknown. Изменения структуры и причинность не вычисляются.
 
 Для серверного сравнения групп передайте две выборки TraceRef в `POST /api/v1/comparisons`. Форматы проекции, сравнения и отчётов описаны в [OpenAPI аналитики](../backend/app/analytics_api/openapi.json).
+
+## JSON-сценарии лаборатории
+
+Контракт validate/create, immutable snapshots и оба способа создания описаны в [руководстве](../docs/guides/lab-scenario.md). Environment содержит lab_scenario со статусом ready/invalid/unconfigured; серверные пути в API не публикуются. Загрузка файла проходит серверную проверку до создания процессов.
+
+### Граф сервисов
+`GET /api/v1/service-graph?environment_id=...&period_minutes=30` возвращает envelope `service-graph`: `nodes`, `edges`, `services`, `trace_count`, `missing_count`, `quality_count`, границы периода. Все сохранённые трейсы периода включены без выборки первой страницы. Длительности графа выражены в миллисекундах; `edges[].unpaired` — число вызовов без связанного серверного спана. Точное имя известного сервиса имеет один узел независимо от наличия пары в конкретном трейсе.
+
+`GET /api/v1/lab/runs/{run_id}/services` возвращает аудит трейсов теста:
+`analyzed_traces`, `missing_traces`, `findings` (обычные проблемы аудита с дополнительным полным массивом `trace_refs`), `rule_evaluations`.
+Используются точные ссылки из запуска и его `config_snapshots`. Поля `error_traces`/`retry_traces` заменены общей моделью проблем аудита.

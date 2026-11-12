@@ -440,3 +440,29 @@ def test_trace_audit_only_analyzes_exact_selected_trace(app, monkeypatch):
     assert all(row['trace_ref'] == refs[0] for row in result['trace_findings'])
     payload(client.get('/api/v1/audit', query_string={'environment_id': 'shop', 'view': 'full'}))
     assert len(seen[-1]) == 2
+
+
+def test_run_audit_uses_only_frozen_run_refs_and_all_rules(app, monkeypatch):
+    from app.analytics_api.facade import AnalyticsFacade
+    from app.control.run_services import service_results
+    refs=ingest(app, *[f'{i:032x}' for i in range(1,9)], method=b'POST')
+    facade=AnalyticsFacade(app.extensions['telemetry'], app.extensions['records'])
+    run=dict(environment_id='shop',config_snapshots={},trace_collection={'trace_refs':refs[:7]+[refs[0]]})
+    result=service_results(facade,run)
+    assert result['analyzed_traces']==7
+    assert result['missing_traces']==0
+    assert result['findings']
+    monkeypatch.setattr(app.extensions['lab'], 'get_run', lambda run_id: run)
+    response=payload(app.test_client().get('/api/v1/lab/runs/test/services'))
+    assert [(f['rule_id'], f['title'], f['trace_refs']) for f in response['findings']]==[(f['rule_id'], f['title'], f['trace_refs']) for f in result['findings']]
+    assert any(f['rule_id'] not in ('R0','R2') for f in result['findings'])
+    for finding in result['findings']:
+        assert all(ref in refs[:7] for ref in finding['trace_refs'])
+        assert len(finding['trace_refs'])==finding['affected_count']
+    assert any(len(f['trace_refs'])>5 for f in result['findings'])
+    empty=service_results(facade,dict(environment_id='shop',trace_collection={'trace_refs':[]}))
+    assert empty['findings']==[] and empty['analyzed_traces']==0
+    missing={**refs[0],'revision':999}
+    partial=service_results(facade,dict(environment_id='shop',trace_collection={'trace_refs':[missing,refs[1]]}))
+    assert partial['analyzed_traces']==1 and partial['missing_traces']==1
+    assert all(ref==refs[1] for f in partial['findings'] for ref in f['trace_refs'])

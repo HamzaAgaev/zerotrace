@@ -44,7 +44,7 @@ class BackendIntegrationTests(unittest.TestCase):
         retries = next(f for f in audit["findings"] if f["rule_id"] == "OBS_RETRIES")
         self.assertEqual(retries["exemplars"], [ref])
         self.assertEqual(audit["mode"], "trace_only")
-        self.assertEqual(audit["grouping_version"], "1.0.0")
+        self.assertEqual(audit["grouping_version"], "1.1.0")
         self.assertNotIn("R4", {f["rule_id"] for f in audit["findings"]})
         report = self.path.with_suffix(".json")
         cli("export", "sandbox", "--output", str(report))

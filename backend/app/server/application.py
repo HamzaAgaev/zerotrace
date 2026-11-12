@@ -44,7 +44,9 @@ def create_app(config: dict) -> Flask:
     mutation_lock = threading.RLock()
     from app.control.laboratory import Laboratory
 
-    lab = Laboratory(config, registry, telemetry, records, mutation_lock)
+    from app.control.scenarios import Scenarios
+    scenarios = Scenarios(config, registry, records)
+    lab = Laboratory(config, registry, telemetry, records, mutation_lock, scenarios)
 
     assembly_ticker = AssemblyTicker(
         telemetry,
@@ -159,7 +161,7 @@ def create_app(config: dict) -> Flask:
 
     @app.get("/api/v1/environments")
     def environments():
-        return jsonify(envelope({"items": registry.environments}, "environments"))
+        return jsonify(envelope({"items": scenarios.environments()}, "environments"))
 
     @app.get("/api/v1/capabilities")
     def capabilities():
@@ -265,6 +267,12 @@ def create_app(config: dict) -> Flask:
             raise ProductError(404, "operation_not_found", "Операция не найдена.")
         return jsonify(envelope(item, "operation"))
 
+    @app.post("/api/v1/lab/scenarios/validate")
+    def validate_lab_scenario():
+        if len(request.get_data()) > 1024 * 1024:
+            raise ProductError(413, "scenario_too_large", "Сценарий должен быть не больше 1 МБ.")
+        return jsonify(envelope(scenarios.validate(body()), "lab-scenario"))
+
     @app.post("/api/v1/lab/stands")
     def create_stand():
         return jsonify(envelope(lab.create(body()), "stand")), 201
@@ -288,6 +296,11 @@ def create_app(config: dict) -> Flask:
     def start_run(stand_id):
         return jsonify(envelope(lab.run(stand_id, body()), "run")), 202
 
+    @app.get("/api/v1/lab/runs/<run_id>/services")
+    def run_services(run_id):
+        from app.control.run_services import service_results
+        return jsonify(envelope(service_results(analytics, lab.get_run(run_id)), "run-services"))
+
     @app.get("/api/v1/lab/runs/<run_id>")
     def run(run_id):
         return jsonify(envelope(lab.get_run(run_id), "run"))
@@ -301,6 +314,17 @@ def create_app(config: dict) -> Flask:
             if not stand_id or item["stand_id"] == stand_id
         ]
         return jsonify(envelope({"items": items}, "runs"))
+
+    @app.get("/api/v1/service-graph")
+    def graph_over_period():
+        from app.analytics_api.service_graph import service_graph
+        env = environment()
+        try:
+            minutes = int(request.args.get('period_minutes', '30'))
+        except ValueError:
+            raise AnalyticsError('invalid_period', 'Недопустимый период.', 400)
+        with analytics.source.read() as view:
+            return jsonify(envelope(service_graph(view, env, minutes), 'service-graph'))
 
     @app.get("/api/v1/metrics")
     def metrics():

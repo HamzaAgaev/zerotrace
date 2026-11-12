@@ -1,30 +1,14 @@
 import type { Finding, Outcome, Route, Span, TraceDetail, TraceRef, TraceSummary } from './api/types.js';
 export const outcomeLabels = { ok: 'Успешно', error: 'С ошибкой', unknown: 'Неизвестно' } satisfies Record<Outcome, string>;
-export const serviceColors: Record<string, string> = { gateway: '#96a2ff', orders: '#65c9ba', payment: '#dbad6b', inventory: '#65c9ba', pricing: '#dbad6b', 'catalog-api': '#96a2ff' };
-const traceColorPalette = [
-  '#e795a8', '#75b8ff', '#d5adf3', '#a9c879', '#ef9d74', '#74cbdc',
-  '#d3c976', '#b3a4e9', '#86d79b', '#e698d3', '#b0a998', '#e6ba9d',
-];
-
+export const serviceColors: Record<string, string> = { gateway: '#96a2ff', orders: '#ef9d74', payment: '#dbad6b', inventory: '#65c9ba', pricing: '#74cbdc', delivery: '#75b8ff', fraud: '#d5adf3', 'bank-api': '#e795a8', notifications: '#a9c879', 'catalog-api': '#b3a4e9' };
+export function serviceColor(service: string): string {
+  if (Object.hasOwn(serviceColors, service)) return serviceColors[service];
+  let hash=2166136261;
+  for (const char of service) hash=Math.imul(hash^char.charCodeAt(0),16777619)>>>0;
+  return `hsl(${(hash % 36000)/100} ${60+(hash%13)}% ${65+(hash%8)}%)`;
+}
 export function traceServiceColors(services: readonly string[]): Map<string, string> {
-  const colors = new Map<string, string>();
-  const used = new Set<string>();
-  const ordered = [...new Set(services)].sort();
-  for (const service of ordered) {
-    const preferred = Object.hasOwn(serviceColors, service) ? serviceColors[service] : undefined;
-    if (preferred && !used.has(preferred)) {
-      colors.set(service, preferred);
-      used.add(preferred);
-    }
-  }
-  let next = 0;
-  for (const service of ordered) {
-    if (colors.has(service)) continue;
-    const color = traceColorPalette[next] ?? `hsl(${(next * 137.507764) % 360} 64% 67%)`;
-    colors.set(service, color);
-    next++;
-  }
-  return colors;
+  return new Map([...new Set(services)].map(service=>[service,serviceColor(service)]));
 }
 export function ms(value: string | null | undefined): number | null { if (value == null || !/^\d+$/.test(value)) return null; return Number(BigInt(value)) / 1e6; }
 export function duration(value: string | null | undefined): string { const n = ms(value); if (n === null) return 'Неизвестно'; return n >= 1000 ? `${(n / 1000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}\u00A0с` : `${n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}\u00A0мс`; }
@@ -61,6 +45,7 @@ export function readRoute(hash: string): Route {
   const [page, traceId] = path.split('/');
   if (page === 'services') return { page: new URLSearchParams(query).get('tab') === 'statistics' ? 'timings' : 'graph' };
   if (page === 'policies') return { page: 'graph' };
+  if (page === 'lab') return { page: 'lab', ...(new URLSearchParams(query).get('run') ? { runId: new URLSearchParams(query).get('run')! } : {}) };
   if (page === 'compare') return { page: 'traces' };
   if (['audit', 'journal', 'sources', 'graph', 'timings', 'lab'].includes(page)) {
     return { page: page as 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'lab' };

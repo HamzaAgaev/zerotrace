@@ -35,3 +35,22 @@ test('live rule search polls the same job and sends array filters intact',async(
   assert.equal(urls[1].searchParams.get('job_id'),'a'.repeat(32));
   assert.equal(urls[0].searchParams.get('rules'),urls[1].searchParams.get('rules'));
 });
+
+test('charts partition the selected period and histogram boundaries without losing requests',()=>{
+  const now=1_800_000_000_000_000_000n, cutoff=now-30n*60_000_000_000n;
+  const template=demoDetail(demoTraces[0].trace_id);
+  const root=template.spans.find(s=>s.parent_span_id===null)!;
+  const details=[0n,100_000_000n,300_000_000n,1_000_000_000n,3_000_000_000n].map((duration,i)=>({...template,
+    summary:{...template.summary,start_ns:String(i===0?cutoff:now)},
+    spans:[{...root,start_offset_ns:'0',duration_ns:String(duration),kind:'server' as const,outcome:'ok' as const}]}));
+  const data=calculatePeriodMetrics(details,30,now);
+  assert.equal(data.timeline!.length,12);
+  assert.equal(data.timeline![0].count,1);
+  assert.equal(data.timeline![11].count,4);
+  assert.equal(data.timeline!.reduce((n,p)=>n+p.count,0),5);
+  assert.equal(data.timeline![1].median_ns,null);
+  assert.equal(data.timeline![1].success_rate,null);
+  assert.deepEqual(data.summary.latency_histogram!.map(b=>b.count),[2,1,0,1,0,0,0,0,0,1]);
+  assert.deepEqual(data.endpoints[0].latency_histogram,data.summary.latency_histogram);
+  assert.equal(calculatePeriodMetrics(details,5,now).summary.count,4);
+});

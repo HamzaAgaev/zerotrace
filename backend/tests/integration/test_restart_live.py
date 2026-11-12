@@ -12,7 +12,7 @@ import requests
 from tests.integration.test_control_live import change, start_run, value, wait_until
 
 
-def test_restart_preserves_history_and_restores_explicitly_started_stand(tmp_path):
+def test_restart_preserves_history_and_new_stand_uses_original_json(tmp_path):
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -102,7 +102,8 @@ def test_restart_preserves_history_and_restores_explicitly_started_stand(tmp_pat
         route = next(
             item for item in snapshot["routes"] if item["route"] == "POST /charge"
         )
-        assert route["work"] == {"kind": "fixed", "delay_ms": 7}
+        original=json.loads(Path("stand/scenarios/checkout.json").read_text())
+        assert route["work"] == original["services"]["payment"]["routes"]["POST /charge"]["work"]
     finally:
         process.terminate()
         process.wait(timeout=20)

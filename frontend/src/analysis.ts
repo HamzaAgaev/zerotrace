@@ -15,20 +15,22 @@ export function unionLength(intervals: [number, number][]): number {
 }
 export interface ServiceStats { name: string; count: number; errors: number; unknown: number; median: number | null; p95: number | null; own: number; traceIds: string[] }
 interface Endpoint { id: string; name: string; external: boolean }
-export interface EdgeStats { id: string; caller: string; callee: string; from: Endpoint; to: Endpoint; count: number; errors: number; unknown: number; median: number | null; p95: number | null; traceIds: string[] }
+export interface EdgeStats { id: string; caller: string; callee: string; from: Endpoint; to: Endpoint; count: number; errors: number; unknown: number; median: number | null; p95: number | null; traceIds: string[]; unpaired?:number }
 const endpoint = (name: string, external = false): Endpoint => ({
   id: JSON.stringify([external ? 'external' : 'service', name]), name, external,
 });
 export function summarize(details: TraceDetail[]): { services: ServiceStats[]; edges: EdgeStats[]; nodes: Endpoint[] } {
   const services = new Map<string, { spans: Span[]; own: number; ids: Set<string> }>();
-  const edges = new Map<string, { from: Endpoint; to: Endpoint; spans: Span[]; ids: Set<string> }>();
-  const addEdge = (from: Endpoint, to: Endpoint, span: Span, traceId: string) => {
+  const edges = new Map<string, { from: Endpoint; to: Endpoint; spans: Span[]; ids: Set<string>; unpaired:number }>();
+  const addEdge = (from: Endpoint, to: Endpoint, span: Span, traceId: string, unpaired = false) => {
     const id = JSON.stringify([from.id, to.id]);
-    const group = edges.get(id) ?? { from, to, spans: [], ids: new Set<string>() };
+    const group = edges.get(id) ?? { from, to, spans: [], ids: new Set<string>(), unpaired:0 };
+    group.unpaired += Number(unpaired);
     group.spans.push(span);
     group.ids.add(traceId);
     edges.set(id, group);
   };
+  const known = new Set(details.flatMap(t=>t.spans.filter(s=>s.kind==='server'||s.kind==='client').map(s=>s.service)));
   for (const trace of details) {
     const map = new Map(trace.spans.map(s => [s.span_id,s]));
     const serverParents = new Set(trace.spans.filter(s => s.kind === 'server').map(s => s.parent_span_id));
@@ -45,14 +47,14 @@ export function summarize(details: TraceDetail[]): { services: ServiceStats[]; e
       if (span.kind === 'server' && parent && parent.service !== span.service) {
         addEdge(endpoint(parent.service), endpoint(span.service), parent.kind === 'client' ? parent : span, traceId);
       } else if (span.kind === 'client' && span.target && !serverParents.has(span.span_id)) {
-        addEdge(endpoint(span.service), endpoint(span.target, true), span, traceId);
+        addEdge(endpoint(span.service), endpoint(span.target, !known.has(span.target)), span, traceId, true);
       }
     }
   }
   const stats = (spans: Span[]) => ({ count: spans.length, errors: spans.filter(s => s.outcome === 'error').length, unknown: spans.filter(s => s.outcome === 'unknown').length, median: percentile(spans.map(s => numericMs(s.duration_ns)), .5), p95: percentile(spans.map(s => numericMs(s.duration_ns)), .95) });
   const serviceStats = [...services].map(([name,g]) => ({ name,...stats(g.spans), own:g.own,traceIds:[...g.ids] })).sort((a,b) => b.count-a.count || a.name.localeCompare(b.name));
   const edgeStats = [...edges].map(([id,g]) => ({
-    id, from:g.from, to:g.to, caller:g.from.name, callee:g.to.name, ...stats(g.spans), traceIds:[...g.ids],
+    id, from:g.from, to:g.to, caller:g.from.name, callee:g.to.name, ...stats(g.spans), unpaired:g.unpaired, traceIds:[...g.ids],
   }));
   const nodes = new Map(serviceStats.map(s => {
     const node = endpoint(s.name);

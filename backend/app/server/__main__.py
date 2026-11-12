@@ -19,6 +19,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
+    config["config_directory"] = str(Path(args.config).resolve().parent)
     config["server_port"] = args.port
     app = create_app(config)
     def shutdown():

@@ -1,7 +1,7 @@
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger';
 export type Outcome = 'ok' | 'error' | 'unknown';
 export type SourceMode = 'demo' | 'live';
-export type Route = { page: 'traces'; traceId?: string; traceRef?: TraceRef } | { page: 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'lab' };
+export type Route = { page: 'traces'; traceId?: string; traceRef?: TraceRef } | { page: 'audit' | 'journal' | 'sources' | 'graph' | 'timings' | 'lab'; runId?: string };
 export interface TraceRef { environment_id: string; trace_id: string; generation: number; revision: number }
 export interface TraceSummary {
   trace_ref: TraceRef;
@@ -48,7 +48,10 @@ export type SuccessRates = Record<(typeof successWindowsMinutes)[number], number
 export interface ListPayload { items: TraceSummary[]; total: number; services?: string[]; methods?: string[]; outcomes?: Record<Outcome, number>; success_rates?: SuccessRates }
 export interface Envelope<T> { schema: string; schema_version: string; generated_at: string; producer_version: string; payload: T }
 export interface Connection { mode: SourceMode; baseUrl: string; environmentId?: string }
-export interface Environment { environment_id: string; name: string; kind: 'external' | 'lab' }
+export type ScenarioSelector = {scenario_hash:string} | {environment_id:string} | {scenario_id:'checkout'};
+export interface ScenarioSnapshot {scenario_hash:string;scenario_id:string;scenario_revision:number;service_count:number;route_count:number;scenario:import('../labScenario.js').LabScenario}
+export interface ScenarioDescriptor {status:'ready'|'invalid'|'unconfigured';scenario_hash?:string;scenario_id?:string;error?:string}
+export interface Environment { lab_scenario?:ScenarioDescriptor; environment_id: string; name: string; kind: 'external' | 'lab' }
 export interface ManagedService { service_id: string; display_name: string; read_config: boolean; write_fields: string[]; is_lab: boolean }
 export interface CallConfig {
   call_ref: string;
@@ -81,8 +84,10 @@ export interface LabFault {
   failure_point: FaultPoint;
 }
 export interface LabService { service_id: string; display_name: string; revision: string; routes: { route: string; work: RouteWork; write_fields: string[]; boundaries: { boundary_id: string; label: string }[] }[]; calls?: CallConfig[] }
-export interface LabOrigin { service_id: string; field: string; source: 'observed' | 'default'; value_ms?: number; duration_ns?: string; attempts?: number; approximation?: string }
 export interface Stand {
+  scenario_hash?: string;
+  scenario_origin?: {kind:'uploaded'|'environment'|'builtin';source_environment_id?:string};
+  creation_request_id?: string;
   stand_id: string;
   status: 'building' | 'ready' | 'stopping' | 'stopped' | 'failed' | 'unavailable';
   scenario_id: string;
@@ -91,11 +96,12 @@ export interface Stand {
   config_revisions: Record<string, string>;
   services: LabService[];
   faults: LabFault[];
-  source?: TraceRef | null;
-  origins?: LabOrigin[];
 }
 export interface TraceCollection { status: 'waiting' | 'ready' | 'partial'; expected_count: number; received_count: number; trace_refs?: TraceRef[] }
+export interface RunRequestResult { index: number; http_status: number | null; error: string | null; duration_ns: string }
+export interface RunServices { analyzed_traces: number; missing_traces: number; findings: (Finding & { trace_refs: TraceRef[] })[]; rule_evaluations: AuditResult['rule_evaluations'] }
 export interface LabRun {
+  results?: RunRequestResult[];
   run_id: string;
   stand_id: string;
   status: 'running' | 'completed' | 'failed';
@@ -123,9 +129,12 @@ export interface RunComparison {
   baseline: ComparisonMetrics; candidate: ComparisonMetrics; attempts_per_input_delta: number | null;
   input_hash: string; warnings: string[];
 }
-export interface PeriodStats { count: number; errors: number; unknown: number; success_rate: number | null; median_ns: string | null; p95_ns: string | null; own_ns: string }
-export interface PeriodMetrics { period_minutes: number; start_ns: string; end_ns: string; summary: PeriodStats; services: (PeriodStats & { service: string })[]; endpoints: (PeriodStats & { service: string; endpoint: string })[] }
+export interface LatencyBucket {label:string;count:number;lower_ms:number;upper_ms:number}
+export interface PeriodStats { latency_histogram?: LatencyBucket[]; count: number; errors: number; unknown: number; success_rate: number | null; median_ns: string | null; p95_ns: string | null; own_ns: string }
+export interface PeriodMetrics { timeline?: (PeriodStats & {start_ns:string;end_ns:string})[]; period_minutes: number; start_ns: string; end_ns: string; summary: PeriodStats; services: (PeriodStats & { service: string })[]; endpoints: (PeriodStats & { service: string; endpoint: string })[] }
+export type ServiceGraphData = ReturnType<typeof import('../analysis.js').summarize> & {trace_count:number;missing_count:number;quality_count:number;quality_traces:{trace_ref:TraceRef;issues:string[]}[]};
 export interface Client {
+  getServiceGraph(minutes:number, signal?:AbortSignal):Promise<ServiceGraphData>;
   getMetrics(minutes: number, signal?: AbortSignal): Promise<PeriodMetrics>;
   listTraces(signal?: AbortSignal, query?: TraceQuery): Promise<ListPayload>;
   getTrace(id: string | TraceRef, signal?: AbortSignal, options?: { includeFindings?: boolean; includeSpanKind?: boolean }): Promise<TraceDetail>;
@@ -141,12 +150,13 @@ export interface Client {
   createManualPlan(intent: ManualChangeIntent, signal?: AbortSignal): Promise<ChangePlan>;
   applyPlan(planId: string, planHash: string, requestId: string, signal?: AbortSignal): Promise<ApplyResult>;
   getActiveStand(signal?: AbortSignal): Promise<Stand | null>;
-  createStand(scenarioId: 'checkout', signal?: AbortSignal): Promise<Stand>;
-  createStandFromTrace(source: TraceRef, signal?: AbortSignal): Promise<Stand>;
+  validateScenario(input:{scenario:import("../labScenario.js").LabScenario}|{environment_id:string}, signal?:AbortSignal):Promise<ScenarioSnapshot>;
+  createStand(scenario: ScenarioSelector, signal?: AbortSignal, requestId?: string): Promise<Stand>;
   stopStand(standId: string, signal?: AbortSignal): Promise<Stand>;
   setFault(standId: string, fault: LabFault, expectedFaultRevision: number, requestId: string, signal?: AbortSignal): Promise<Stand>;
   clearFault(standId: string, expectedFaultRevision: number, requestId: string, signal?: AbortSignal): Promise<Stand>;
   startRun(standId: string, request: { request_id: string; scenario_revision: number; expected_fault_revision: number; config_revisions: Record<string, string>; request_count: number; concurrency: number; seed?: number }, signal?: AbortSignal): Promise<LabRun>;
+  getRunServices(runId: string, signal?: AbortSignal): Promise<RunServices>;
   getRun(runId: string, signal?: AbortSignal): Promise<LabRun>;
   listRuns(signal?: AbortSignal): Promise<LabRun[]>;
   compareRuns(baselineRunId: string, candidateRunId: string, signal?: AbortSignal): Promise<RunComparison>;

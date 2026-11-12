@@ -44,7 +44,7 @@ class ControlStore:
                 self.connection.executemany(
                     "INSERT INTO control_records(kind,key,payload) VALUES(?,?,?) "
                     "ON CONFLICT(kind,key) DO UPDATE SET payload=excluded.payload "
-                    "WHERE control_records.kind <> 'analytics_snapshot'",
+                    "WHERE control_records.kind NOT IN ('analytics_snapshot', 'scenario')",
                     rows,
                 )
                 self.connection.execute("COMMIT")

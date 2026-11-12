@@ -27,6 +27,7 @@ services:
     ports:
       - '127.0.0.1:8000:8000'
     volumes:
+      - ./stand/scenarios:/config/scenarios:ro
       - product-data:/data
       - source-tokens:/tokens
     healthcheck:

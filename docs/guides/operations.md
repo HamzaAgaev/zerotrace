@@ -45,9 +45,10 @@ services:
 | Применение | `POST /api/v1/change-plans/{plan_id}/apply` → operation object, `202` |
 | Журнал | `GET /api/v1/journal?environment_id=shop` → массив операций; `GET /api/v1/journal/{operation_id}?environment_id=shop` → одна операция |
 | Активный стенд | `GET /api/v1/lab/stands/active` → объект или `payload: null` |
-| Создать checkout | `POST /api/v1/lab/stands` с `{"scenario_id":"checkout"}` |
+| Создать стенд | `POST /api/v1/lab/scenarios/validate` с `{"scenario": {…}}`, затем `POST /api/v1/lab/stands` с `{"scenario_hash":"полученный-hash", "request_id":"уникальный-id"}`; для привязанного файла используйте `{"environment_id":"shop"}`; формат в [lab-scenario.md](lab-scenario.md). Генерация по source/TraceRef отключена. |
 | Fault | `PUT /api/v1/lab/stands/{stand_id}/fault`; сброс — `DELETE` по тому же адресу |
 | Run | `POST /api/v1/lab/stands/{stand_id}/runs` |
+| Ошибки и повторы сервисов теста | `GET /api/v1/lab/runs/{run_id}/services` → analyzed_traces, missing_traces, services с error_traces/retry_traces (точные TraceRef) |
 | Run history | `GET /api/v1/lab/runs` → `payload.items` — массив; `GET /api/v1/lab/runs/{run_id}` → один объект |
 | Сравнение | `POST /api/v1/comparisons` принимает пару `baseline_run_id` и `candidate_run_id` либо пару списков `baseline_trace_refs` и `candidate_trace_refs` |
 

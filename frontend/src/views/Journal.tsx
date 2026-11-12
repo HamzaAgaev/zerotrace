@@ -1,14 +1,13 @@
 import { fieldLabel, journalStatusLabel, verificationLabel } from '../presentation';
 import { HttpTarget } from '../components/HttpText';
 import type { JournalEntry } from '../api/types';
-import { Badge, EmptyState, Panel, PageHeader, TableScroll } from '../components/ui';
+import { Badge, EmptyState, Panel, TableScroll } from '../components/ui';
 
 const statusTone = (status: JournalEntry['status']) =>
   status === 'applied' || status === 'no_op' ? 'success' : status === 'failed' || status === 'rejected' ? 'danger' : 'warning';
 
 export function Journal({ entries }: { entries: JournalEntry[] }) {
   return <>
-    <PageHeader title="Журнал изменений" detail={<p className="muted small-text">История применения настроек</p>} />
     <Panel>
       {entries.length ? <TableScroll>
         <table>
@@ -40,7 +39,7 @@ export function Journal({ entries }: { entries: JournalEntry[] }) {
           </tr>)}</tbody>
         </table>
       </TableScroll> : <EmptyState icon="journal" title="Изменений пока нет" description="Подтверждённые операции появятся здесь после применения плана."
-        action={<a className="button button--secondary" href="#/audit">Перейти к аудиту</a>} />}
+         />}
     </Panel>
   </>;
 }

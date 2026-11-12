@@ -42,7 +42,7 @@ export function RetryButton({ onClick }: Pick<ButtonHTMLAttributes<HTMLButtonEle
 }
 export function Badge({ children, tone = 'neutral', dot = false }: { children: ReactNode; tone?: Tone; dot?: boolean }) { return <span className={`badge badge--${tone}`}>{dot && <i/>}{children}</span>; }
 export function Panel({ title, meta, children, className = '' }: { title?: ReactNode; meta?: ReactNode; children: ReactNode; className?: string }) { return <section className={`panel ${className}`}>{title && <div className="panel-heading"><h2>{title}</h2>{meta}</div>}{children}</section>; }
-export function EmptyState({ title, description, action, icon = 'search' }: { title: string; description: string; action?: ReactNode; icon?: IconName }) { return <div className="empty-state"><div className="empty-icon"><Icon name={icon} size={24}/></div><h2>{title}</h2><p>{description}</p>{action}</div>; }
+export function EmptyState({ title, description, action, icon = 'search' }: { title: string; description: string; action?: ReactNode; icon?: IconName }) { return <div className="empty-state"><div className="empty-icon"><Icon name={icon} size={24}/></div><h2>{title}</h2>{description&&<p>{description}</p>}{action}</div>; }
 export function Message({ children, tone = 'neutral', action }: { children: ReactNode; tone?: 'neutral' | 'warning' | 'danger'; action?: ReactNode }) {
   return <div className={`message message--${tone}`} role={tone === 'danger' ? 'alert' : 'status'}>
     <Icon name="info" size={17}/>
@@ -59,13 +59,13 @@ export function PageHeader({ title, actions, context, detail, titleClassName }: 
   detail?: ReactNode;
   titleClassName?: string;
 }) {
-  return <header className="page-title">
-    <div>
-      {context && <div className="eyebrow">{context}</div>}
+  return <header className="page-header">
+    {context && <div className="page-header-context">{context}</div>}
+    <div className="page-title">
       <h1 className={titleClassName}>{title}</h1>
-      {detail}
+      {actions && <div className="page-actions">{actions}</div>}
     </div>
-    {actions && <div className="page-actions">{actions}</div>}
+    {detail}
   </header>;
 }
 
@@ -80,3 +80,5 @@ export function LoadingState({ children }: { children: ReactNode }) {
 export function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return <label className="ui-field"><span>{label}</span>{children}</label>;
 }
+
+export function BackLink({href,children}:{href:string;children:ReactNode}) { return <a href={href} className="button button--primary page-back"><Icon name="arrow" size={16} className="rotate"/>{children}</a>; }

@@ -1,13 +1,14 @@
+import { TraceTable } from '../components/TraceTable';
 import { usePersistentState } from '../state';
-import { HttpMethod, HttpStatus } from '../components/HttpText';
+import { HttpMethod } from '../components/HttpText';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { Client, ListPayload, TraceQuery } from '../api/types';
 import { PeriodSummary } from '../components/PeriodSummary';
 import { auditRuleIds, ruleName } from '../components/RuleLabel';
 import { Select } from '../components/Select';
-import { Badge, Button, EmptyState, Field, Icon, LoadingState, Message, PageHeader, Panel, TableScroll, RetryButton } from '../components/ui';
-import { duration, outcomeLabels, traceHref, traceRequest } from '../lib';
+import { Button, EmptyState, Field, Icon, LoadingState, Message, PageHeader, Panel, RetryButton } from '../components/ui';
+import { outcomeLabels, traceHref } from '../lib';
 import { formatCount } from '../presentation';
 
 type TracePage = {
@@ -15,7 +16,6 @@ type TracePage = {
   findings?: Map<string, number>;
 };
 const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every(v=>typeof v === 'string');
-const formatStart = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'medium' });
 
 function boundaryNs(value: string): string | undefined {
   if (!value) return undefined;
@@ -26,11 +26,6 @@ function boundaryNs(value: string): string | undefined {
   return (BigInt(ms) * 1_000_000n).toString();
 }
 
-function traceStart(value: string): string {
-  const ns = BigInt(value);
-  const date = new Date(Number(ns / 1_000_000n));
-  return ns === 0n || Number.isNaN(date.getTime()) ? 'Неизвестно' : formatStart.format(date);
-}
 
 export function TraceList({ client }: { client: Client }) {
   const [query, setQuery] = usePersistentState('views/TraceList.tsx:query', '');
@@ -190,38 +185,9 @@ export function TraceList({ client }: { client: Client }) {
         </Message>
       </div>}
 
-      <div aria-busy={busy}>
-        {busy && rows.length > 0 && <LoadingState>Обновляем результаты…</LoadingState>}
-        {rows.length > 0 && <TableScroll><table className="trace-table" aria-label="Трейсы">
-          <thead><tr>
-            <th scope="col" className="trace-method-column">Метод</th><th scope="col">Эндпоинт</th>
-            <th scope="col" className="trace-column-optional">Сервис</th><th scope="col" className="trace-result-column">Длитель&#173;ность</th>
-            <th scope="col" className="trace-result-column">Резуль&#173;тат</th><th scope="col" className="trace-column-optional">Проблемы</th><th scope="col" className="trace-column-optional">Время запуска</th>
-          </tr></thead>
-          <tbody>{rows.map(trace => {
-            const href = traceHref(trace.trace_ref);
-            const { method: requestMethod, endpoint } = traceRequest(trace);
-            const tone = trace.outcome === 'error' ? 'danger' : trace.outcome === 'ok' ? 'success' : 'neutral';
-            const findingCount = displayed?.findings?.get(href);
-            return <tr key={href} onClick={event => {
-              if (!(event.target as Element).closest('a') && !window.getSelection()?.toString()) window.location.href = href;
-            }}>
-              <td className="trace-method-column">{requestMethod
-                ? <HttpMethod method={requestMethod}/>
-                : <span className="quiet">—</span>}</td>
-              <td>
-                <a className="trace-operation" href={href} title={endpoint}><span className="trace-method-inline">{requestMethod}</span><span>{endpoint}</span></a>
-                <small className="trace-service-mobile">{trace.service}</small>
-                <small className="mono trace-id">{trace.trace_id}</small>
-              </td>
-              <td className="trace-column-optional">{trace.service}</td>
-              <td className="tabular">{duration(trace.duration_ns)}</td>
-              <td>{trace.http_status === null ? <Badge tone={tone}>{outcomeLabels[trace.outcome]}</Badge> : <HttpStatus code={trace.http_status}/>}</td>
-              <td className="trace-column-optional">{findingCount ? <Badge tone="warning">{findingCount}</Badge> : <span className="quiet" title={findingCount === undefined ? 'Нет данных аудита для этой версии трейса' : 'Аудит не обнаружил проблем'}>—</span>}</td>
-              <td className="trace-column-optional tabular muted">{traceStart(trace.start_ns)}</td>
-            </tr>;
-          })}</tbody>
-        </table></TableScroll>}
+      <div className="trace-results" aria-busy={busy}>
+        {busy && rows.length > 0 && <div className="trace-results-refresh" role="status"><span className="spinner" aria-hidden="true"/>Обновляем результаты…</div>}
+        {rows.length > 0 && <TraceTable rows={rows} findings={displayed?.findings}/>}
         {!rows.length && busy && <LoadingState>Загружаем трейсы…</LoadingState>}
         {!rows.length && !busy && !error && <EmptyState
           title={filtersActive ? 'Трейсы не найдены' : 'Пока нет трейсов'}

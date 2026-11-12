@@ -1,3 +1,4 @@
+import { qualityIssueLabel } from '../qualityIssues';
 import { CopyId } from '../components/CopyId';
 import { usePersistentState, usePersistentTab } from '../state';
 import { HttpMethod, HttpStatus, SpanOperation, httpCodeLabel } from '../components/HttpText';
@@ -6,7 +7,7 @@ import type { CSSProperties } from 'react';
 import type { AuditResult, Finding, TraceDetail as TraceDetailData } from '../api/types';
 import { Metrics } from '../components/Metrics';
 import { Tabs } from '../components/Tabs';
-import { Button, Icon, LoadingState, Message, Panel, PageHeader, RetryButton } from '../components/ui';
+import { BackLink, Button, Icon, LoadingState, Message, Panel, PageHeader, RetryButton } from '../components/ui';
 import { compactTimelineSpans, duration, findingsForTrace, ms, outcomeLabels, timelineRows, traceRequest, traceServiceColors } from '../lib';
 import { FindingCard } from './Audit';
 
@@ -14,13 +15,11 @@ const axisNumber = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const maxTimelineZoom = 8;
 
 export function BackToTraces() {
-  return <a href="#/traces" className="button button--primary trace-header-back">
-    <Icon name="arrow" size={16} className="rotate"/>К списку трейсов
-  </a>;
+  return <BackLink href="#/traces">К списку трейсов</BackLink>;
 }
 
 
-export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAudit, onPlan, pending, onExport, onBuild }: {
+export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAudit, onPlan, pending, onExport }: {
   trace: TraceDetailData;
   audit: AuditResult | null;
   auditLoading: boolean;
@@ -29,7 +28,6 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
   onPlan: (finding: Finding) => void;
   pending: boolean;
   onExport: () => void;
-  onBuild?: () => void;
 }) {
   const [tab, setTab] = usePersistentTab(`trace:${JSON.stringify(trace.trace_ref)}:tab`, 'timeline', ['timeline','audit']);
   const [selected, setSelected] = usePersistentState<string | undefined>(`trace:${JSON.stringify(trace.trace_ref)}:span`, undefined);
@@ -134,7 +132,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
         </div>
       </div>}
       actions={<><Button icon="download" onClick={onExport}>JSON-отчёт</Button>
-        {onBuild && <Button variant="primary" onClick={onBuild}>Собрать стенд</Button>}</>}/>
+        </>}/>
     <Metrics items={[
       { label: summary.http_status === null ? 'Результат' : httpCodeLabel,
         value: summary.http_status === null ? outcomeLabels[summary.outcome] : <HttpStatus code={summary.http_status}/>,
@@ -143,7 +141,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
       { label: 'Сервисы', value: services.length },
     ]}/>
 
-    {trace.quality_issues.map(issue => <Message tone="warning" key={issue}>{issue}</Message>)}
+    {trace.quality_issues.map(issue => <Message tone="warning" key={issue}>{qualityIssueLabel(issue)}</Message>)}
     <Tabs label="Разделы трейса" value={tab} onChange={setTab} fullWidth items={[
       { value: 'timeline', label: 'Выполнение', panelId: 'timeline-panel' },
       { value: 'audit', label: <>Аудит {findings.length > 0 && <span>{findings.length}</span>}</>, panelId: 'audit-panel' },
@@ -226,7 +224,7 @@ export function TraceDetail({ trace, audit, auditLoading, auditError, onRetryAud
     {tab === 'audit' && <div id="audit-panel" role="tabpanel" aria-labelledby="audit-panel-tab">
       {auditLoading ? <LoadingState>Загружаем аудит…</LoadingState>
         : auditError ? <Message tone="danger" action={<RetryButton onClick={onRetryAudit}/>}>{auditError}</Message>
-        : findings.length ? findings.map(finding => <FindingCard key={finding.occurrence_id} finding={finding} onPlan={onPlan} pending={pending}/>)
+        : findings.length ? <div className="audit-list">{findings.map(finding => <FindingCard key={finding.occurrence_id} finding={finding} onPlan={onPlan} pending={pending}/>)}</div>
         : <Panel><div className="inline-empty">
           <Icon name="audit"/>
           <h2>{traceAuditEmpty.title}</h2>

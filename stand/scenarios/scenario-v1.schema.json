@@ -1,0 +1,395 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,80}$"
+    },
+    "scenario_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "entrypoint": {
+      "type": "object",
+      "properties": {
+        "service_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "route": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "service_id",
+        "route"
+      ],
+      "additionalProperties": false
+    },
+    "services": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 32,
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/service"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "scenario_revision",
+    "entrypoint",
+    "services"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zerotrace.local/scenario-v1.schema.json",
+  "title": "ZeroTrace scenario v1",
+  "$defs": {
+    "work": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "fixed"
+            },
+            "delay_ms": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 3600000
+            }
+          },
+          "required": [
+            "kind",
+            "delay_ms"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "lognormal"
+            },
+            "p50_ms": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 3600000,
+              "exclusiveMinimum": 0
+            },
+            "p99_ms": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 3600000,
+              "exclusiveMinimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "p50_ms",
+            "p99_ms"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "call": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "object",
+          "properties": {
+            "service_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            },
+            "method": {
+              "enum": [
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "HEAD",
+                "OPTIONS"
+              ]
+            },
+            "route": {
+              "type": "string",
+              "pattern": "^/[^\\s?#]*$"
+            }
+          },
+          "required": [
+            "service_id",
+            "method",
+            "route"
+          ],
+          "additionalProperties": false
+        },
+        "timeout_ms": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600000,
+          "exclusiveMinimum": 0
+        },
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "backoff_ms": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600000
+        },
+        "retry_on": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(4xx|5xx|timeout|connect|[45][0-9]{2})$"
+          },
+          "minItems": 0,
+          "maxItems": 204
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "target",
+        "timeout_ms",
+        "max_attempts",
+        "backoff_ms",
+        "retry_on",
+        "required"
+      ],
+      "additionalProperties": false
+    },
+    "step": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "delay_ms": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 3600000
+            },
+            "offsets_ms": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3600000
+              }
+            },
+            "call": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "id",
+            "call"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "delay_ms": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 3600000
+            },
+            "offsets_ms": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 3600000
+              }
+            },
+            "parallel": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "maxItems": 64,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "id",
+            "parallel"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "route": {
+      "type": "object",
+      "properties": {
+        "work": {
+          "$ref": "#/$defs/work"
+        },
+        "calls": {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": {
+            "$ref": "#/$defs/call"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          },
+          "minItems": 0,
+          "maxItems": 256
+        },
+        "response_status": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 599
+        },
+        "tail_ms": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600000
+        },
+        "fault": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/fault"
+            }
+          ]
+        }
+      },
+      "required": [
+        "work",
+        "calls",
+        "steps",
+        "response_status"
+      ],
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "properties": {
+        "config_write": {
+          "type": "boolean"
+        },
+        "routes": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 256,
+          "propertyNames": {
+            "pattern": "^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) /[^\\s?#]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/route"
+          }
+        }
+      },
+      "required": [
+        "routes"
+      ],
+      "additionalProperties": false
+    },
+    "fault": {
+      "type": "object",
+      "properties": {
+        "error_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "http_status": {
+          "type": "integer",
+          "minimum": 400,
+          "maximum": 599
+        },
+        "delay_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000
+        },
+        "failure_point": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "const": "fixed"
+                },
+                "boundary_id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "mode",
+                "boundary_id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "const": "random"
+                },
+                "boundary_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1,
+                  "maxItems": 257,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "mode",
+                "boundary_ids"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "error_rate",
+        "http_status",
+        "delay_ms",
+        "failure_point"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

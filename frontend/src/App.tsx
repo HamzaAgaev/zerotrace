@@ -4,7 +4,7 @@ import { StateScope, usePersistentState } from './state';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadJson } from './analysis';
 import { isBudgetFinding } from './api/types';
-import { ApiError, createClient, createOrRecoverStand, normalizeBaseUrl } from './api/client';
+import { ApiError, createClient, normalizeBaseUrl } from './api/client';
 import type { AuditResult, Capabilities, ChangePlan, Connection, Finding, JournalEntry, TraceDetail as TraceData, TraceSummary } from './api/types';
 import { Badge, Button, Icon, Message, LoadingState, RetryButton } from './components/ui';
 import type { IconName } from './components/ui';
@@ -13,24 +13,24 @@ import { readRoute, serviceSurfaceForHash } from './lib';
 import { TraceList } from './views/TraceList';
 import { BackToTraces, TraceDetail } from './views/TraceDetail';
 import { Audit } from './views/Audit';
-import { Journal } from './views/Journal';
 import { ConnectionView } from './views/Connection';
 import { Services } from './views/Services';
 import { Lab } from './views/Lab';
+import { TestResults } from './views/TestResults';
 
 const nav: { id: 'traces' | 'audit' | 'journal' | 'sources' | 'graph' | 'lab'; label: string; icon: IconName }[] = [
   { id: 'traces', label: 'Трейсы', icon: 'traces' },
   { id: 'graph', label: 'Сервисы', icon: 'graph' },
   { id: 'audit', label: 'Аудит', icon: 'audit' },
-  { id: 'lab', label: 'Лаборатория', icon: 'compare' },
-  { id: 'journal', label: 'Журнал изменений', icon: 'journal' },
+  { id: 'lab', label: 'Тестовый стенд', icon: 'compare' },
   { id: 'sources', label: 'Настройки подключения', icon: 'plug' },
 ];
 const pageTitles: Record<string, string> = {
-  traces: 'Трейсы', graph: 'Сервисы', timings: 'Сервисы', audit: 'Аудит', lab: 'Лаборатория',
+  traces: 'Трейсы', graph: 'Сервисы', timings: 'Сервисы', audit: 'Аудит', lab: 'Тестовый стенд',
   journal: 'Журнал изменений', sources: 'Настройки подключения', policies: 'Сервисы',
 };
 function documentTitle(route: ReturnType<typeof readRoute>): string {
+  if (route.page === 'lab' && route.runId) return 'Результаты теста — ZeroTrace';
   if (route.page === 'traces' && route.traceId) return `Трейс ${route.traceId} — ZeroTrace`;
   return `${pageTitles[route.page] ?? 'Трейсы'} — ZeroTrace`;
 }
@@ -43,15 +43,14 @@ export default function App() {
 function ConnectedApp({ connection, setConnection }: { connection: Connection; setConnection: (value: Connection) => void }) {
   const [route, setRoute] = useState(() => readRoute(location.hash));
   const client = useMemo(() => createClient(connection), [connection]);
-  const [traces, setTraces] = useState<TraceSummary[]>([]); const [total, setTotal] = useState(0); const [audit, setAudit] = useState<AuditResult | null>(null); const [capabilities, setCapabilities] = useState<Capabilities | null>(null); const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [audit, setAudit] = useState<AuditResult | null>(null); const [capabilities, setCapabilities] = useState<Capabilities | null>(null); const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [trace, setTrace] = useState<TraceData | null>(null); const [busy, setBusy] = useState(true); const [traceBusy, setTraceBusy] = useState(false); const [error, setError] = useState(''); const [traceError, setTraceError] = useState(''); const [auditError, setAuditError] = useState(''); const [journalError, setJournalError] = useState(''); const [refreshKey, setRefreshKey] = useState(0);
   const [plan, setPlan] = useState<{ plan: ChangePlan; finding: Finding } | null>(null); const [planBusy, setPlanBusy] = useState(false); const [planError, setPlanError] = useState(''); const planRequest = useRef<AbortController | null>(null);
-  const [standBuildError, setStandBuildError] = useState('');
   const [auditBusy, setAuditBusy] = useState(true);
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
   const [membershipBusy, setMembershipBusy] = useState(false);
   const [journalBusy, setJournalBusy] = useState(true);
-  useEffect(() => { const update = () => setRoute(readRoute(location.hash)); window.addEventListener('hashchange', update); return () => window.removeEventListener('hashchange', update); }, []);
+  useEffect(() => { const update = () => { if(location.hash.split('?')[0] === '#/journal') { location.hash='#/audit?tab=history'; return; } setRoute(readRoute(location.hash)); }; update(); window.addEventListener('hashchange', update); return () => window.removeEventListener('hashchange', update); }, []);
   useEffect(() => { document.title = documentTitle(route); }, [route]);
   const selectedId = route.page === 'traces' ? route.traceId : undefined;
   const routeRef = route.page === 'traces' ? route.traceRef : undefined;
@@ -59,19 +58,16 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
   const loadedTraceRef = trace?.trace_ref;
   const auditTraceRef = selectedId ? (loadedTraceRef?.trace_id === selectedId ? loadedTraceRef : undefined) : undefined;
   const [savedServiceSurface] = usePersistentState<'graph'|'table'>('services:surface','graph');
-  const needsTraceSample = (route.page === 'graph' || route.page === 'timings') && serviceSurfaceForHash(location.hash,savedServiceSurface) === 'graph';
   const needsAudit = route.page === 'audit'
-    || needsTraceSample
+    || ((route.page === 'graph' || route.page === 'timings') && serviceSurfaceForHash(location.hash,savedServiceSurface) === 'graph')
     || (route.page === 'traces' && !!route.traceId);
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
-    setBusy(needsTraceSample);
+    setBusy(false);
     setJournalBusy(true);
     setError('');
     setJournalError('');
-    setTraces([]);
-    setTotal(0);
     setCapabilities(null);
     setJournal([]);
     setPlan(null);
@@ -90,16 +86,10 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
       }
     }
 
-    if (needsTraceSample) {
-      void load(client.listTraces(signal, { includeFindings: false }), list => {
-        setTraces(list.items);
-        setTotal(list.total);
-      }, setError, () => setBusy(false));
-    }
     void load(client.getCapabilities(signal), setCapabilities);
     void load(client.getJournal(signal), setJournal, setJournalError, () => setJournalBusy(false));
     return () => controller.abort();
-  }, [client, refreshKey, needsTraceSample]);
+  }, [client, refreshKey]);
   useEffect(() => {
     if (!needsAudit || (selectedId && !auditTraceRef)) {
       setAudit(null);
@@ -119,8 +109,7 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
     });
     return () => controller.abort();
   }, [client, refreshKey, auditRefreshKey, needsAudit, selectedId, auditTraceRef]);
-  const pageBusy = busy || (route.page === 'audit' && auditBusy)
-    || (route.page === 'journal' && journalBusy);
+  const pageBusy = busy;
   useEffect(() => { const controller = new AbortController(); setTrace(null); setTraceError(''); if (!selectedId) { setTraceBusy(false); return () => controller.abort(); } setTraceBusy(true);
     const { signal } = controller;
     setMembershipBusy(connection.mode === 'live');
@@ -164,15 +153,6 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
   useEffect(() => () => planRequest.current?.abort(), []);
   const refresh = useCallback(() => setRefreshKey(v => v + 1), []);
   const changeConnection = (value: Connection) => { setPlanError(''); setConnection(value); try { localStorage.setItem('zerotrace.connection', JSON.stringify(value)); } catch { /* Current connection still works if persistence is unavailable. */ } };
-  async function buildLabFromTrace(source: TraceData['trace_ref']) {
-    setStandBuildError('');
-    try {
-      await createOrRecoverStand(client, source);
-      location.hash = '#/lab';
-    } catch (cause) {
-      setStandBuildError(cause instanceof Error ? cause.message : 'Не удалось собрать стенд по трейсу.');
-    }
-  }
   function refreshStaleRecommendation() {
     setPlanError('Рекомендация устарела. Обновляем аудит. Откройте актуальный план, если он доступен.');
     refresh();
@@ -207,13 +187,12 @@ function ConnectedApp({ connection, setConnection }: { connection: Connection; s
       ...(connection.mode === 'demo' ? { limitations: ['Все значения взяты из демонстрационного набора.'] } : {}),
     }, { schema: 'zerotrace.frontend-report', producerVersion: 'frontend-0.2.0' });
   }
-  return <><RequestActivity/><ViewMemory route={location.hash}/><div className="app-shell"><a className="skip-link" href="#main-content">Перейти к содержимому</a><aside className="sidebar"><a className="brand" href="#/traces" aria-label="ZeroTrace — главная"><span className="brand-mark"><i/><i/><i/></span>ZeroTrace</a><nav aria-label="Основная навигация">{nav.filter(n=>['traces','graph','audit','lab'].includes(n.id)).map(n => <a key={n.id} href={n.id === 'graph' ? '#/services' : `#/${n.id}`} className={`nav-link ${(route.page === n.id || (n.id === 'graph' && route.page === 'timings')) ? 'is-active' : ''}`} aria-current={route.page === n.id ? 'page' : undefined}><Icon name={n.icon}/><span>{n.label}</span>{n.id === 'audit' && audit?.findings.length ? <small>{audit.findings.length}</small> : null}</a>)}</nav><details className="nav-more" key={route.page} open={['journal','sources'].includes(route.page)}><summary>Ещё <Icon name="chevron" size={13}/></summary><nav aria-label="Дополнительные разделы">{nav.filter(n=>['journal','sources'].includes(n.id)).map(n=><a key={n.id} href={n.id === 'graph' ? '#/services' : `#/${n.id}`} className={`nav-link ${route.page===n.id?'is-active':''}`} aria-current={route.page===n.id?'page':undefined}><Icon name={n.icon}/>{n.label}</a>)}</nav></details></aside><div className="main-shell"><main id="main-content" tabIndex={-1}>
+  return <><RequestActivity/><ViewMemory route={location.hash}/><div className="app-shell"><a className="skip-link" href="#main-content">Перейти к содержимому</a><aside className="sidebar"><a className="brand" href="#/traces" aria-label="ZeroTrace — главная"><span className="brand-mark"><i/><i/><i/></span>ZeroTrace</a><nav aria-label="Основная навигация">{nav.map(n => <a key={n.id} href={n.id === 'graph' ? '#/services' : `#/${n.id}`} className={`nav-link ${(route.page === n.id || (n.id === 'graph' && route.page === 'timings')) ? 'is-active' : ''}`} aria-current={route.page === n.id ? 'page' : undefined}><Icon name={n.icon}/><span>{n.label}</span>{n.id === 'audit' && audit?.findings.length ? <small>{audit.findings.length}</small> : null}</a>)}</nav></aside><div className="main-shell"><main id="main-content" tabIndex={-1}>
     {connection.mode === 'demo' && <Message>Демонстрационный режим. Данные и изменения сохраняются локально; реальные запросы к сервисам не выполняются.</Message>}
     {planError && <Message tone="danger" action={<Button variant="ghost" onClick={() => setPlanError('')} aria-label="Закрыть ошибку" icon="close"/>}>{planError}</Message>}
-    {standBuildError && <Message tone="danger">{standBuildError} <a href="#/lab">Открыть лабораторию</a></Message>}
-    {route.page === 'sources' ? <ConnectionView connection={connection} capabilities={capabilities} onChange={changeConnection}/> : route.page === 'lab' ? <Lab demo={connection.mode === 'demo'} client={client}/> : error ? <div className="connection-error"><Message tone="danger">{error}</Message><div className="error-actions"><RetryButton onClick={refresh}/><a className="button button--primary" href="#/sources">Настроить подключение</a></div><p className="muted">Демонстрационные данные не подставляются вместо ответа сервера.</p></div> : pageBusy ? <LoadingState>Загружаем данные…</LoadingState> : route.page === 'graph' || route.page === 'timings' ? <>{needsAudit&&auditError&&<Message tone="warning">Аудит недоступен: {auditError}. Проблемные связи могут быть показаны не полностью.</Message>}<Services client={client} environmentId={connection.environmentId || 'shop'} traces={traces} total={total} audit={audit} view={route.page} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/></> : route.page === 'audit' ? auditError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Аудит недоступен: {auditError}</Message> : <Audit audit={audit} onPlan={openPlan} pending={planBusy}/> : route.page === 'journal' ? journalError ? <Message tone="danger" action={<RetryButton onClick={refresh}/>}>Журнал недоступен: {journalError}</Message> : <Journal entries={journal}/> : selectedId ? traceError ? <Message tone="danger" action={<>
+    {route.page === 'sources' ? <ConnectionView connection={connection} capabilities={capabilities} onChange={changeConnection}/> : route.page === 'lab' ? (route.runId ? <TestResults key={connection.mode + connection.baseUrl + connection.environmentId + route.runId} client={client} runId={route.runId}/> : <Lab demo={connection.mode === 'demo'} client={client}/>) : error ? <div className="connection-error"><Message tone="danger">{error}</Message><div className="error-actions"><RetryButton onClick={refresh}/><a className="button button--primary" href="#/sources">Настроить подключение</a></div></div> : pageBusy ? <LoadingState>Загружаем данные…</LoadingState> : route.page === 'graph' || route.page === 'timings' ? <>{needsAudit&&auditError&&<Message tone="warning">Аудит недоступен: {auditError.trim().replace(/[.!?…]+$/, '')}. Проблемные связи могут быть показаны не полностью.</Message>}<Services client={client} environmentId={connection.environmentId || 'shop'} audit={audit} view={route.page} demo={connection.mode === 'demo'} onPlan={openPlan} pending={planBusy}/></> : route.page === 'audit' || route.page === 'journal' ? <Audit audit={audit} onPlan={openPlan} pending={planBusy} auditLoading={auditBusy} auditError={auditError} journal={journal} journalLoading={journalBusy} journalError={journalError} onRetry={refresh}/> : selectedId ? traceError ? <Message tone="danger" action={<>
       <RetryButton onClick={refresh}/>
       <BackToTraces/>
-    </>}>{traceError}</Message> : traceBusy || !trace ? <LoadingState>Открываем трейс…</LoadingState> : <TraceDetail key={`${trace.trace_ref.environment_id}-${trace.trace_ref.trace_id}-${trace.trace_ref.generation}-${trace.trace_ref.revision}`} trace={trace} audit={audit} auditLoading={!auditError && (auditBusy || membershipBusy)} auditError={auditError} onRetryAudit={() => setAuditRefreshKey(key => key + 1)} onPlan={openPlan} pending={planBusy} onExport={exportReport} onBuild={() => buildLabFromTrace(trace.trace_ref)}/> : <TraceList client={client}/>}
+    </>}>{traceError}</Message> : traceBusy || !trace ? <LoadingState>Открываем трейс…</LoadingState> : <TraceDetail key={`${trace.trace_ref.environment_id}-${trace.trace_ref.trace_id}-${trace.trace_ref.generation}-${trace.trace_ref.revision}`} trace={trace} audit={audit} auditLoading={!auditError && (auditBusy || membershipBusy)} auditError={auditError} onRetryAudit={() => setAuditRefreshKey(key => key + 1)} onPlan={openPlan} pending={planBusy} onExport={exportReport}/> : <TraceList client={client}/>}
   </main></div>{plan && <PlanDialog key={plan.plan.plan_id} plan={plan.plan} finding={plan.finding} showRuleInfo={!selectedId} demo={connection.mode === 'demo'} canApply={connection.mode === 'live' && connection.environmentId === 'sandbox' && plan.plan.apply_enabled} client={client} onApplied={refresh} onStaleRecommendation={refreshStaleRecommendation} onClose={() => setPlan(null)}/>}</div></>;
 }

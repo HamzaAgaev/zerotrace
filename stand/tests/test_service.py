@@ -184,7 +184,7 @@ def test_route_preserves_configured_success_status_after_204_child(tmp_path: Pat
         tmp_path / "state", "gateway", scenario["services"]["gateway"], False
     )
     runtime = ServiceRuntime(state, {})
-    runtime._run_group = lambda _calls, refs, _seed, _key, _offsets=None: {ref: 204 for ref in refs}
+    runtime._run_group = lambda _calls, refs, _seed, _key, _offsets=None, _route=None, _step=None: {ref: 204 for ref in refs}
 
     from flask import Flask
 

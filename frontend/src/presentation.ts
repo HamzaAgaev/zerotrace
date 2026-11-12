@@ -27,14 +27,14 @@ export const fieldLabels: Record<string, string> = {
   per_attempt_timeout_ms: 'Таймаут попытки, мс', timeout_ns: 'Таймаут попытки, нс',
   max_attempts: 'Всего попыток, включая первую', backoff_ms: 'Пауза между попытками, мс',
   retry_on: 'Условия повторного запроса', work: 'Время обработки запроса',
-  delay_ms: 'Время обработки запроса, мс', p50_ms: 'Медиана, мс', p99_ms: '99-й перцентиль, мс',
+  delay_ms: 'Время обработки запроса, мс', p50_ms: 'Обычное время (медиана), мс', p99_ms: 'Время для 99% запросов, мс',
 };
 
 export const fieldLabel = (name: string) => {
   if (fieldLabels[name]) return fieldLabels[name];
   if (name.endsWith('work.delay_ms')) return 'Время обработки запроса, мс';
   if (name.endsWith('work.p50_ms')) return 'Медиана времени обработки, мс';
-  if (name.endsWith('work.p99_ms')) return '99-й перцентиль времени обработки, мс';
+  if (name.endsWith('work.p99_ms')) return 'Время для 99% запросов, мс';
   if (name.endsWith('work.kind')) return 'Характер времени обработки';
   const short = name.split('.').at(-1) ?? name;
   return fieldLabels[short] ?? name;

@@ -17,15 +17,16 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
-from stand.scenario import load_scenario
+from stand.scenario import load_scenario, validate_scenario, ScenarioError
 
-from app.control.generator import from_trace
 from app.control.plans import digest, integer, timestamp
 from app.integrations.http_config import ProductError, read_config, remote_json
 
 
 class Laboratory:
-    def __init__(self, config, registry, telemetry, records, lock):
+    def __init__(self, config, registry, telemetry, records, lock, scenarios=None):
+        from app.control.scenarios import Scenarios
+        self.scenarios = scenarios or Scenarios(config, registry, records)
         self.config = config
         self.registry = registry
         self.telemetry = telemetry
@@ -80,35 +81,36 @@ class Laboratory:
 
     def create(self, body: dict) -> dict:
         with self.lock:
+            if "source" in body:
+                raise ProductError(400, "unsupported_stand_source", "Создание по трейсу отключено. Используйте JSON сценария.")
+            selectors = set(body) & {"scenario_hash", "environment_id", "scenario_id"}
+            if len(selectors)!=1 or set(body)-selectors-{"request_id"}:
+                raise ProductError(400, "invalid_scenario_selector", "Укажите один сценарий: scenario_hash, environment_id или scenario_id.")
+            if "scenario_hash" in body:
+                saved = self.scenarios.get(body["scenario_hash"])
+                origin = {"kind":"uploaded"}
+            elif "environment_id" in body:
+                saved = self.scenarios.environment(body["environment_id"])
+                origin = {"kind":"environment", "source_environment_id":body["environment_id"]}
+            elif body["scenario_id"] == "checkout":
+                raw = load_scenario(self.config.get("scenario_path", "stand/scenarios/checkout.json"))
+                for service in raw["services"].values():
+                    fault = service.pop("initial_fault", None)
+                    if fault:
+                        service["routes"][fault["route"]]["fault"] = {k:v for k,v in fault.items() if k!="route"}
+                saved = self.scenarios.save(raw)
+                origin = {"kind":"builtin"}
+            else:
+                raise ProductError(404, "scenario_not_found", "Встроенный сценарий не найден.")
             if self.stand:
                 raise ProductError(
                     409, "stand_already_active", "Стенд уже запущен.",
                     {"stand_id": self.stand["stand_id"]},
                 )
-            if body.get("source"):
-                scenario, origins = from_trace(self.telemetry, body["source"])
-            else:
-                scenario_id = body.get("scenario_id", "checkout")
-                if scenario_id != "checkout":
-                    raise ProductError(404, "scenario_not_found", "Неизвестный сценарий.")
-                scenario = load_scenario(
-                    self.config.get("scenario_path", "stand/scenarios/checkout.json")
-                )
-                origins = []
+            scenario = saved["scenario"]
             stand_id = "stand-" + uuid.uuid4().hex
             directory = self.directory / "stands" / stand_id
             directory.mkdir(parents=True)
-            previous = self.records.get("lab", "active")
-            restoring = bool(
-                previous
-                and previous.get("scenario_id") == scenario["scenario_id"]
-                and previous.get("source") == body.get("source")
-                and previous.get("service_registry")
-            )
-            if restoring:
-                # Each service owns its persisted settings. A new stand restores
-                # only an explicitly saved snapshot with matching operation IDs.
-                scenario = self._restore_scenario(scenario, previous.get("config_snapshots", {}))
             scenario_path = directory / "scenario.json"
             scenario_path.write_text(json.dumps(scenario, indent=2))
             ports = set()
@@ -140,19 +142,20 @@ class Laboratory:
                 self.registry.register_service(item)
                 self.registry.register_source("sandbox", name)
             self.stand = {
+                "creation_request_id": body.get("request_id"),
                 "stand_id": stand_id,
                 "scenario_id": scenario["scenario_id"],
                 "scenario_revision": scenario.get("scenario_revision", 1),
                 "environment_id": "sandbox",
                 "status": "building",
-                "fault_revision": previous.get("fault_revision", 0) if restoring else 0,
-                "faults": copy.deepcopy(previous.get("faults", [])) if restoring else [],
+                "fault_revision": 0,
+                "faults": [],
                 "config_revisions": {},
                 "entrypoint": scenario["entrypoint"],
                 "service_registry": services,
                 "scenario_path": str(scenario_path),
-                "origins": origins,
-                "source": body.get("source"),
+                "scenario_hash": saved["scenario_hash"],
+                "scenario_origin": origin,
                 "created_at": timestamp(),
                 "config_snapshots": {},
                 "active_run_id": None,
@@ -238,33 +241,20 @@ class Laboratory:
                     {"services": sorted(pending)},
                 )
             for name, definition in scenario["services"].items():
-                if definition.get("initial_fault") and not restoring:
-                    current = read_config(services[name])
-                    payload = {
-                        **definition["initial_fault"],
-                        "request_id": self._service_fault_request_id(stand_id, f"initial:{name}"),
-                        "expected_fault_revision": current.get("fault_revision", 0),
-                    }
-                    remote_json(services[name], "PUT", "/_chaos", payload)
-            if restoring:
-                for rule in self.stand["faults"]:
-                    payload = {key: value for key, value in rule.items() if key != "service_id"}
-                    service_id = rule["service_id"]
-                    current = read_config(services[service_id])
-                    payload.update(
-                        request_id=self._service_fault_request_id(
-                            stand_id, f"restore:{service_id}:{rule['route']}"
-                        ),
-                        expected_fault_revision=current.get("fault_revision", 0),
-                    )
-                    remote_json(services[service_id], "PUT", "/_chaos", payload)
+                for route_name, route in definition["routes"].items():
+                    if route.get("fault"):
+                        current = read_config(services[name])
+                        payload = {**route["fault"], "route":route_name,
+                            "request_id": self._service_fault_request_id(stand_id, f"initial:{name}:{route_name}"),
+                            "expected_fault_revision": current.get("fault_revision", 0)}
+                        remote_json(services[name], "PUT", "/_chaos", payload)
             self._probe(deadline)
             snapshots = self._snapshots()
             with self.lock:
                 if time.monotonic() >= deadline:
                     raise ProductError(503, "stand_build_timeout", "Истёк срок запуска стенда.")
                 self._sync_all_faults(snapshots, bump_revision=False)
-                if not restoring and self.stand["faults"]:
+                if self.stand["faults"]:
                     self.stand["fault_revision"] = 1
                 self.stand["config_snapshots"] = snapshots
                 self.stand["config_revisions"] = {
@@ -277,24 +267,6 @@ class Laboratory:
             with self.lock:
                 self._cleanup()
             raise
-
-    @staticmethod
-    def _restore_scenario(scenario: dict, snapshots: dict) -> dict:
-        result = copy.deepcopy(scenario)
-        for name, snapshot in snapshots.items():
-            if name not in result["services"]:
-                continue
-            definition = result["services"][name]
-            policies = {item["call_ref"]: item for item in snapshot.get("calls", [])}
-            work = {item["route"]: item["work"] for item in snapshot.get("routes", [])}
-            for route, settings in definition["routes"].items():
-                if route in work:
-                    settings["work"] = work[route]
-                for call_ref, call in settings.get("calls", {}).items():
-                    if call_ref in policies:
-                        for field in ("timeout_ms", "max_attempts", "backoff_ms", "retry_on"):
-                            call[field] = policies[call_ref][field]
-        return result
 
     def _snapshots(self, stand=None) -> dict:
         services = (stand or self.stand)["service_registry"]
@@ -611,6 +583,8 @@ class Laboratory:
                 "environment_id": "sandbox",
                 "scenario_id": self.stand["scenario_id"],
                 "scenario_revision": self.stand["scenario_revision"],
+                "scenario_hash": self.stand.get("scenario_hash"),
+                "scenario_origin": self.stand.get("scenario_origin"),
                 "fault_revision": self.stand["fault_revision"],
                 "config_revisions": revisions,
                 "config_snapshots": snapshots,

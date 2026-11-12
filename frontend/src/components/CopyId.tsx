@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from './ui';
 
-export function CopyId({ label, value }: { label: 'Trace ID' | 'Span ID'; value: string }) {
+export function CopyId({ label, value, href }: { href?: string; label: 'Trace ID' | 'Span ID' | 'Seed' | 'ID теста'; value: string }) {
   const [copiedAt, setCopiedAt] = useState<number>();
   const copied = copiedAt !== undefined;
 
@@ -21,7 +21,7 @@ export function CopyId({ label, value }: { label: 'Trace ID' | 'Span ID'; value:
   }
 
   return <span className="trace-copy-id">
-    <code className="mono">{value}</code>
+    {href ? <a className="mono trace-operation" href={href}>{value}</a> : <code className="mono">{value}</code>}
     <Button type="button" className="trace-copy-button" icon={copied ? 'check' : 'copy'}
       aria-label={`Скопировать ${label}`} title={copied ? 'Скопировано' : `Скопировать ${label}`}
       onClick={() => void copy()}/>

@@ -1,3 +1,4 @@
+import { latencyHistogram } from '../latencyHistogram.js';
 import type { PeriodMetrics, PeriodStats, TraceDetail } from './types.js';
 export const periods = [5, 30, 60, 180, 1440] as const;
 export const validPeriod = (value: unknown): value is number => typeof value === 'number' && (periods as readonly number[]).includes(value);
@@ -12,16 +13,19 @@ function stats(rows: Row[]): PeriodStats {
   };
   const ok = rows.filter(r=>r.outcome==='ok').length, errors = rows.filter(r=>r.outcome==='error').length;
   return {count:rows.length, errors, unknown:rows.length-ok-errors, success_rate:ok+errors ? ok/(ok+errors) : null,
-    median_ns:percentile(.5), p95_ns:percentile(.95), own_ns:rows.reduce((sum,r)=>sum+r.own,0n).toString()};
+    median_ns:percentile(.5), p95_ns:percentile(.95), own_ns:rows.reduce((sum,r)=>sum+r.own,0n).toString(),
+    latency_histogram:latencyHistogram(durations.map(d=>Number(d)/1e6))};
 }
 export function calculatePeriodMetrics(details: TraceDetail[], minutes: number, now = BigInt(Date.now())*1_000_000n): PeriodMetrics {
   const cutoff = now-BigInt(minutes)*60_000_000_000n;
   const within = (start: bigint) => start > 0n && start >= cutoff && start <= now;
+  const width=(now-cutoff)/12n, buckets:Row[][]=Array.from({length:12},()=>[]);
   const requests: Row[] = [], services = new Map<string,Row[]>(), endpoints = new Map<string,{service:string;endpoint:string;rows:Row[]}>();
   for (const detail of details) {
     const origin = BigInt(detail.summary.start_ns);
     const root = detail.spans.find(s=>s.parent_span_id===null);
-    if (within(origin + BigInt(root?.start_offset_ns ?? 0))) requests.push({duration:root ? BigInt(root.duration_ns) : null,own:0n,outcome:root?.outcome ?? 'unknown'});
+    const rootStart=origin+BigInt(root?.start_offset_ns??0);
+    if (within(rootStart)) {const row={duration:root ? BigInt(root.duration_ns) : null,own:0n,outcome:root?.outcome ?? 'unknown'};requests.push(row);buckets[Math.min(11,Number((rootStart-cutoff)/width))].push(row);}
     for (const span of detail.spans) {
       const start = BigInt(span.start_offset_ns), end = start+BigInt(span.duration_ns);
       if (span.kind !== 'server' || !within(origin+start)) continue;
@@ -35,6 +39,7 @@ export function calculatePeriodMetrics(details: TraceDetail[], minutes: number, 
     }
   }
   return {period_minutes:minutes,start_ns:cutoff.toString(),end_ns:now.toString(),summary:stats(requests),
+    timeline:buckets.map((rows,i)=>({start_ns:String(cutoff+BigInt(i)*width),end_ns:String(cutoff+BigInt(i+1)*width),...stats(rows)})),
     services:[...services].sort(([a],[b])=>a.localeCompare(b)).map(([service,rows])=>({service,...stats(rows)})),
     endpoints:[...endpoints.values()].map(({service,endpoint,rows})=>({service,endpoint,...stats(rows)}))};
 }

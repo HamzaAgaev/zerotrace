@@ -1,8 +1,9 @@
-import type { Client, Stand, LabRun, LabFault, TraceRef, ConfigSnapshot, ManualChangeIntent, ChangePlan, JournalEntry, ComparisonMetrics } from './types.js';
-import { demoDetail, demoTraces, labSourceTrace } from './fixtures.js';
+import { exampleScenario, checkoutScenario, parseScenario, type LabScenario } from '../labScenario.js';
+import type { Client, Stand, LabRun, LabFault, ConfigSnapshot, ManualChangeIntent, ChangePlan, JournalEntry, ComparisonMetrics, ScenarioSelector, ScenarioSnapshot } from './types.js';
+import { demoDetail, demoTraces } from './fixtures.js';
 
 type DemoRun = LabRun & { faults: LabFault[]; configs: Record<string, ConfigSnapshot> };
-interface State { externalConfigs?: Record<string, ConfigSnapshot>; stand: Stand | null; runs: DemoRun[]; configs: Record<string, ConfigSnapshot>; plans: Record<string, { plan: ChangePlan; intent: ManualChangeIntent }>; journal: JournalEntry[] }
+interface State { scenarios?:Record<string,ScenarioSnapshot>; externalConfigs?: Record<string, ConfigSnapshot>; stand: Stand | null; runs: DemoRun[]; configs: Record<string, ConfigSnapshot>; plans: Record<string, { plan: ChangePlan; intent: ManualChangeIntent }>; journal: JournalEntry[] }
 const storageKey = 'zerotrace.demo-lab.v2';
 const empty = (): State => ({ stand: null, runs: [], configs: {}, plans: {}, journal: [] });
 /** Same client contract as the server; only the data source is simulated. */
@@ -33,50 +34,65 @@ export function createDemoLab(storage?: Pick<Storage, 'getItem' | 'setItem'>) {
     save();
   }
   const configsFor = (environment = 'sandbox') => environment === 'sandbox' ? state.configs : state.externalConfigs!;
-  const build = async (source: TraceRef = labSourceTrace.trace_ref): Promise<Stand> => {
+  state.scenarios ??= {};
+  const validateScenario = async (input:{scenario:LabScenario}|{environment_id:string}):Promise<ScenarioSnapshot> => {
+    const scenario=parseScenario(JSON.stringify('scenario' in input?input.scenario:exampleScenario));
+    for(const service of Object.values(scenario.services)) {
+      service.config_write ??= true;
+      for(const route of Object.values(service.routes)) {
+        route.tail_ms ??= 0; route.fault ??= null;
+        for(const step of route.steps) {
+          step.delay_ms ??= 0;
+          step.offsets_ms = Object.fromEntries((step.parallel ?? [step.call!]).map(ref=>[ref,step.offsets_ms?.[ref] ?? 0]));
+        }
+      }
+    }
+    const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>[k,canonical(v)])):value;
+    const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(canonical(scenario))));
+    const scenario_hash=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+    const snapshot={scenario_hash,scenario_id:scenario.scenario_id,scenario_revision:scenario.scenario_revision,scenario,service_count:Object.keys(scenario.services).length,route_count:Object.values(scenario.services).reduce((n,s)=>n+Object.keys(s.routes).length,0)};
+    state.scenarios![scenario_hash]=snapshot;save();return copy(snapshot);
+  };
+  const build = async (selector: ScenarioSelector, _signal?:AbortSignal, requestId?:string): Promise<Stand> => {
     if (state.stand) throw new Error('Сначала остановите текущий стенд.');
-    const trace = demoDetail(source.trace_id);
-    if (trace.trace_ref.environment_id !== source.environment_id || trace.trace_ref.generation !== source.generation || trace.trace_ref.revision !== source.revision) throw new Error('Версия демонстрационного трейса не найдена.');
-    const services: Stand['services'] = [];
-    for (const span of trace.spans.filter(s => s.kind === 'server')) {
-      let service = services.find(s => s.service_id === span.service);
-      if (!service) { service = { service_id: span.service, display_name: span.service, revision: '1', routes: [] }; services.push(service); }
-      if (!service.routes.some(r => r.route === span.name)) service.routes.push({ route: span.name, work: { kind: 'fixed', delay_ms: Number(span.duration_ns) / 1e6 }, write_fields: ['work'], boundaries: [{ boundary_id: 'before-first', label: 'Перед обработкой запроса' }] });
-    }
+    const snapshot='scenario_hash' in selector?state.scenarios![selector.scenario_hash]:await validateScenario({scenario:'scenario_id' in selector?checkoutScenario:exampleScenario});
+    if(!snapshot)throw new Error('Сначала проверьте JSON сценария.');
+    const scenario=snapshot.scenario;
+    const services: Stand['services'] = Object.entries(scenario.services).map(([id,service])=>({
+      service_id:id,display_name:id,revision:'1',
+      routes:Object.entries(service.routes).map(([route,definition])=>({route,work:copy(definition.work),write_fields:['work'],boundaries:[{boundary_id:'before-first',label:'Перед обработкой запроса'},...definition.steps.map(step=>({boundary_id:`after-${step.id}`,label:`После шага ${step.id}`}))]})),
+      calls:Object.values(service.routes).flatMap(route=>Object.entries(route.calls).map(([call_ref,call])=>({...copy(call),call_ref,write_fields:['timeout_ms','max_attempts','backoff_ms','retry_on']}))).filter((call,index,all)=>all.findIndex(c=>c.call_ref===call.call_ref)===index),
+    }));
     state.plans = {};
-    state.configs = Object.fromEntries(services.map(s => [s.service_id, { schema_version: '1', service_id: s.service_id, revision: '1', routes: s.routes, calls: [] }]));
-    for (const span of trace.spans.filter(s => s.kind === 'server' && s.parent_span_id)) {
-      let parent = trace.spans.find(s => s.span_id === span.parent_span_id);
-      const seen = new Set<string>();
-      while (parent && parent.kind !== 'server' && !seen.has(parent.span_id)) { seen.add(parent.span_id); parent = trace.spans.find(s => s.span_id === parent!.parent_span_id); }
-      const config = parent && state.configs[parent.service];
-      const [method, ...path] = span.name.split(' ');
-      if (config && !config.calls.some(c => c.target.service_id === span.service && c.target.route === path.join(' '))) config.calls.push({ call_ref: span.span_id, target: { service_id: span.service, method, route: path.join(' ') }, timeout_ms: 1000, max_attempts: 3, backoff_ms: 50, retry_on: ['5xx', 'timeout'], write_fields: ['timeout_ms', 'max_attempts', 'backoff_ms', 'retry_on'] });
-    }
-    state.stand = { stand_id: `demo-${crypto.randomUUID()}`, status: 'ready', scenario_id: 'generated', scenario_revision: 1, fault_revision: 0, config_revisions: Object.fromEntries(services.map(s => [s.service_id, '1'])), services, faults: [], source };
-    save(); return copy(state.stand);
+    state.configs = Object.fromEntries(services.map(service=>[service.service_id,{schema_version:'1',service_id:service.service_id,revision:'1',routes:service.routes,calls:service.calls??[]}]));
+    state.stand = {scenario_hash:snapshot.scenario_hash,scenario_origin:'environment_id' in selector?{kind:'environment',source_environment_id:selector.environment_id}:{kind:'scenario_id' in selector?'builtin':'uploaded'},creation_request_id:requestId,stand_id:`demo-${crypto.randomUUID()}`,status:'ready',scenario_id:scenario.scenario_id,scenario_revision:scenario.scenario_revision,fault_revision:0,config_revisions:Object.fromEntries(services.map(s=>[s.service_id,'1'])),services,faults:Object.entries(scenario.services).flatMap(([service_id,service])=>Object.entries(service.routes).flatMap(([route,definition])=>definition.fault?[{service_id,route,...copy(definition.fault)}]:[]))};
+    save();return copy(state.stand);
   };
   const fault = async (id: string, value: LabFault | null, revision: number) => {
     const stand = current(id);
-    if (stand.fault_revision !== revision) throw new Error('Настройки изменились. Обновите лабораторию.');
+    if (stand.fault_revision !== revision) throw new Error('Настройки изменились. Обновите стенд.');
     if (value && !stand.services.some(s => s.service_id === value.service_id && s.routes.some(r => r.route === value.route))) throw new Error('Эндпоинт не найден.');
-    stand.faults = value ? [copy(value)] : []; stand.fault_revision++; save(); return copy(stand);
+    stand.faults = value ? [...stand.faults.filter(f=>f.service_id!==value.service_id||f.route!==value.route),copy(value)] : []; stand.fault_revision++; save(); return copy(stand);
   };
   const findRun = (id: string) => { const run = state.runs.find(r => r.run_id === id); if (!run) throw new Error('Тест не найден.'); return run; };
   const entry = async (id: string) => { const found = state.journal.find(e => e.operation_id === id); if (!found) throw new Error('Изменение не найдено.'); return copy(found); };
-  const api = {
-    getActiveStand: async () => copy(state.stand), createStand: async () => { await build(); state.stand!.scenario_id = 'checkout'; state.stand!.source = null; save(); return copy(state.stand!); }, createStandFromTrace: build,
+  const api = { validateScenario,
+    getActiveStand: async () => state.stand ? copy({...state.stand,services:state.stand.services.map(service=>({...service,revision:state.configs[service.service_id]?.revision??service.revision,calls:state.configs[service.service_id]?.calls??[],routes:(state.configs[service.service_id]?.routes??service.routes).map(r=>({...r,boundaries:r.boundaries??[]}))}))}) : null, createStand: build,
     stopStand: async (id: string) => { const result = copy(current(id)); result.status = 'stopped'; state.stand = null; save(); return result; },
     setFault: async (id: string, value: LabFault, revision: number) => fault(id, value, revision),
     clearFault: async (id: string, revision: number) => fault(id, null, revision),
     startRun: async (id: string, request: Parameters<Client['startRun']>[1]) => {
       const existing = state.runs.find(r => r.run_id === request.request_id); if (existing) return copy(existing);
       const stand = current(id);
-      if (request.scenario_revision !== stand.scenario_revision || request.expected_fault_revision !== stand.fault_revision || JSON.stringify(request.config_revisions) !== JSON.stringify(stand.config_revisions)) throw new Error('Настройки изменились. Обновите лабораторию.');
+      if (request.scenario_revision !== stand.scenario_revision || request.expected_fault_revision !== stand.fault_revision || JSON.stringify(request.config_revisions) !== JSON.stringify(stand.config_revisions)) throw new Error('Настройки изменились. Обновите стенд.');
       if (!Number.isInteger(request.request_count) || request.request_count < 1 || request.request_count > 1000 || !Number.isInteger(request.concurrency) || request.concurrency < 1 || request.concurrency > 32) throw new Error('Проверьте параметры нагрузки.');
       const run: DemoRun = { run_id: request.request_id, stand_id: id, status: 'completed', seed: request.seed ?? 1, scenario_revision: stand.scenario_revision, fault_revision: stand.fault_revision, config_revisions: copy(stand.config_revisions), request_count: request.request_count, concurrency: request.concurrency, completed_requests: request.request_count, started_at: new Date().toISOString(), finished_at: new Date().toISOString(), trace_collection: { status: 'ready', expected_count: request.request_count, received_count: request.request_count }, faults: copy(stand.faults), configs: copy(state.configs) };
+      const duration=Object.values(run.configs).flatMap(c=>c.routes).reduce((sum,r)=>sum+(r.work.kind==='fixed'?r.work.delay_ms:r.work.p50_ms),0);
+      const errorCount=Math.round(run.request_count*(run.faults[0]?.error_rate??0));
+      run.results=Array.from({length:run.request_count},(_,index)=>({index,http_status:index<errorCount?(run.faults[0]?.http_status??503):200,error:null,duration_ns:String(Math.round(Math.max(1,duration)*(0.8+(index%5)*0.1)*1e6))}));
       state.runs.unshift(run); save(); return copy(run);
     },
+    getRunServices: async (id: string) => { findRun(id); return {analyzed_traces:0,missing_traces:0,findings:[],rule_evaluations:[]}; },
     getRun: async (id: string) => copy(findRun(id)), listRuns: async () => copy(state.runs),
     getConfig: async (service: string, environment = 'sandbox') => { const config = configsFor(environment)[service]; if (!config) throw new Error('Настройки сервиса недоступны.'); return copy(config); },
     createManualPlan: async (intent: ManualChangeIntent): Promise<ChangePlan> => {

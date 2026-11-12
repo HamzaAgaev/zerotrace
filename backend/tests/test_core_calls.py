@@ -121,7 +121,7 @@ class TestFixtures:
     def test_grouping_version_propagated(self):
         model = derive_calls(load_trace("s00_healthy"), grouping_version="2.1.0")
         assert model.grouping_version == "2.1.0"
-        assert derive_calls(load_trace("s00_healthy")).grouping_version == "1.0.0"
+        assert derive_calls(load_trace("s00_healthy")).grouping_version == "1.1.0"
 
 
 class TestGrouping:
@@ -452,3 +452,17 @@ class TestServiceKeyEnrichment:
         first = derive_calls(graph, project_id="zerotrace-demo")
         second = derive_calls(graph, project_id="zerotrace-demo")
         assert first.attempts[0].edge_id == second.attempts[0].edge_id
+
+
+def test_explicit_logical_calls_separate_independent_repeated_operations():
+    root=make_span('a'*16,None,'server',BASE_NS,100*MS)
+    spans=[root]
+    for i,(logical,index,status) in enumerate([('first',1,503),('first',2,200),('second',1,200)]):
+        spans.append(make_span(str(i+1)*16,root.span_id,'client',BASE_NS+(i*20+1)*MS,10*MS,
+            http_status=status,logical_call_id=logical,attempt_index=index,resend_count=index-1,call_ref='same',target='payment'))
+    calls=derive_calls(make_graph(spans)).calls
+    assert [len(c.attempt_ids) for c in calls]==[2,1]
+    assert [c.hypothesis for c in calls]==['retry','single']
+    from dataclasses import replace
+    spans[-1]=replace(spans[-1],attempt_index=2)
+    assert derive_calls(make_graph(spans)).calls[-1].hypothesis=='ambiguous'

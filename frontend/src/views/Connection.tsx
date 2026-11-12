@@ -52,7 +52,7 @@ export function ConnectionView({ connection, capabilities, onChange }: { connect
       </Panel>
       <Panel title="Демонстрационный набор" meta={<Badge tone={connection.mode === 'demo' ? 'success' : 'neutral'}>{connection.mode === 'demo' ? 'Выбран' : 'Доступен'}</Badge>}>
         <div className="connection-form">
-          <p>Готовые примеры запросов, проблем и лабораторных экспериментов. Подключение к серверу не требуется.</p>
+          <p>Готовые примеры запросов, проблем и тестовых стендов. Подключение к серверу не требуется.</p>
           <Button onClick={() => {
             request.current?.abort();
             setTesting(false);

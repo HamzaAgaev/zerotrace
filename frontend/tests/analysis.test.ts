@@ -34,3 +34,13 @@ test('client-only calls show the target without inventing server timings', () =>
   assert.equal(paired.services.find(s => s.name === 'payment')?.median, 16);
 });
 test('legacy navigation opens the consolidated sections',()=>{assert.deepEqual(readRoute('#/policies?finding=x'),{page:'graph'});assert.deepEqual(readRoute('#/compare'),{page:'traces'});assert.deepEqual(readRoute('#/services?tab=statistics'),{page:'timings'});assert.deepEqual(readRoute('#/services?tab=graph'),{page:'graph'});});
+test('unpaired calls merge with a known service across traces without inventing processing errors',()=>{
+  const root={...span('root',null,0,100),service:'orders'};
+  const client={...span('call','root',1,20),kind:'client' as const,service:'orders',target:'payment',outcome:'error' as const};
+  const server={...span('payment','call',2,10),service:'payment'};
+  const result=summarize([tree([root,client]),tree([root,client,server])]);
+  assert.equal(result.nodes.filter(n=>n.name==='payment').length,1);
+  assert.equal(result.edges.length,1);assert.equal(result.edges[0].count,2);
+  assert.equal(result.edges[0].unpaired,1);
+  assert.equal(result.services.find(s=>s.name==='payment')?.errors,0);
+});

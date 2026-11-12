@@ -1,3 +1,4 @@
+import { LatencyHistogram } from './StatisticsCharts';
 import { usePersistentState } from '../state';
 import type { Client } from '../api/types';
 import { validPeriod } from '../api/periodMetrics';
@@ -27,12 +28,12 @@ export function ServiceStatistics({client,reload,onRetry}:{client:Client;reload:
           {endpoints.map(row=><option key={row.endpoint} value={row.endpoint}>{row.endpoint}</option>)}
         </Select></Field>
       </div>
-      {loading ? <LoadingState>Загружаем статистику…</LoadingState> : error ? <Message tone="danger" action={<RetryButton onClick={onRetry}/>}>{error}</Message> : !stats ? <EmptyState title="Нет операций за выбранный период" description="Выберите другой период или сервис."/> : <Metrics items={[
+      {loading ? <LoadingState>Загружаем статистику…</LoadingState> : error ? <Message tone="danger" action={<RetryButton onClick={onRetry}/>}>{error}</Message> : !stats ? <EmptyState title="Нет операций за выбранный период" description="Выберите другой период или сервис."/> : <><Metrics items={[
         {label:'Операции',value:stats.count},{label:'Медиана',value:stats.median_ns===null?'—':duration(stats.median_ns)},
         {label:'95-й перцентиль',value:stats.p95_ns===null?'—':duration(stats.p95_ns)},
         {label:'Ошибки',value:stats.errors},{label:'Результат неизвестен',value:stats.unknown},
         {label:'Время вне вложенных вызовов',value:duration(stats.own_ns)},
-      ]}/>}
+      ]}/><section className="service-latency"><h3>Распределение времени ответа</h3><p className="muted">{selection.endpoint || 'Все эндпоинты'}: полное время обработки запроса сервисом, включая вложенные вызовы.</p>{stats.latency_histogram?<LatencyHistogram buckets={stats.latency_histogram}/>:<p className="muted">Сервер не предоставил распределение времени.</p>}</section></>}
     </div>
   </Panel>;
 }

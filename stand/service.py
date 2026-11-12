@@ -424,7 +424,7 @@ class ServiceRuntime:
         for step in route.get("steps", []):
             time.sleep(step.get("delay_ms", 0) / 1000)
             call_refs = step.get("parallel") or [step["call"]]
-            results = self._run_group(route["calls"], call_refs, seed, request_key, step.get("offsets_ms", {}))
+            results = self._run_group(route["calls"], call_refs, seed, request_key, step.get("offsets_ms", {}), route_name, step["id"])
             mandatory = [
                 results[ref]
                 for ref in call_refs
@@ -438,13 +438,13 @@ class ServiceRuntime:
         time.sleep(route.get("tail_ms", 0) / 1000)
         return route.get("response_status", 200)
 
-    def _run_group(self, calls: dict[str, dict[str, Any]], call_refs: list[str], seed: str, request_key: str, offsets: dict[str, float] | None = None) -> dict[str, int]:
+    def _run_group(self, calls: dict[str, dict[str, Any]], call_refs: list[str], seed: str, request_key: str, offsets: dict[str, float] | None = None, route_name: str = "", step_id: str = "") -> dict[str, int]:
         started = time.monotonic()
         def invoke(ref):
             delay = (offsets or {}).get(ref, 0) / 1000 - (time.monotonic() - started)
             if delay > 0:
                 time.sleep(delay)
-            return self._call(calls[ref], ref, seed, request_key)
+            return self._call(calls[ref], ref, seed, request_key, route_name, step_id)
         if len(call_refs) == 1:
             ref = call_refs[0]
             return {ref: invoke(ref)}
@@ -456,17 +456,17 @@ class ServiceRuntime:
             }
             return {ref: future.result() for ref, future in futures.items()}
 
-    def _call(self, call: dict[str, Any], call_ref: str, seed: str, request_key: str) -> int:
+    def _call(self, call: dict[str, Any], call_ref: str, seed: str, request_key: str, route_name: str = "", step_id: str = "") -> int:
         target = call["target"]
         endpoint = self.endpoints.get(target["service_id"], f"http://{target['service_id']}:8080")
         url = endpoint.rstrip("/") + target["route"]
-        logical_group = call.get("observed_group", call_ref)
+        logical_group = f"{route_name}:{step_id}:{call_ref}"
         logical_call_id = hashlib.sha256(f"{request_key}:{self.state.service_id}:{logical_group}".encode()).hexdigest()[:24]
         attempts = call["max_attempts"]
         last_status = 502
         transport_reason: str | None = None
         for retry_index in range(1, attempts + 1):
-            index = call.get("observed_attempt", 1) + retry_index - 1
+            index = retry_index
             headers = {
                 "X-ZeroTrace-Seed": seed,
                 "X-ZeroTrace-Request-Key": request_key,
@@ -481,7 +481,7 @@ class ServiceRuntime:
                 if request.headers.get(source):
                     headers[target_header] = request.headers[source]
             parent_branch = request.headers.get("X-ZeroTrace-Branch-Path", "")
-            headers["X-ZeroTrace-Branch-Path"] = "/".join(filter(None, (parent_branch, f"{call_ref}#{index}")))
+            headers["X-ZeroTrace-Branch-Path"] = "/".join(filter(None, (parent_branch, f"{route_name}:{step_id}:{call_ref}#{index}")))
             metadata = {
                 "server.address": target["service_id"],
                 "http.request.method": target["method"],
@@ -511,8 +511,6 @@ class ServiceRuntime:
                 transport_reason = "request"
             finally:
                 _OUTBOUND_METADATA.reset(token)
-            if call.get("observed_status") is not None:
-                last_status = call["observed_status"]
             if 200 <= last_status < 300:
                 return last_status
             if retry_index == attempts or not self._retry_allowed(last_status, call["retry_on"], transport_reason):

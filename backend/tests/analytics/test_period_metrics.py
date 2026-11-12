@@ -86,3 +86,31 @@ def test_nested_service_search(app):
     assert result['total']==1
     assert result['items'][0]['service']=='orders'
     assert 'inventory' in result['services']
+
+
+def test_chart_buckets_and_latency_boundaries():
+    cutoff=NOW-30*60_000_000_000
+    entries=[]
+    for i,duration in enumerate([0,100_000_000,300_000_000,1_000_000_000,3_000_000_000]):
+        start=cutoff if i==0 else NOW
+        entries.append(trace_list_entry(TraceRef('shop',f'{i+1:032x}',1,1),[span('1',None,start,start+duration)]))
+    class View:
+        def trace_list_entries(self,env): return {e.trace_ref:e for e in entries}
+    result=period_metrics(View(),'shop',30,now=NOW)
+    assert len(result['timeline'])==12
+    assert result['timeline'][0]['count']==1
+    assert result['timeline'][-1]['count']==4
+    assert sum(p['count'] for p in result['timeline'])==5
+    assert result['timeline'][1]['median_ns'] is None
+    assert result['timeline'][1]['success_rate'] is None
+    assert [b['count'] for b in result['summary']['latency_histogram']]==[2,1,0,1,0,0,0,0,0,1]
+    assert result['endpoints'][0]['latency_histogram']==result['summary']['latency_histogram']
+
+def test_histogram_equal_bins_and_maximum():
+    from app.analytics_api.metrics import latency_histogram
+    bins = latency_histogram([0, 100_000_000, 1_301_000_000])
+    assert len(bins) == 10
+    assert bins[-1]['count'] == 1
+    assert bins[-1]['upper_ms'] == 1400
+    assert all(b['upper_ms'] - b['lower_ms'] == 140 for b in bins)
+    assert sum(b['count'] for b in bins) == 3

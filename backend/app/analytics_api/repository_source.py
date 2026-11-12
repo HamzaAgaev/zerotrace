@@ -195,6 +195,27 @@ class RepositoryView:
             raise AnalyticsError("stale_revision", "Requested trace revision unavailable", 409, ref)
         self._metas[environment] = [meta]
 
+    def restrict_audit_to_traces(self, environment_id, refs):
+        """Use only available exact revisions of a run, never their newer replacements."""
+        metas, missing, seen = [], 0, set()
+        for ref in refs:
+            environment, trace_id, generation, revision = ref_key(ref)
+            if environment != environment_id:
+                raise AnalyticsError("incompatible_environments", "Run contains another environment", 409)
+            key = ref_key(ref)
+            if key in seen:
+                continue
+            seen.add(key)
+            meta = self.span_store.resolve_trace(environment, trace_id, generation, revision)
+            if meta is None or meta.trace_ref.revision != revision:
+                missing += 1
+            else:
+                metas.append(meta)
+        self._metas[environment_id] = sorted(metas, key=lambda m: ref_key(m.trace_ref.to_dict()))
+        self._environments.pop(environment_id, None)
+        self._identities.pop(environment_id, None)
+        return len(metas), missing
+
     def _input_identity(self, environment_id):
         if environment_id not in self._identities:
             self._identities[environment_id] = [

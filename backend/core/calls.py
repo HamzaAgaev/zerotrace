@@ -26,7 +26,7 @@ from contracts import (
 )
 from contracts.p2 import Confidence, Hypothesis, Outcome
 
-DEFAULT_GROUPING_VERSION = "1.0.0"
+DEFAULT_GROUPING_VERSION = "1.1.0"
 OPERATION_NORMALIZATION_VERSION = "1.0.0"
 DEFAULT_PROJECT_ID = "default"
 
@@ -366,9 +366,9 @@ def _min_confidence(a: Confidence, b: Confidence) -> Confidence:
 
 
 def _group_drafts(drafts: list[_AttemptDraft]) -> list[list[_AttemptDraft]]:
-    groups: dict[tuple[str, str | None], list[_AttemptDraft]] = {}
+    groups: dict[tuple[str, str | None, str | None], list[_AttemptDraft]] = {}
     for draft in drafts:
-        groups.setdefault((draft.edge_id, draft.owner_span_id), []).append(draft)
+        groups.setdefault((draft.edge_id, draft.owner_span_id, draft.span.logical_call_id), []).append(draft)
     ordered = sorted(
         groups.values(),
         key=lambda g: (min(d.span.start_ns for d in g), min(d.span.span_id for d in g)),
@@ -379,6 +379,14 @@ def _group_drafts(drafts: list[_AttemptDraft]) -> list[list[_AttemptDraft]]:
 
 
 def _segment_group(group: list[_AttemptDraft]) -> list[_Segment]:
+    if group[0].span.logical_call_id:
+        indices = [d.span.attempt_index for d in group]
+        consistent = indices == list(range(1, len(group)+1)) and all(
+            d.span.resend_count is None or d.span.resend_count == i-1
+            for i,d in enumerate(group,1)
+        ) and len({d.span.call_ref for d in group}) == 1 and not _has_overlap(group)
+        return [_Segment(tuple(group), ("single" if len(group)==1 else "retry") if consistent else "ambiguous",
+                         "high" if consistent else "low", ("explicit_logical_call" if consistent else "conflicting_attempt_metadata",), tuple(_gaps(group)))]
     if len(group) == 1:
         return [_Segment((group[0],), "single", "high", ("single_attempt",), ())]
 
