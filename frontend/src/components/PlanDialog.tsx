@@ -1,4 +1,4 @@
-import { fieldLabel } from '../presentation';
+import { changeValue, timingText, fieldLabel } from '../presentation';
 import { HttpOperation } from './HttpText';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
@@ -120,8 +120,8 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
             <thead><tr><th scope="col">Параметр</th><th scope="col">Было</th><th scope="col">Станет</th></tr></thead>
             <tbody>{plan.changes.map((change, index) => <tr key={`${change.field}-${index}`}>
               <td>{fieldLabel(change.field)}</td>
-              <td className="muted">{change.before}</td>
-              <td className="proposed-value">{change.after}</td>
+              <td className="muted">{changeValue(change.field, change.before)}</td>
+              <td className="proposed-value">{changeValue(change.field, change.after)}</td>
             </tr>)}</tbody>
           </table>
         </TableScroll>
@@ -132,13 +132,13 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
         </dl>}
         {finding && <div className="plan-rationale">
           <h3>Почему это предлагается</h3>
-          <p>{finding.recommendation.why}</p>
+          <p>{timingText(finding.recommendation.why)}</p>
           {finding.recommendation.risks.length > 0 && <>
             <h3>Что проверить перед применением</h3>
-            <ul>{finding.recommendation.risks.map(risk => <li key={risk}>{risk}</li>)}</ul>
+            <ul>{finding.recommendation.risks.map(risk => <li key={risk}>{timingText(risk)}</li>)}</ul>
           </>}
         </div>}
-        {plan.warnings.map(warning => <p className="plan-warning" key={warning}>{warning}</p>)}
+        {plan.warnings.map(warning => <p className="plan-warning" key={warning}>{timingText(warning)}</p>)}
       </div>
       <footer>
         <span>{applyBlocked || (localOnly ? 'Изменения сохранятся только в браузере.' : 'Изменения будут применены на сервере.')}</span>

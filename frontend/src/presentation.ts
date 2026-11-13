@@ -23,8 +23,8 @@ export const verificationLabels: Record<string, string> = {
 };
 
 export const fieldLabels: Record<string, string> = {
-  timeout_ms: 'Таймаут попытки, мс', per_attempt_timeout_ns: 'Таймаут попытки, нс',
-  per_attempt_timeout_ms: 'Таймаут попытки, мс', timeout_ns: 'Таймаут попытки, нс',
+  timeout_ms: 'Таймаут попытки, мс', per_attempt_timeout_ns: 'Таймаут попытки, мс',
+  per_attempt_timeout_ms: 'Таймаут попытки, мс', timeout_ns: 'Таймаут попытки, мс',
   max_attempts: 'Всего попыток, включая первую', backoff_ms: 'Пауза между попытками, мс',
   retry_on: 'Условия повторного запроса', work: 'Время обработки запроса',
   delay_ms: 'Время обработки запроса, мс', p50_ms: 'Обычное время (медиана), мс', p99_ms: 'Время для 99% запросов, мс',
@@ -61,3 +61,27 @@ export const formatCount = (value: number | null | undefined) =>
   value === null || value === undefined || !Number.isFinite(value) ? '—' : counts.format(value);
 export const formatPercent = (value: number | null | undefined) =>
   value === null || value === undefined || !Number.isFinite(value) ? '—' : percentages.format(value);
+
+/** Exact display conversion; transport values and machine field names stay in ns. */
+export function nanosecondsAsMilliseconds(value: string): string {
+  const ns = BigInt(value);
+  const absolute = ns < 0n ? -ns : ns;
+  const fraction = (absolute % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '');
+  return `${ns < 0n ? '-' : ''}${counts.format(absolute / 1_000_000n)}${fraction ? `,${fraction}` : ''}`;
+}
+
+/** Also handles prose returned by older audit servers. */
+export function timingText(text: string): string {
+  return text.replace(/(?<![\p{L}\p{N}_.,])(-?\d(?:[\d \u00a0\u202f]*\d)?)\s*(?:нс|ns)(?![\p{L}\p{N}_])/gu,
+    (_, value: string) => `${nanosecondsAsMilliseconds(value.replace(/\s/g, ''))} мс`);
+}
+
+export function changeValue(field: string, value: string): string {
+  const key = field.split('.').at(-1);
+  if (key === 'per_attempt_timeout_ns' || key === 'timeout_ns') {
+    let raw = value.trim();
+    try { const parsed: unknown = JSON.parse(raw); if (typeof parsed === 'string') raw = parsed; } catch { /* Plain server value. */ }
+    if (/^-?\d+$/.test(raw)) return nanosecondsAsMilliseconds(raw);
+  }
+  return timingText(value);
+}

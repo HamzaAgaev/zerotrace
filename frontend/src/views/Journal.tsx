@@ -1,4 +1,4 @@
-import { fieldLabel, journalStatusLabel, verificationLabel } from '../presentation';
+import { changeValue, fieldLabel, journalStatusLabel, verificationLabel } from '../presentation';
 import { HttpTarget } from '../components/HttpText';
 import type { JournalEntry } from '../api/types';
 import { Badge, EmptyState, Panel, TableScroll } from '../components/ui';
@@ -23,7 +23,7 @@ export function Journal({ entries }: { entries: JournalEntry[] }) {
               <HttpTarget target={entry.target} />
               {entry.actual_changes.length > 0 ? <>
                 <ul className="journal-changes">{entry.actual_changes.map((change, index) => <li key={`${change.field}-${index}`}>
-                  <span title={change.field}>{fieldLabel(change.field)}</span>: <code>{change.before}</code> → <code>{change.after}</code>
+                  <span title={change.field}>{fieldLabel(change.field)}</span>: <code>{changeValue(change.field, change.before)}</code> → <code>{changeValue(change.field, change.after)}</code>
                 </li>)}</ul>
 
               </> : <small className="cell-note">Сервер не сообщил фактические изменения.</small>}

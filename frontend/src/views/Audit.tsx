@@ -1,3 +1,4 @@
+import { timingText } from '../presentation';
 import { Journal } from './Journal';
 import { usePersistentState, usePersistentTab } from '../state';
 import { ServiceCall } from '../components/HttpText';
@@ -18,10 +19,10 @@ const ruleStatusLabel = {
 
 export function FindingCard({ finding: f, onPlan, pending }: { finding: Finding; onPlan: (finding: Finding) => void; pending: boolean }) {
   const evidence = f.evidence;
-  const explanation = f.explanation.trim();
-  const why = f.recommendation.why.trim();
+  const explanation = timingText(f.explanation).trim();
+  const why = timingText(f.recommendation.why).trim();
   const [tab, setTab] = usePersistentState<'summary' | 'evidence' | 'traces'>(`finding:${f.occurrence_id}:tab`, 'summary');
-  const whyDiffers = why && why !== explanation && why !== f.recommendation.text;
+  const whyDiffers = why && why !== explanation && why !== timingText(f.recommendation.text);
   return <Panel className="finding-panel">
     <div className="finding-top">
       <div className="finding-label">
@@ -48,7 +49,7 @@ export function FindingCard({ finding: f, onPlan, pending }: { finding: Finding;
         <ReadOnlyBlock label="Решение">
           <ReadOnlyValue label="Что не так">{explanation || f.title}</ReadOnlyValue>
           <ReadOnlyValue label="На что влияет">{ruleImpact(f.rule_id)}</ReadOnlyValue>
-          <ReadOnlyValue label="Что изменить"><p>{f.recommendation.text}</p>{whyDiffers && <p>{why}</p>}</ReadOnlyValue>
+          <ReadOnlyValue label="Что изменить"><p>{timingText(f.recommendation.text)}</p>{whyDiffers && <p>{why}</p>}</ReadOnlyValue>
         </ReadOnlyBlock>
         {evidence.kind === 'retry_budget' && f.recommendation.can_prepare_plan !== false && <div className="recommendation-bottom">
           <Button variant="primary" icon="external" disabled={pending} onClick={() => onPlan(f)}>{pending ? 'Готовим план…' : 'Посмотреть план'}</Button>
@@ -69,7 +70,7 @@ export function FindingCard({ finding: f, onPlan, pending }: { finding: Finding;
         </div>}
         {f.recommendation.risks.length > 0 && <div>
           <h3>Что проверить перед изменением</h3>
-          <ul className="risk-list">{f.recommendation.risks.map(risk => <li key={risk}>{risk}</li>)}</ul>
+          <ul className="risk-list">{f.recommendation.risks.map(risk => <li key={risk}>{timingText(risk)}</li>)}</ul>
         </div>}
       </div> : <div className="example-links">
         {f.exemplars.map(ref => {
