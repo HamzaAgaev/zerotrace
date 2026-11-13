@@ -1,10 +1,10 @@
 import { fieldLabel } from '../presentation';
-import { HttpOperation, HttpTarget } from './HttpText';
+import { HttpOperation } from './HttpText';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import type { ChangePlan, Client, Finding, JournalEntry } from '../api/types';
 import { RuleLabel } from './RuleLabel';
-import { Badge, Button, Message, TableScroll } from './ui';
+import { Button, Message, TableScroll } from './ui';
 
 function targetParts(target: string) {
   const index = target.indexOf(' / ');
@@ -32,7 +32,7 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
   const [error, setError] = useState('');
   const { service, operation } = targetParts(plan.target);
   const applyBlocked = demo
-    ? 'Это демонстрационный план. Для применения подключите сервер.'
+    ? 'Демонстрационный план · только просмотр'
     : !canApply
       ? 'Применение недоступно: подключите сервер и выберите окружение sandbox.'
       : !plan.apply_enabled
@@ -104,17 +104,16 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
     <div className="dialog-content">
       <header>
         <div>
+          <h2 id={titleId} tabIndex={-1} autoFocus>План изменения настроек</h2>
           {finding && <div className="eyebrow"><RuleLabel id={finding.rule_id} version={finding.rule_version} showInfo={showRuleInfo} /></div>}
-          <h2 id={titleId}>План изменения настроек</h2>
         </div>
-        <Button variant="ghost" aria-label="Закрыть план" icon="close" onClick={close} disabled={busy} />
       </header>
       <div className="dialog-body">
         {error && <Message tone="warning">{error}</Message>}
         <div className="plan-target">
           <div><span>Сервис</span><strong>{service || 'Не указан'}</strong></div>
           <div><span>Вызов</span><strong><HttpOperation operation={operation} /></strong></div>
-          <Badge tone="accent">Версия настроек {plan.expected_revision}</Badge>
+
         </div>
         <TableScroll className="plan-table">
           <table>
@@ -126,10 +125,11 @@ export function PlanDialog({ plan, finding, demo = false, localOnly = false, can
             </tr>)}</tbody>
           </table>
         </TableScroll>
-        <dl className="context-values">
+        {(!demo || plan.environment_id) && <dl className="plan-metadata">
+          {!demo && <div><dt>Версия настроек</dt><dd>{plan.expected_revision}</dd></div>}
           {plan.environment_id && <div><dt>Окружение</dt><dd>{plan.environment_id}</dd></div>}
-          <div><dt>Действует до</dt><dd>{new Date(plan.expires_at).toLocaleString('ru-RU')}</dd></div>
-        </dl>
+          {!demo && <div><dt>Действует до</dt><dd>{new Date(plan.expires_at).toLocaleString('ru-RU')}</dd></div>}
+        </dl>}
         {finding && <div className="plan-rationale">
           <h3>Почему это предлагается</h3>
           <p>{finding.recommendation.why}</p>

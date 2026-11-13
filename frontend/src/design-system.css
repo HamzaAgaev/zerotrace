@@ -115,3 +115,31 @@ body :is(.technical-grid,.context-values,.connection-details) dd { font-size: va
 /* The product homepage has its own full-width layout outside the app shell. */
 main.landing-page { width: 100%; max-width: 1320px; margin: 0 auto; padding: 40px 32px 64px; }
 @media(max-width:760px) { main.landing-page { padding: 20px 16px 40px; } }
+
+/* Plan review: one close action and consistent information hierarchy. */
+body .plan-dialog { width:min(680px,calc(100vw - 24px)); border-radius:16px; }
+.plan-dialog .dialog-content>header { padding:22px 24px 18px; }
+.plan-dialog header h2 { margin:0; font-size:20px; line-height:1.35; outline:none; }
+.plan-dialog header .eyebrow { margin-top:8px; color:var(--muted); }
+.plan-dialog .dialog-body { padding:20px 24px 24px; }
+.plan-dialog .plan-target { display:grid; grid-template-columns:1fr 1fr; margin:0 0 18px; gap:16px; }
+.plan-dialog .plan-target>div { min-width:0; }
+.plan-dialog .plan-target strong { font-size:15px; overflow-wrap:anywhere; }
+.plan-dialog .plan-table { border-radius:10px; }
+.plan-dialog .plan-table :is(th,td) { padding:12px 14px; font-size:14px; }
+.plan-dialog .plan-table th:first-child { width:52%; }
+.plan-dialog .plan-rationale h3 { margin:20px 0 8px; font-size:15px; line-height:1.5; }
+.plan-dialog .plan-rationale :is(p,li) { font-size:14px; line-height:1.65; color:var(--muted); }
+.plan-dialog .plan-rationale ul { margin-bottom:0; padding-left:20px; }
+.plan-dialog .plan-metadata { margin-top:16px; padding-top:14px; gap:12px 24px; }
+.plan-dialog .dialog-content>footer { position:sticky; bottom:0; padding:14px 24px; gap:16px; background:var(--surface); }
+.plan-dialog footer>span { flex:1; font-size:12px; line-height:1.5; }
+.plan-dialog footer .page-actions { width:auto; flex:none; gap:8px; }
+.plan-dialog footer .page-actions>.button { flex:none; min-width:96px; }
+@media(max-width:520px) {
+ .plan-dialog .dialog-content>header,.plan-dialog .dialog-body { padding:18px 16px; }
+ .plan-dialog .dialog-content>footer { padding:12px 16px; }
+ .plan-dialog footer .page-actions { align-self:flex-end; }
+ .plan-dialog .plan-target { gap:12px; }
+ .plan-dialog .plan-table :is(th,td) { padding:10px 8px; font-size:13px; }
+}
