@@ -8,7 +8,25 @@ ZeroTrace собирает HTTP-трассы через OpenTelemetry, пока�
 Для экспериментов предусмотрена лаборатория с реальными HTTP-сервисами:
 задержки, ошибки, повторяемая нагрузка и подробные результаты прогонов.
 
-## Запуск
+## Материалы защиты
+
+- [Презентация проекта (PPTX, Google Диск)](https://drive.google.com/file/d/1Cy9y-oErfIFp2AbAUfgGMXFvi-_AjzzJ/view).
+- [Демонстрационный ролик (MP4, Google Диск)](https://drive.google.com/file/d/1gR5tHT2jEv8yOsSUNV0L7c2V8PA5u8UQ/view).
+- [Описание проекта и команды на CS Unicorns Wiki](https://cs-uni.ru/index.php?title=ZeroTrace).
+
+## Сборка и запуск
+
+Требуются Git и Docker с Docker Compose v2 (например, Docker Desktop).
+Docker должен быть запущен; порт `8000` — свободен. При первой сборке
+нужен доступ к интернету для загрузки базовых образов и зависимостей.
+Node.js и Python на хосте устанавливать не требуется.
+
+```sh
+git clone https://github.com/HamzaAgaev/zerotrace.git
+cd zerotrace
+```
+
+Соберите образы и запустите приложение из корня репозитория:
 
 ```sh
 docker compose up --build
@@ -20,6 +38,11 @@ docker compose up --build
 ```sh
 docker compose --profile demo up --build
 ```
+
+Проверка состояния: `docker compose ps`; проверка API:
+`curl --fail http://127.0.0.1:8000/healthz`.
+Остановка с сохранением данных: `docker compose --profile demo down`.
+Данные приложения сохраняются в Docker volume `product-data`.
 
 Лаборатория создаётся из интерфейса. Готовый checkout поддерживает
 последовательные и параллельные вызовы; генератор из выбранной трассы
